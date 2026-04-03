@@ -367,7 +367,10 @@ class HardeningTests(unittest.TestCase):
             fake_home = Path(tmpdir) / "home"
             fake_home.mkdir()
             resolved = resolve_state_root(code_root=fake_code_root, env_override=None, home_dir=fake_home)
-            self.assertEqual(resolved, fake_home / ".pexo")
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(resolved))),
+                os.path.normcase(os.path.realpath(str(fake_home / ".pexo"))),
+            )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             override = Path(tmpdir) / "custom-pexo-home"
