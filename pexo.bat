@@ -38,6 +38,6 @@ if "%~1"=="--mcp" (
     python -c "from app.database import init_db; init_db(); from app.mcp_server import start_mcp_server; start_mcp_server()"
 ) else (
     echo Starting Pexo API...
-    python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+    python -m uvicorn app.main:app --host 127.0.0.1 --port 9999 --workers 1
     pause
 )

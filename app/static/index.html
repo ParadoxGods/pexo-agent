@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pexo Control Panel</title>
+    <title>Pexo Admin Terminal</title>
     <style>
         :root {
-            --bg: #0a0a0a;
-            --surface: #111111;
-            --border: #222222;
-            --text: #e0e0e0;
-            --accent: #00ff88;
-            --accent-hover: #00cc6a;
-            --danger: #ff4444;
+            --bg: #050505;
+            --surface: #0a0a0a;
+            --border: #333333;
+            --text: #00ff00;
+            --text-muted: #aaaaaa;
+            --accent: #00ff00;
+            --accent-hover: #00cc00;
+            --danger: #ff0033;
         }
         body {
             background-color: var(--bg);
@@ -22,34 +23,55 @@
             padding: 0;
             line-height: 1.6;
         }
-        .container { max-width: 1000px; margin: 0 auto; padding: 2rem; }
-        .header { text-align: center; margin-bottom: 3rem; border-bottom: 1px solid var(--border); padding-bottom: 2rem; }
-        .ascii-logo { color: var(--accent); white-space: pre; font-size: 1.2rem; font-weight: bold; margin-bottom: 1rem; }
-        .warning { background: #331111; border: 1px solid var(--danger); padding: 1rem; text-align: center; font-size: 0.9rem; margin-bottom: 2rem; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .header { text-align: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+        .ascii-logo { color: var(--accent); white-space: pre; font-size: 1.2rem; font-weight: bold; margin-bottom: 1rem; line-height: 1.1; }
         
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
-        .card { background: var(--surface); border: 1px solid var(--border); padding: 1.5rem; border-radius: 4px; }
-        .card h2 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; color: var(--accent); font-size: 1.2rem; }
+        .wizard, .auth-screen { display: none; background: var(--surface); border: 1px solid var(--border); padding: 2rem; margin-top: 2rem; }
+        .wizard.active, .auth-screen.active, .dashboard.active { display: block; }
+        .dashboard { display: none; }
+        
+        .step { display: none; }
+        .step.active { display: block; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem; }
+        .card { background: var(--surface); border: 1px solid var(--border); padding: 1.5rem; }
+        .card h2 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; font-size: 1.2rem; text-transform: uppercase; }
         
         input, select, textarea { 
             width: 100%; padding: 0.5rem; margin-bottom: 1rem; 
-            background: var(--bg); border: 1px solid var(--border); color: var(--text);
-            font-family: inherit; box-sizing: border-box;
+            background: #000; border: 1px solid var(--border); color: var(--accent);
+            font-family: inherit; box-sizing: border-box; border-radius: 0; outline: none;
         }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+        
         button {
-            background: var(--accent); color: #000; border: none; padding: 0.5rem 1rem; 
-            font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 2px;
+            background: #000; color: var(--accent); border: 1px solid var(--accent); 
+            padding: 0.5rem 1rem; font-family: inherit; font-weight: bold; cursor: pointer; 
+            border-radius: 0; text-transform: uppercase;
         }
-        button:hover { background: var(--accent-hover); }
-        button.danger { background: var(--danger); color: #fff; }
+        button:hover { background: var(--accent); color: #000; }
+        button.danger { border-color: var(--danger); color: var(--danger); }
+        button.danger:hover { background: var(--danger); color: #000; }
         
         .agent-list, .tool-list { list-style: none; padding: 0; margin: 0; }
         .agent-list li, .tool-list li { padding: 0.5rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; }
         
-        #memory-results pre { background: var(--bg); padding: 1rem; overflow-x: auto; font-size: 0.85rem; border: 1px solid var(--border); }
+        pre { background: #000; padding: 1rem; overflow-x: auto; font-size: 0.85rem; border: 1px solid var(--border); margin: 0; white-space: pre-wrap; word-wrap: break-word; }
         
-        /* Layout overrides for full width cards */
         .full-width { grid-column: 1 / -1; }
+        
+        .question-group { margin-bottom: 1.5rem; }
+        .question-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; color: var(--text-muted); }
+        
+        /* Animated Checkmark */
+        .checkmark-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; }
+        .checkmark { width: 80px; height: 80px; border-radius: 50%; display: block; stroke-width: 4; stroke: var(--accent); stroke-miterlimit: 10; margin: 10% auto; box-shadow: inset 0px 0px 0px var(--accent); animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
+        .checkmark__circle { stroke-dasharray: 166; stroke-dashoffset: 166; stroke-width: 2; stroke-miterlimit: 10; stroke: var(--accent); fill: none; animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
+        .checkmark__check { transform-origin: 50% 50%; stroke-dasharray: 48; stroke-dashoffset: 48; animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards; }
+        @keyframes stroke { 100% { stroke-dashoffset: 0; } }
+        @keyframes scale { 0%, 100% { transform: none; } 50% { transform: scale3d(1.1, 1.1, 1); } }
+        @keyframes fill { 100% { box-shadow: inset 0px 0px 0px 30px var(--accent); } }
     </style>
 </head>
 <body>
@@ -62,88 +84,229 @@
  |  __/| |___  /  \| |_| |
  |_|   |_____|/_/\_\___/ 
             </div>
-            <p><strong>Primary EXecution Officer</strong> - Global Control Panel</p>
+            <p>> SYSTEM: LOCAL ORCHESTRATION NODE. STATUS: SECURE.</p>
         </div>
 
-        <div class="warning">
-            <strong>SECURE LOCAL ENVIRONMENT:</strong> This portal is bound strictly to localhost (127.0.0.1). It cannot be accessed from outside your machine. Your data is 100% private.
+        <!-- AUTHENTICATION SCREEN -->
+        <div id="auth-screen" class="auth-screen">
+            <h2>SYSTEM LOCKED</h2>
+            <p>Enter Master Password to access Pexo Control Panel.</p>
+            <input type="password" id="auth-password" placeholder="Master Password">
+            <button onclick="authenticate()">UNLOCK</button>
+            <p id="auth-error" style="color: var(--danger); margin-top: 1rem;"></p>
         </div>
 
-        <div class="grid">
-            <!-- Profile Section -->
-            <div class="card">
-                <h2>User Profile & Backup</h2>
-                <div id="profile-display">Loading profile...</div>
-                <button onclick="fetchProfile()" style="margin-top:1rem;">Refresh</button>
-                <button onclick="runBackup()" style="margin-top:1rem; margin-left: 0.5rem;">Trigger Backup</button>
-                <p id="backup-status" style="color: var(--accent); font-size: 0.85rem;"></p>
+        <!-- WIZARD SCREEN -->
+        <div id="wizard" class="wizard">
+            <div id="step-1" class="step active">
+                <h2>INITIALIZATION: PHASE 1</h2>
+                <p>Welcome to Pexo. Set your Master Password to secure this interface and encrypt the configuration.</p>
+                <input type="password" id="wiz-password" placeholder="Master Password (Required)">
+                <button onclick="nextStep(2)">NEXT: PROFILES >></button>
             </div>
-
-            <!-- Agents Section -->
-            <div class="card">
-                <h2>Swarm Agents</h2>
-                <ul class="agent-list" id="agent-list">Loading agents...</ul>
-                <div style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
-                    <input type="text" id="new-agent-name" placeholder="Agent Name (e.g. Frontend)">
-                    <input type="text" id="new-agent-role" placeholder="Role (e.g. React Expert)">
-                    <textarea id="new-agent-prompt" placeholder="System Prompt..."></textarea>
-                    <button onclick="createAgent()">Create Custom Agent</button>
+            
+            <div id="step-2" class="step">
+                <h2>INITIALIZATION: PHASE 2</h2>
+                <p>Configure Swarm Personality & Scripting Preferences.</p>
+                <div class="grid" style="margin-top:0">
+                    <div id="wiz-personality"></div>
+                    <div id="wiz-scripting"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:2rem;">
+                    <button onclick="nextStep(1)"><< BACK</button>
+                    <button onclick="nextStep(3)">NEXT: BACKUP >></button>
+                </div>
+            </div>
+            
+            <div id="step-3" class="step">
+                <h2>INITIALIZATION: PHASE 3</h2>
+                <p>Set a local path or network share for the Global Brain Auto-Backup.</p>
+                <input type="text" id="wiz-backup" placeholder="e.g. C:\Backups\Pexo or /Volumes/Backups/Pexo">
+                <div style="display:flex; justify-content:space-between; margin-top:2rem;">
+                    <button onclick="nextStep(2)"><< BACK</button>
+                    <button onclick="submitWizard()">FINALIZE ASSIMILATION</button>
                 </div>
             </div>
 
-            <!-- Memory Section -->
-            <div class="card full-width">
-                <h2>Global Vector Brain</h2>
-                <div style="display: flex; gap: 1rem;">
-                    <input type="text" id="memory-search-query" placeholder="Search the swarm's memory...">
-                    <button onclick="searchMemory()" style="width: auto;">Search</button>
+            <div id="step-4" class="step">
+                <div class="checkmark-container">
+                    <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                        <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
+                        <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                    </svg>
+                    <h2>SYSTEM ASSIMILATED</h2>
+                    <p>Pexo is fully online and ready for deployment.</p>
+                    <button onclick="loadDashboard()">ENTER TERMINAL</button>
                 </div>
-                <div id="memory-results"></div>
             </div>
+        </div>
 
-            <!-- Genesis Engine -->
-            <div class="card full-width">
-                <h2>Genesis Engine (Dynamic Tools)</h2>
-                <ul class="tool-list" id="tool-list">Loading tools...</ul>
+        <!-- MAIN DASHBOARD -->
+        <div id="dashboard" class="dashboard">
+            <div class="grid">
+                <div class="card">
+                    <h2>SYSTEM METRICS & BACKUP</h2>
+                    <div id="profile-display">Loading...</div>
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                        <button onclick="fetchProfile()">REFRESH</button>
+                        <button onclick="runBackup()">TRIGGER BACKUP</button>
+                    </div>
+                    <p id="backup-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+                </div>
+
+                <div class="card">
+                    <h2>SWARM AGENT REGISTRY</h2>
+                    <ul class="agent-list" id="agent-list"></ul>
+                    <div style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                        <input type="text" id="new-agent-name" placeholder="AGENT_NAME">
+                        <input type="text" id="new-agent-role" placeholder="AGENT_ROLE">
+                        <textarea id="new-agent-prompt" placeholder="SYSTEM_PROMPT" rows="3"></textarea>
+                        <button onclick="createAgent()">DEPLOY AGENT</button>
+                    </div>
+                </div>
+
+                <div class="card full-width">
+                    <h2>GLOBAL VECTOR BRAIN</h2>
+                    <div style="display: flex; gap: 1rem;">
+                        <input type="text" id="memory-search-query" placeholder="QUERY VECTOR DATABASE...">
+                        <button onclick="searchMemory()" style="width: auto;">SEARCH</button>
+                    </div>
+                    <div id="memory-results" style="margin-top: 1rem;"></div>
+                </div>
+
+                <div class="card full-width">
+                    <h2>GENESIS ENGINE (DYNAMIC TOOLS)</h2>
+                    <ul class="tool-list" id="tool-list"></ul>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        async function fetchProfile() {
+        let masterPassword = "";
+        let questionsData = null;
+
+        async function checkStatus() {
             try {
                 const res = await fetch('/profile/default_user');
-                if(res.status === 404) {
-                    document.getElementById('profile-display').innerHTML = '<span style="color:var(--danger)">Profile not found. Please complete onboarding in terminal.</span>';
-                    return;
+                if (res.status === 404) {
+                    document.getElementById('wizard').classList.add('active');
+                    loadQuestions();
+                } else {
+                    document.getElementById('auth-screen').classList.add('active');
                 }
-                const data = await res.json();
-                document.getElementById('profile-display').innerHTML = `
-                    <strong>Personality:</strong><br> <pre style="font-size:0.8rem; margin-top:0">${data.personality_prompt}</pre>
-                    <strong>Backup Path:</strong> ${data.backup_path || 'Not set'}
-                `;
             } catch(e) { console.error(e); }
         }
 
+        async function authenticate() {
+            const pwd = document.getElementById('auth-password').value;
+            const res = await fetch('/profile/auth', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password: pwd})
+            });
+            if(res.ok) {
+                masterPassword = pwd;
+                document.getElementById('auth-screen').classList.remove('active');
+                document.getElementById('dashboard').classList.add('active');
+                fetchProfile();
+                fetchAgents();
+                fetchTools();
+            } else {
+                document.getElementById('auth-error').innerText = "> ACCESS DENIED.";
+            }
+        }
+
+        async function loadQuestions() {
+            const res = await fetch('/profile/questions');
+            questionsData = await res.json();
+            
+            const pDiv = document.getElementById('wiz-personality');
+            pDiv.innerHTML = questionsData.personality.map(q => `
+                <div class="question-group">
+                    <label>${q.id}. ${q.text}</label>
+                    <select id="ans-${q.id}">
+                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+
+            const sDiv = document.getElementById('wiz-scripting');
+            sDiv.innerHTML = questionsData.scripting.map(q => `
+                <div class="question-group">
+                    <label>${q.id}. ${q.text}</label>
+                    <select id="ans-${q.id}">
+                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+        }
+
+        function nextStep(step) {
+            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+            document.getElementById(`step-${step}`).classList.add('active');
+        }
+
+        async function submitWizard() {
+            const pwd = document.getElementById('wiz-password').value;
+            if(!pwd) return alert("MASTER PASSWORD REQUIRED.");
+            const backup = document.getElementById('wiz-backup').value;
+            
+            const payload = {
+                name: "default_user",
+                master_password: pwd,
+                backup_path: backup,
+                personality_answers: {},
+                scripting_answers: {}
+            };
+
+            questionsData.personality.forEach(q => { payload.personality_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
+            questionsData.scripting.forEach(q => { payload.scripting_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
+
+            await fetch('/profile/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            masterPassword = pwd;
+            nextStep(4); // Show green checkmark
+        }
+
+        function loadDashboard() {
+            document.getElementById('wizard').classList.remove('active');
+            document.getElementById('dashboard').classList.add('active');
+            fetchProfile();
+            fetchAgents();
+            fetchTools();
+        }
+
+        async function fetchProfile() {
+            const res = await fetch('/profile/default_user');
+            const data = await res.json();
+            document.getElementById('profile-display').innerHTML = `
+                <p><strong>BACKUP PATH:</strong> ${data.backup_path || 'NOT SET'}</p>
+                <pre>${data.personality_prompt}</pre>
+            `;
+        }
+
         async function fetchAgents() {
-            try {
-                const res = await fetch('/agents/');
-                const data = await res.json();
-                const list = document.getElementById('agent-list');
-                list.innerHTML = data.map(a => `
-                    <li>
-                        <span><strong>${a.name}</strong> <small>(${a.role})</small></span>
-                        ${!a.is_core ? `<button class="danger" style="padding:0.2rem 0.5rem; font-size:0.7rem;" onclick="deleteAgent(${a.id})">Delete</button>` : '<i>Core</i>'}
-                    </li>
-                `).join('');
-            } catch(e) { console.error(e); }
+            const res = await fetch('/agents/');
+            const data = await res.json();
+            const list = document.getElementById('agent-list');
+            list.innerHTML = data.map(a => `
+                <li>
+                    <span>[${a.role}] <strong>${a.name}</strong></span>
+                    ${!a.is_core ? `<button class="danger" onclick="deleteAgent(${a.id})">TERMINATE</button>` : '<i>[CORE]</i>'}
+                </li>
+            `).join('');
         }
 
         async function createAgent() {
             const name = document.getElementById('new-agent-name').value;
             const role = document.getElementById('new-agent-role').value;
             const prompt = document.getElementById('new-agent-prompt').value;
-            if(!name || !role) return alert('Name and Role required');
+            if(!name || !role) return alert('PARAMETERS REQUIRED');
             
             await fetch('/agents/', {
                 method: 'POST',
@@ -157,18 +320,16 @@
         }
 
         async function deleteAgent(id) {
-            if(!confirm('Are you sure?')) return;
+            if(!confirm('TERMINATE AGENT?')) return;
             await fetch(`/agents/${id}`, {method: 'DELETE'});
             fetchAgents();
         }
 
         async function fetchTools() {
-            try {
-                const res = await fetch('/tools/');
-                const data = await res.json();
-                const list = document.getElementById('tool-list');
-                list.innerHTML = data.length ? data.map(t => `<li><strong>${t.name}</strong>: ${t.description}</li>`).join('') : '<li>No dynamic tools created yet.</li>';
-            } catch(e) { console.error(e); }
+            const res = await fetch('/tools/');
+            const data = await res.json();
+            const list = document.getElementById('tool-list');
+            list.innerHTML = data.length ? data.map(t => `<li><strong>> ${t.name}</strong><br><span style="color:var(--text-muted)">${t.description}</span></li>`).join('') : '<li>NO DYNAMIC TOOLS ASSIMILATED.</li>';
         }
 
         async function searchMemory() {
@@ -182,26 +343,23 @@
             const data = await res.json();
             const resultsDiv = document.getElementById('memory-results');
             if(!data.results || data.results.length === 0) {
-                resultsDiv.innerHTML = '<p>No memories found.</p>';
+                resultsDiv.innerHTML = '<p>NO MEMORY FOUND.</p>';
                 return;
             }
             resultsDiv.innerHTML = data.results.map(r => `
-                <pre><strong>Task Context:</strong> ${r.metadata.task_context}\n\n${r.content}</pre>
+                <pre>> CONTEXT: ${r.metadata.task_context}\n\n${r.content}</pre>
             `).join('');
         }
 
         async function runBackup() {
-            document.getElementById('backup-status').innerText = "Backing up...";
+            document.getElementById('backup-status').innerText = "> EXECUTING BACKUP PROTOCOL...";
             const res = await fetch('/backup/run', {method: 'POST'});
             const data = await res.json();
-            if(res.ok) document.getElementById('backup-status').innerText = data.message;
-            else document.getElementById('backup-status').innerText = "Error: " + data.detail;
+            if(res.ok) document.getElementById('backup-status').innerText = "> " + data.message;
+            else document.getElementById('backup-status').innerText = "> ERROR: " + data.detail;
         }
 
-        // Initialize
-        fetchProfile();
-        fetchAgents();
-        fetchTools();
+        checkStatus();
     </script>
 </body>
 </html>

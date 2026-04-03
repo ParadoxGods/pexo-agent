@@ -2,13 +2,22 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
+import webbrowser
+import threading
+import time
 from .database import init_db
 from .routers import agents, profile, orchestrator, memory, evolve, tools, backup
+
+def open_browser():
+    time.sleep(1.5)
+    webbrowser.open("http://127.0.0.1:9999/ui/")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize the database and pgvector extension on startup
     init_db()
+    # Auto-launch the Control Panel in the default browser
+    threading.Thread(target=open_browser, daemon=True).start()
     yield
 
 app = FastAPI(title="Pexo - Primary EXecution Officer", lifespan=lifespan)

@@ -1,11 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, Optional
+import hashlib
+import os
 from ..database import get_db
 from ..models import Profile
 
 router = APIRouter()
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return salt.hex() + ":" + key.hex()
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        salt_hex, key_hex = hashed.split(":")
+        salt = bytes.fromhex(salt_hex)
+        key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return key.hex() == key_hex
+    except Exception:
+        return False
 
 PERSONALITY_QUESTIONS = [
     {"id": "p1", "text": "Communication Style", "options": {"1": "Direct & Concise", "2": "Conversational & Explanatory", "3": "Technical & Academic"}},
@@ -98,3 +114,4 @@ def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_
     db.commit()
     db.refresh(profile)
     return {"status": "success", "message": "Profile updated successfully.", "profile_id": profile.id}
+updated successfully.", "profile_id": profile.id}
