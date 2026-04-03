@@ -223,7 +223,7 @@ venv\Scripts\python.exe -m app.launcher connect %1 %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %ERRORLEVEL%
 
 :version
-echo Pexo v1.0.2
+echo Pexo v1.0.3
 exit /b 0
 
 :help

@@ -3,7 +3,7 @@ param(
     [string]$ProfileName = "default_user",
     [string]$BackupPath = "",
     [string]$Repository = "ParadoxGods/pexo-agent",
-    [string]$Ref = "v1.0.2",
+    [string]$Ref = "v1.0.3",
     [string]$InstallDir = "",
     [string]$RepoPath = "",
     [switch]$UseCurrentCheckout,
@@ -181,7 +181,7 @@ function Invoke-External {
     try {
         & $FilePath @ArgumentList
         if ($LASTEXITCODE -ne 0) {
-            throw "Command failed with exit code $LASTEXITCODE: $FilePath $($ArgumentList -join ' ')"
+            throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($ArgumentList -join ' ')"
         }
     }
     finally {
