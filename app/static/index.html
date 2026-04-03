@@ -103,6 +103,7 @@
         .helper-text { color: var(--text-muted); margin: 0 0 1rem 0; }
         .manual-setup { display: none; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
         .manual-setup.active { display: block; }
+        .status-badge { color: #fff; font-size: 0.75rem; margin-left: 0.5rem; }
     </style>
 </head>
 <body>
@@ -186,12 +187,30 @@
                     <h2>SYSTEM METRICS, PROFILE & BACKUP</h2>
                     <div id="profile-display">Loading...</div>
                     <input type="text" id="backup-path-input" placeholder="Optional backup path">
-                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap:wrap;">
                         <button onclick="saveBackupPath()">SAVE BACKUP PATH</button>
                         <button onclick="refreshDashboard()">REFRESH</button>
                         <button onclick="runBackup()">TRIGGER BACKUP</button>
+                        <button onclick="toggleProfileEditor()">EDIT PROFILE</button>
                     </div>
                     <p id="backup-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+                    <div id="profile-editor" style="display:none; margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+                        <div class="grid" style="margin-top:0;">
+                            <div>
+                                <h3 style="color:#fff; border-bottom: 1px solid #222;">PERSONALITY</h3>
+                                <div id="profile-editor-personality"></div>
+                            </div>
+                            <div>
+                                <h3 style="color:#fff; border-bottom: 1px solid #222;">SCRIPTING</h3>
+                                <div id="profile-editor-scripting"></div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                            <button onclick="saveProfileSettings()">SAVE PROFILE</button>
+                            <button onclick="toggleProfileEditor(false)">CLOSE</button>
+                        </div>
+                        <p id="profile-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+                    </div>
                 </div>
 
                 <div class="card">
@@ -217,6 +236,7 @@
                         <input type="text" id="memory-search-query" placeholder="QUERY VECTOR DATABASE...">
                         <button onclick="searchMemory()" style="width: auto;">SEARCH</button>
                         <button onclick="refreshDashboard()" style="width: auto;">REFRESH</button>
+                        <button onclick="runMemoryMaintenance()" style="width: auto;">RUN MAINTENANCE</button>
                     </div>
                     <div id="memory-results" style="margin-top: 1rem;"></div>
                     <div class="grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 1rem; margin-top: 1.5rem;">
@@ -229,6 +249,14 @@
                             <input type="hidden" id="memory-edit-id">
                             <input type="text" id="memory-task-context" placeholder="TASK_CONTEXT">
                             <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:var(--text-muted);">
+                                <input type="checkbox" id="memory-is-pinned" style="width:auto; margin:0;">
+                                PIN MEMORY
+                            </label>
+                            <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:var(--text-muted);">
+                                <input type="checkbox" id="memory-is-archived" style="width:auto; margin:0;">
+                                ARCHIVE MEMORY
+                            </label>
+                            <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:var(--text-muted);">
                                 <input type="checkbox" id="memory-is-compacted" style="width:auto; margin:0;">
                                 MARK AS COMPACTED
                             </label>
@@ -238,6 +266,21 @@
                                 <button onclick="resetMemoryForm()">CLEAR</button>
                             </div>
                             <p id="memory-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card full-width">
+                    <h2>EXECUTION TELEMETRY</h2>
+                    <div id="telemetry-summary"></div>
+                    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-top:1rem;">
+                        <div>
+                            <h3 style="color:#fff; border-bottom: 1px solid #222;">RECENT SESSIONS</h3>
+                            <div id="telemetry-sessions"></div>
+                        </div>
+                        <div>
+                            <h3 style="color:#fff; border-bottom: 1px solid #222;">RECENT AGENT ACTIVITY</h3>
+                            <div id="telemetry-activity"></div>
                         </div>
                     </div>
                 </div>
@@ -254,7 +297,16 @@
         let questionsData = null;
         let presetData = null;
         let manualSetupEnabled = false;
-        let dashboardData = { profile: null, agents: [], tools: [], recent_memories: [], stats: {} };
+        let profileEditorVisible = false;
+        let dashboardData = {
+            profile: null,
+            profile_answers: null,
+            agents: [],
+            tools: [],
+            recent_memories: [],
+            stats: {},
+            telemetry: { summary: {}, recent_sessions: [], recent_activity: [] },
+        };
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -274,8 +326,54 @@
             return rawValue.split(',').map(value => value.trim()).filter(Boolean);
         }
 
+        function memoryFlags(memory) {
+            return [
+                memory.is_pinned ? 'PINNED' : '',
+                memory.is_archived ? 'ARCHIVED' : '',
+                memory.is_compacted ? 'COMPACTED' : '',
+            ].filter(Boolean);
+        }
+
+        async function ensureQuestionDataLoaded() {
+            if (questionsData && presetData) {
+                return;
+            }
+
+            const [questionsRes, presetsRes] = await Promise.all([
+                fetch('/profile/questions'),
+                fetch('/profile/presets')
+            ]);
+            questionsData = await questionsRes.json();
+            presetData = await presetsRes.json();
+
+            document.getElementById('preset-grid').innerHTML = presetData.presets.map((preset, index) => `
+                <button class="preset-card ${index === 0 ? 'recommended' : ''}" onclick="quickSetup('${preset.id}')">
+                    <span class="preset-label">${preset.label}${index === 0 ? ' (Recommended)' : ''}</span>
+                    <span class="preset-description">${preset.description}</span>
+                </button>
+            `).join('');
+            
+            document.getElementById('personality-questions').innerHTML = questionsData.personality.map(question => `
+                <div class="question-row">
+                    <div class="question-label">${question.text}</div>
+                    <select id="ans-${question.id}" class="question-select">
+                        ${Object.entries(question.options).map(([key, value]) => `<option value="${key}">${value}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+
+            document.getElementById('scripting-questions').innerHTML = questionsData.scripting.map(question => `
+                <div class="question-row">
+                    <div class="question-label">${question.text}</div>
+                    <select id="ans-${question.id}" class="question-select">
+                        ${Object.entries(question.options).map(([key, value]) => `<option value="${key}">${value}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+        }
+
         async function fetchSnapshot() {
-            const res = await fetch('/admin/snapshot?memory_limit=15');
+            const res = await fetch('/admin/snapshot?memory_limit=20');
             if (!res.ok) {
                 throw new Error('Failed to load admin snapshot.');
             }
@@ -293,9 +391,32 @@
             document.getElementById('profile-display').innerHTML = `
                 <p><strong>BACKUP PATH:</strong> ${escapeHtml(backupPath)}</p>
                 <p><strong>AGENTS:</strong> ${stats.agent_count || 0} | <strong>TOOLS:</strong> ${stats.tool_count || 0} | <strong>MEMORIES:</strong> ${stats.memory_count || 0}</p>
+                <p><strong>PINNED:</strong> ${stats.pinned_memory_count || 0} | <strong>ARCHIVED:</strong> ${stats.archived_memory_count || 0} | <strong>COMPACTED:</strong> ${stats.compacted_memory_count || 0}</p>
                 <pre>PERSONALITY\n${escapeHtml(personalityText)}\n\nSCRIPTING\n${escapeHtml(scriptingText)}</pre>
             `;
             document.getElementById('backup-path-input').value = profile?.backup_path || '';
+        }
+
+        function renderProfileEditor(profileAnswers) {
+            if (!questionsData) return;
+
+            document.getElementById('profile-editor-personality').innerHTML = questionsData.personality.map(question => `
+                <div class="question-row">
+                    <div class="question-label">${question.text}</div>
+                    <select id="profile-ans-${question.id}" class="question-select">
+                        ${Object.entries(question.options).map(([key, value]) => `<option value="${key}" ${profileAnswers?.personality_answers?.[question.id] === key ? 'selected' : ''}>${value}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+
+            document.getElementById('profile-editor-scripting').innerHTML = questionsData.scripting.map(question => `
+                <div class="question-row">
+                    <div class="question-label">${question.text}</div>
+                    <select id="profile-ans-${question.id}" class="question-select">
+                        ${Object.entries(question.options).map(([key, value]) => `<option value="${key}" ${profileAnswers?.scripting_answers?.[question.id] === key ? 'selected' : ''}>${value}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
         }
 
         function renderAgents(agents) {
@@ -326,8 +447,8 @@
             list.innerHTML = memories.length ? memories.map(memory => `
                 <li>
                     <div style="flex:1;">
-                        <div><strong>${escapeHtml(memory.task_context || 'NO CONTEXT')}</strong> ${memory.is_compacted ? '<span style="color:#fff;">[COMPACTED]</span>' : ''}</div>
-                        <div class="meta-line">${escapeHtml(memory.created_at || '')}</div>
+                        <div><strong>${escapeHtml(memory.task_context || 'NO CONTEXT')}</strong>${memoryFlags(memory).map(flag => `<span class="status-badge">[${flag}]</span>`).join('')}</div>
+                        <div class="meta-line">${escapeHtml(memory.updated_at || memory.created_at || '')}</div>
                         <div class="meta-line">${escapeHtml(truncateText(memory.content, 220))}</div>
                     </div>
                     <div class="list-actions">
@@ -338,25 +459,59 @@
             `).join('') : '<li>NO MEMORIES STORED.</li>';
         }
 
+        function renderTelemetry(telemetry) {
+            const summary = telemetry?.summary || {};
+            const statusBreakdown = Object.entries(summary.status_breakdown || {})
+                .map(([status, count]) => `${status}: ${count}`)
+                .join(' | ') || 'No activity recorded.';
+
+            document.getElementById('telemetry-summary').innerHTML = `
+                <p><strong>SESSIONS:</strong> ${summary.session_count || 0} | <strong>ACTIONS:</strong> ${summary.action_count || 0} | <strong>LAST 24H:</strong> ${summary.actions_last_day || 0}</p>
+                <p><strong>AVG ACTIONS/SESSION:</strong> ${summary.avg_actions_per_session || 0} | <strong>OBSERVED TOKENS:</strong> ${summary.estimated_tokens_observed || 0}</p>
+                <p><strong>STATUS BREAKDOWN:</strong> ${escapeHtml(statusBreakdown)}</p>
+            `;
+
+            document.getElementById('telemetry-sessions').innerHTML = (telemetry?.recent_sessions || []).length
+                ? telemetry.recent_sessions.map(session => `
+                    <pre>SESSION ${escapeHtml(session.session_id)}
+LAST: ${escapeHtml(session.last_agent)} / ${escapeHtml(session.last_status)}
+ACTIONS: ${session.total_actions} | COMPLETED: ${session.completed_actions} | TASKS: ${session.task_count}
+AT: ${escapeHtml(session.last_activity_at || '')}</pre>
+                `).join('')
+                : '<p>NO SESSION TELEMETRY YET.</p>';
+
+            document.getElementById('telemetry-activity').innerHTML = (telemetry?.recent_activity || []).length
+                ? telemetry.recent_activity.map(activity => `
+                    <pre>${escapeHtml(activity.agent_name)} [${escapeHtml(activity.status)}]
+SESSION: ${escapeHtml(activity.session_id)}
+TASK: ${escapeHtml(activity.task_id || '')}
+DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')}</pre>
+                `).join('')
+                : '<p>NO AGENT TELEMETRY YET.</p>';
+        }
+
         function applyDashboardSnapshot(snapshot) {
             dashboardData = snapshot;
             renderProfile(snapshot.profile, snapshot.stats || {});
+            renderProfileEditor(snapshot.profile_answers || {});
             renderAgents(snapshot.agents || []);
             renderTools(snapshot.tools || []);
             renderMemories(snapshot.recent_memories || []);
+            renderTelemetry(snapshot.telemetry || {});
         }
 
         async function refreshDashboard() {
+            await ensureQuestionDataLoaded();
             const snapshot = await fetchSnapshot();
             applyDashboardSnapshot(snapshot);
         }
 
         async function checkStatus() {
             try {
+                await ensureQuestionDataLoaded();
                 const snapshot = await fetchSnapshot();
                 if (!snapshot.configured) {
                     document.getElementById('wizard').classList.add('active');
-                    loadQuestions();
                 } else {
                     document.getElementById('dashboard').classList.add('active');
                     applyDashboardSnapshot(snapshot);
@@ -367,42 +522,20 @@
         }
 
         async function loadQuestions() {
-            const [questionsRes, presetsRes] = await Promise.all([
-                fetch('/profile/questions'),
-                fetch('/profile/presets')
-            ]);
-            questionsData = await questionsRes.json();
-            presetData = await presetsRes.json();
-
-            document.getElementById('preset-grid').innerHTML = presetData.presets.map((preset, index) => `
-                <button class="preset-card ${index === 0 ? 'recommended' : ''}" onclick="quickSetup('${preset.id}')">
-                    <span class="preset-label">${preset.label}${index === 0 ? ' (Recommended)' : ''}</span>
-                    <span class="preset-description">${preset.description}</span>
-                </button>
-            `).join('');
-            
-            document.getElementById('personality-questions').innerHTML = questionsData.personality.map(q => `
-                <div class="question-row">
-                    <div class="question-label">${q.text}</div>
-                    <select id="ans-${q.id}" class="question-select">
-                        ${Object.entries(q.options).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
-                    </select>
-                </div>
-            `).join('');
-
-            document.getElementById('scripting-questions').innerHTML = questionsData.scripting.map(q => `
-                <div class="question-row">
-                    <div class="question-label">${q.text}</div>
-                    <select id="ans-${q.id}" class="question-select">
-                        ${Object.entries(q.options).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
-                    </select>
-                </div>
-            `).join('');
+            await ensureQuestionDataLoaded();
         }
 
         function toggleManualSetup() {
             manualSetupEnabled = !manualSetupEnabled;
             document.getElementById('manual-setup').classList.toggle('active', manualSetupEnabled);
+        }
+
+        function toggleProfileEditor(forceState = null) {
+            profileEditorVisible = forceState === null ? !profileEditorVisible : Boolean(forceState);
+            document.getElementById('profile-editor').style.display = profileEditorVisible ? 'block' : 'none';
+            if (profileEditorVisible) {
+                renderProfileEditor(dashboardData.profile_answers || {});
+            }
         }
 
         function buildManualPayload(backupPath = '') {
@@ -415,6 +548,21 @@
 
             questionsData.personality.forEach(q => { payload.personality_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
             questionsData.scripting.forEach(q => { payload.scripting_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
+            return payload;
+        }
+
+        function buildProfileEditorPayload() {
+            const backupPath = document.getElementById('backup-path-input').value.trim();
+            const payload = {
+                name: 'default_user',
+                backup_path: backupPath,
+                clear_backup_path: !backupPath,
+                personality_answers: {},
+                scripting_answers: {},
+            };
+
+            questionsData.personality.forEach(q => { payload.personality_answers[q.id] = document.getElementById(`profile-ans-${q.id}`).value; });
+            questionsData.scripting.forEach(q => { payload.scripting_answers[q.id] = document.getElementById(`profile-ans-${q.id}`).value; });
             return payload;
         }
 
@@ -475,6 +623,20 @@
             });
             const data = await res.json();
             document.getElementById('backup-status').innerText = res.ok ? `> ${backupPath ? 'BACKUP PATH SAVED.' : 'BACKUP PATH CLEARED.'}` : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                await refreshDashboard();
+            }
+        }
+
+        async function saveProfileSettings() {
+            const payload = buildProfileEditorPayload();
+            const res = await fetch('/profile/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            document.getElementById('profile-status').innerText = res.ok ? '> PROFILE UPDATED.' : `> ERROR: ${data.detail}`;
             if (res.ok) {
                 await refreshDashboard();
             }
@@ -547,6 +709,8 @@
             document.getElementById('memory-edit-id').value = '';
             document.getElementById('memory-task-context').value = '';
             document.getElementById('memory-content').value = '';
+            document.getElementById('memory-is-pinned').checked = false;
+            document.getElementById('memory-is-archived').checked = false;
             document.getElementById('memory-is-compacted').checked = false;
             document.getElementById('memory-save-button').disabled = true;
             document.getElementById('memory-status').innerText = '';
@@ -566,6 +730,8 @@
             document.getElementById('memory-edit-id').value = String(memory.id);
             document.getElementById('memory-task-context').value = memory.task_context || '';
             document.getElementById('memory-content').value = memory.content || '';
+            document.getElementById('memory-is-pinned').checked = Boolean(memory.is_pinned);
+            document.getElementById('memory-is-archived').checked = Boolean(memory.is_archived);
             document.getElementById('memory-is-compacted').checked = Boolean(memory.is_compacted);
             document.getElementById('memory-save-button').disabled = false;
             document.getElementById('memory-status').innerText = `> EDITING MEMORY ${memory.id}`;
@@ -579,6 +745,8 @@
             }
             const taskContext = document.getElementById('memory-task-context').value.trim();
             const content = document.getElementById('memory-content').value.trim();
+            const isPinned = document.getElementById('memory-is-pinned').checked;
+            const isArchived = document.getElementById('memory-is-archived').checked;
             const isCompacted = document.getElementById('memory-is-compacted').checked;
             if (!taskContext || !content) {
                 document.getElementById('memory-status').innerText = '> ERROR: TASK CONTEXT AND CONTENT ARE REQUIRED.';
@@ -588,10 +756,17 @@
             const res = await fetch(`/memory/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({task_context: taskContext, content, is_compacted: isCompacted})
+                body: JSON.stringify({
+                    task_context: taskContext,
+                    content,
+                    is_pinned: isPinned,
+                    is_archived: isArchived,
+                    is_compacted: isCompacted,
+                })
             });
             const data = await res.json();
-            document.getElementById('memory-status').innerText = res.ok ? '> MEMORY UPDATED.' : `> ERROR: ${data.detail}`;
+            const maintenance = data.maintenance ? ` COMPACTED: ${data.maintenance.compacted_count || 0}, ARCHIVED: ${data.maintenance.archived_count || 0}.` : '';
+            document.getElementById('memory-status').innerText = res.ok ? `> MEMORY UPDATED.${maintenance}` : `> ERROR: ${data.detail}`;
             if (res.ok) {
                 await refreshDashboard();
                 await editMemory(Number(id));
@@ -607,6 +782,22 @@
                 if (document.getElementById('memory-edit-id').value === String(id)) {
                     resetMemoryForm();
                 }
+                await refreshDashboard();
+            }
+        }
+
+        async function runMemoryMaintenance() {
+            const taskContext = document.getElementById('memory-task-context').value.trim();
+            const res = await fetch('/memory/maintenance', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_context: taskContext || null})
+            });
+            const data = await res.json();
+            document.getElementById('memory-status').innerText = res.ok
+                ? `> MEMORY MAINTENANCE COMPLETE. COMPACTED: ${data.compacted_count || 0}, ARCHIVED: ${data.archived_count || 0}.`
+                : `> ERROR: ${data.detail}`;
+            if (res.ok) {
                 await refreshDashboard();
             }
         }
@@ -629,9 +820,10 @@
                 <div style="border:1px solid var(--border); padding:1rem; margin-bottom:0.75rem; background:#000;">
                     <div style="display:flex; justify-content:space-between; gap:1rem; margin-bottom:0.5rem;">
                         <strong>${escapeHtml(result.metadata?.task_context || 'NO CONTEXT')}</strong>
-                        ${result.memory_id ? `<button onclick="editMemory(${result.memory_id})">EDIT</button>` : ''}
+                        <div>${result.memory_id ? `<button onclick="editMemory(${result.memory_id})">EDIT</button>` : ''}</div>
                     </div>
                     <div class="meta-line">${escapeHtml(result.created_at || '')}</div>
+                    <div class="meta-line">${escapeHtml(memoryFlags(result).join(' | ') || 'ACTIVE')}</div>
                     <pre>${escapeHtml(result.content)}</pre>
                 </div>
             `).join('');

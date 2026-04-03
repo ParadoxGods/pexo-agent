@@ -5,6 +5,7 @@ import chromadb
 from chromadb.config import Settings
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -12,6 +13,12 @@ from ..models import Memory
 from ..paths import CHROMA_DB_DIR
 
 router = APIRouter()
+
+MAX_ACTIVE_RAW_MEMORIES_PER_CONTEXT = 6
+RAW_MEMORIES_TO_KEEP_PER_CONTEXT = 2
+MAX_ACTIVE_RAW_MEMORIES_GLOBAL = 150
+SUMMARY_FRAGMENT_LIMIT = 6
+SUMMARY_FRAGMENT_LENGTH = 240
 
 _memory_collection = None
 
@@ -35,7 +42,158 @@ def serialize_memory(memory: Memory) -> dict:
         "task_context": memory.task_context,
         "chroma_id": memory.chroma_id,
         "is_compacted": bool(memory.is_compacted),
+        "is_pinned": bool(memory.is_pinned),
+        "is_archived": bool(memory.is_archived),
+        "compacted_into_id": memory.compacted_into_id,
         "created_at": memory.created_at.isoformat() if isinstance(memory.created_at, datetime) else memory.created_at,
+        "updated_at": memory.updated_at.isoformat() if isinstance(memory.updated_at, datetime) else memory.updated_at,
+    }
+
+
+def _upsert_memory_embedding(memory: Memory) -> None:
+    if not memory.chroma_id:
+        memory.chroma_id = str(uuid.uuid4())
+    get_memory_collection().upsert(
+        ids=[memory.chroma_id],
+        documents=[memory.content],
+        metadatas=[{"session_id": memory.session_id, "task_context": memory.task_context}],
+    )
+
+
+def _delete_memory_embeddings(chroma_ids: list[str]) -> None:
+    deletable_ids = [chroma_id for chroma_id in chroma_ids if chroma_id]
+    if deletable_ids:
+        get_memory_collection().delete(ids=deletable_ids)
+
+
+def _summarize_fragment(content: str) -> str:
+    compact = " ".join(content.split())
+    if len(compact) > SUMMARY_FRAGMENT_LENGTH:
+        return f"{compact[:SUMMARY_FRAGMENT_LENGTH].rstrip()}..."
+    return compact
+
+
+def _extract_summary_fragments(content: str) -> list[str]:
+    if not content:
+        return []
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    bullet_fragments = [line[2:].strip() for line in lines if line.startswith("- ")]
+    return bullet_fragments or lines
+
+
+def _build_compacted_summary(task_context: str, fragments: list[str]) -> str:
+    unique_fragments: list[str] = []
+    seen = set()
+    for fragment in fragments:
+        cleaned = _summarize_fragment(fragment)
+        if not cleaned:
+            continue
+        fingerprint = cleaned.casefold()
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        unique_fragments.append(cleaned)
+        if len(unique_fragments) >= SUMMARY_FRAGMENT_LIMIT:
+            break
+
+    header = f"Compacted memory summary for {task_context or 'general context'}."
+    if not unique_fragments:
+        return header
+    bullet_block = "\n".join([f"- {fragment}" for fragment in unique_fragments])
+    return f"{header}\n{bullet_block}"
+
+
+def compact_memories_for_context(db: Session, task_context: str | None) -> dict:
+    if not task_context:
+        return {"compacted_count": 0, "summary_memory_id": None}
+
+    active_summary = (
+        db.query(Memory)
+        .filter(
+            Memory.task_context == task_context,
+            Memory.is_compacted.is_(True),
+            Memory.is_archived.is_(False),
+        )
+        .order_by(Memory.created_at.desc(), Memory.id.desc())
+        .first()
+    )
+    raw_memories = (
+        db.query(Memory)
+        .filter(
+            Memory.task_context == task_context,
+            Memory.is_archived.is_(False),
+            Memory.is_pinned.is_(False),
+            Memory.is_compacted.is_(False),
+        )
+        .order_by(Memory.created_at.asc(), Memory.id.asc())
+        .all()
+    )
+
+    if len(raw_memories) <= MAX_ACTIVE_RAW_MEMORIES_PER_CONTEXT:
+        return {"compacted_count": 0, "summary_memory_id": active_summary.id if active_summary else None}
+
+    source_memories = raw_memories[:-RAW_MEMORIES_TO_KEEP_PER_CONTEXT]
+    summary_fragments = (
+        _extract_summary_fragments(active_summary.content) if active_summary else []
+    ) + [memory.content for memory in source_memories]
+    summary_content = _build_compacted_summary(task_context, summary_fragments)
+
+    if active_summary is None:
+        summary_memory = Memory(
+            session_id=source_memories[-1].session_id if source_memories else "maintenance",
+            content=summary_content,
+            task_context=task_context,
+            is_compacted=True,
+        )
+        db.add(summary_memory)
+        db.flush()
+    else:
+        summary_memory = active_summary
+        summary_memory.content = summary_content
+        summary_memory.is_archived = False
+
+    _upsert_memory_embedding(summary_memory)
+
+    for memory in source_memories:
+        memory.is_archived = True
+        memory.compacted_into_id = summary_memory.id
+
+    _delete_memory_embeddings([memory.chroma_id for memory in source_memories])
+    db.commit()
+    db.refresh(summary_memory)
+    return {"compacted_count": len(source_memories), "summary_memory_id": summary_memory.id}
+
+
+def apply_memory_retention(db: Session) -> int:
+    active_raw_memories = (
+        db.query(Memory)
+        .filter(
+            Memory.is_archived.is_(False),
+            Memory.is_pinned.is_(False),
+            Memory.is_compacted.is_(False),
+        )
+        .order_by(Memory.created_at.desc(), Memory.id.desc())
+        .all()
+    )
+    if len(active_raw_memories) <= MAX_ACTIVE_RAW_MEMORIES_GLOBAL:
+        return 0
+
+    stale_memories = active_raw_memories[MAX_ACTIVE_RAW_MEMORIES_GLOBAL:]
+    for memory in stale_memories:
+        memory.is_archived = True
+
+    _delete_memory_embeddings([memory.chroma_id for memory in stale_memories])
+    db.commit()
+    return len(stale_memories)
+
+
+def maintain_memory_health(db: Session, task_context: str | None = None) -> dict:
+    compaction_result = compact_memories_for_context(db, task_context)
+    archived_count = apply_memory_retention(db)
+    return {
+        "compacted_count": compaction_result["compacted_count"],
+        "summary_memory_id": compaction_result["summary_memory_id"],
+        "archived_count": archived_count,
     }
 
 
@@ -51,9 +209,15 @@ class MemorySearchRequest(BaseModel):
 
 
 class MemoryUpdateRequest(BaseModel):
-    content: str
-    task_context: str
-    is_compacted: bool = False
+    content: str | None = None
+    task_context: str | None = None
+    is_compacted: bool | None = None
+    is_pinned: bool | None = None
+    is_archived: bool | None = None
+
+
+class MemoryMaintenanceRequest(BaseModel):
+    task_context: str | None = None
 
 
 @router.post("/store")
@@ -62,31 +226,29 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
     Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
     This acts as the global, persistent brain across all tasks.
     """
-    memory_id = str(uuid.uuid4())
-
-    try:
-        get_memory_collection().upsert(
-            documents=[request.content],
-            metadatas=[{"session_id": request.session_id, "task_context": request.task_context}],
-            ids=[memory_id],
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to write memory to ChromaDB: {str(exc)}")
-
     new_memory = Memory(
         session_id=request.session_id,
         content=request.content,
-        chroma_id=memory_id,
         task_context=request.task_context,
     )
     db.add(new_memory)
+    db.flush()
+
+    try:
+        _upsert_memory_embedding(new_memory)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to write memory to ChromaDB: {str(exc)}")
+
     db.commit()
     db.refresh(new_memory)
+    maintenance = maintain_memory_health(db, task_context=request.task_context)
 
     return {
         "status": "Memory permanently embedded into Pexo's global brain.",
         "memory_id": new_memory.id,
-        "chroma_id": memory_id,
+        "chroma_id": new_memory.chroma_id,
+        "maintenance": maintenance,
     }
 
 
@@ -120,6 +282,8 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     for index, document in enumerate(documents[0]):
         chroma_id = chroma_ids[index] if index < len(chroma_ids) else None
         memory_record = memory_map.get(chroma_id)
+        if memory_record and memory_record.is_archived:
+            continue
         metadata = metadatas[0][index] if metadatas and metadatas[0] else {}
         formatted_results.append(
             {
@@ -129,6 +293,8 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
                 "distance": distances[0][index] if distances and distances[0] else None,
                 "created_at": memory_record.created_at.isoformat() if memory_record and memory_record.created_at else None,
                 "is_compacted": bool(memory_record.is_compacted) if memory_record else False,
+                "is_pinned": bool(memory_record.is_pinned) if memory_record else False,
+                "is_archived": bool(memory_record.is_archived) if memory_record else False,
             }
         )
 
@@ -136,10 +302,20 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/recent")
-def list_recent_memories(limit: int = 12, db: Session = Depends(get_db)):
+def list_recent_memories(limit: int = 12, include_archived: bool = True, db: Session = Depends(get_db)):
     safe_limit = max(1, min(limit, 100))
-    memories = db.query(Memory).order_by(Memory.created_at.desc()).limit(safe_limit).all()
+    query = db.query(Memory)
+    if not include_archived:
+        query = query.filter(Memory.is_archived.is_(False))
+    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+    memories = query.order_by(recency_order.desc(), Memory.id.desc()).limit(safe_limit).all()
     return {"memories": [serialize_memory(memory) for memory in memories]}
+
+
+@router.post("/maintenance")
+def run_memory_maintenance(request: MemoryMaintenanceRequest, db: Session = Depends(get_db)):
+    result = maintain_memory_health(db, task_context=request.task_context)
+    return {"status": "success", **result}
 
 
 @router.get("/{memory_id}")
@@ -156,23 +332,39 @@ def update_memory(memory_id: int, request: MemoryUpdateRequest, db: Session = De
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
 
-    memory.content = request.content
-    memory.task_context = request.task_context
-    memory.is_compacted = request.is_compacted
+    previous_task_context = memory.task_context
 
-    if memory.chroma_id:
-        try:
-            get_memory_collection().upsert(
-                ids=[memory.chroma_id],
-                documents=[request.content],
-                metadatas=[{"session_id": memory.session_id, "task_context": request.task_context}],
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to update ChromaDB memory: {str(exc)}")
+    if request.content is not None:
+        memory.content = request.content
+    if request.task_context is not None:
+        memory.task_context = request.task_context
+    if request.is_compacted is not None:
+        memory.is_compacted = request.is_compacted
+    if request.is_pinned is not None:
+        memory.is_pinned = request.is_pinned
+    if request.is_archived is not None:
+        memory.is_archived = request.is_archived
+
+    try:
+        if memory.is_archived:
+            _delete_memory_embeddings([memory.chroma_id])
+        else:
+            _upsert_memory_embedding(memory)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to sync ChromaDB memory: {str(exc)}")
 
     db.commit()
     db.refresh(memory)
-    return {"status": "success", "memory": serialize_memory(memory)}
+
+    task_contexts_to_maintain = {context for context in [previous_task_context, memory.task_context] if context}
+    maintenance = {"compacted_count": 0, "summary_memory_id": None, "archived_count": 0}
+    for task_context in task_contexts_to_maintain:
+        result = maintain_memory_health(db, task_context=task_context)
+        maintenance["compacted_count"] += result["compacted_count"]
+        maintenance["archived_count"] += result["archived_count"]
+        maintenance["summary_memory_id"] = maintenance["summary_memory_id"] or result["summary_memory_id"]
+
+    return {"status": "success", "memory": serialize_memory(memory), "maintenance": maintenance}
 
 
 @router.delete("/{memory_id}")
@@ -181,12 +373,7 @@ def delete_memory(memory_id: int, db: Session = Depends(get_db)):
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
 
-    if memory.chroma_id:
-        try:
-            get_memory_collection().delete(ids=[memory.chroma_id])
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to delete ChromaDB memory: {str(exc)}")
-
+    _delete_memory_embeddings([memory.chroma_id])
     db.delete(memory)
     db.commit()
     return {"status": "success", "message": f"Memory {memory_id} deleted successfully"}

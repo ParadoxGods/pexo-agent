@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import json
 import uuid
 from typing import Any, Optional
 
@@ -27,6 +28,36 @@ class TaskResult(BaseModel):
     session_id: str
     result_data: Any
 
+
+def estimate_context_tokens(payload: Any) -> int:
+    serialized = json.dumps(payload, default=str)
+    return max(1, len(serialized) // 4)
+
+
+def build_output_preview(payload: Any, limit: int = 220) -> str:
+    preview = json.dumps(payload, default=str)
+    if len(preview) > limit:
+        return f"{preview[:limit].rstrip()}..."
+    return preview
+
+
+def log_agent_state(
+    db: Session,
+    session_id: str,
+    agent_name: str,
+    status: str,
+    data: dict[str, Any],
+) -> None:
+    db.add(
+        AgentState(
+            session_id=session_id,
+            agent_name=agent_name,
+            status=status,
+            context_size_tokens=estimate_context_tokens(data),
+            data=data,
+        )
+    )
+
 @router.post("/intake", response_model=ClarificationResponse)
 def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
     """Step 1 & 2: Intake and Clarification (The 'One-Ask' Rule)"""
@@ -52,6 +83,7 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         session_id=session_id,
         agent_name="orchestrator",
         status="clarification_pending",
+        context_size_tokens=estimate_context_tokens(initial_state),
         data=initial_state
     )
     db.add(db_state)
@@ -77,6 +109,19 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
     
     db_state.data = new_state
     db_state.status = "running"
+    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    log_agent_state(
+        db,
+        request.session_id,
+        "orchestrator",
+        "graph_started",
+        {
+            "clarification_answer": request.clarification_answer,
+            "next_agent": new_state.get("current_agent"),
+            "task_count": len(new_state.get("tasks", [])),
+            "waiting_for_ai": new_state.get("waiting_for_ai"),
+        },
+    )
     db.commit()
     
     return {"status": "Execution started. External AI should poll /orchestrator/next", "session_id": request.session_id}
@@ -116,26 +161,57 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     if state["current_agent"] == "Supervisor":
         # Expecting a list of tasks
         state["tasks"] = result.result_data if isinstance(result.result_data, list) else []
+        telemetry_data = {
+            "task_count": len(state["tasks"]),
+            "output_preview": build_output_preview(result.result_data),
+            "result_type": type(result.result_data).__name__,
+        }
     elif state["current_agent"] not in ["Supervisor", "Code Organization Manager"]:
         # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
         tasks = state.get("tasks", [])
         completed = state.get("completed_tasks", [])
+        telemetry_data = {
+            "output_preview": build_output_preview(result.result_data),
+            "result_type": type(result.result_data).__name__,
+        }
         if len(completed) < len(tasks):
-            completed.append({"task": tasks[len(completed)], "result": result.result_data})
+            current_task = tasks[len(completed)]
+            completed.append({"task": current_task, "result": result.result_data})
             state["completed_tasks"] = completed
+            telemetry_data["task_id"] = current_task.get("id")
+            telemetry_data["task_description"] = current_task.get("description")
+            telemetry_data["assigned_agent"] = current_task.get("assigned_agent")
+    else:
+        telemetry_data = {
+            "output_preview": build_output_preview(result.result_data),
+            "result_type": type(result.result_data).__name__,
+        }
 
     # Log the AI's specific action in AgentState for persistence tracking
     agent_log = AgentState(
         session_id=result.session_id,
         agent_name=state["current_agent"],
         status="completed",
-        data={"output": result.result_data}
+        context_size_tokens=estimate_context_tokens(result.result_data),
+        data={**telemetry_data, "output": result.result_data}
     )
     db.add(agent_log)
     
     # Resume the LangGraph to compute the next node
     new_state = pexo_app.invoke(state)
     db_state.data = new_state
+    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    if new_state.get("final_response"):
+        log_agent_state(
+            db,
+            result.session_id,
+            "orchestrator",
+            "session_complete",
+            {
+                "final_response": new_state.get("final_response"),
+                "completed_task_count": len(new_state.get("completed_tasks", [])),
+            },
+        )
     db.commit()
     
     return {"status": "Result accepted. Graph advanced."}

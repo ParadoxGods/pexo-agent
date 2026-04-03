@@ -46,7 +46,11 @@ class Memory(Base):
     chroma_id = Column(String, index=True) 
     task_context = Column(String, index=True) # Tracks which task/agent created this memory
     is_compacted = Column(Boolean, default=False) # True if this memory is a high-level summary/compaction
+    is_pinned = Column(Boolean, default=False)
+    is_archived = Column(Boolean, default=False)
+    compacted_into_id = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 class DynamicTool(Base):
     """
