@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -9,13 +10,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
 import app.routers.memory as memory_router
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
+from app.main import app
 from app.database import SessionLocal, engine, init_db
 from app.mcp_server import (
+    pexo_delete_artifact,
     pexo_create_agent,
     pexo_delete_agent,
     pexo_delete_memory,
@@ -23,22 +27,28 @@ from app.mcp_server import (
     pexo_execute_plan,
     pexo_execute_tool,
     pexo_get_admin_snapshot,
+    pexo_get_artifact,
     pexo_get_memory,
     pexo_get_next_task,
     pexo_get_profile,
     pexo_get_profile_questions,
+    pexo_get_runtime_status,
     pexo_get_session_activity,
     pexo_get_telemetry,
     pexo_get_tool,
     pexo_intake_prompt,
     pexo_list_agents,
+    pexo_list_artifacts,
     pexo_list_profile_presets,
     pexo_list_recent_memories,
     pexo_list_sessions,
     pexo_list_tools,
     pexo_quick_setup_profile,
     pexo_read_profile,
+    pexo_register_artifact_path,
+    pexo_register_artifact_text,
     pexo_register_tool,
+    pexo_promote_runtime,
     pexo_run_memory_maintenance,
     pexo_store_memory,
     pexo_submit_task_result,
@@ -48,8 +58,17 @@ from app.mcp_server import (
     pexo_update_tool,
 )
 from app.models import AgentProfile, AgentState, Memory, Profile
-from app.paths import CHROMA_DB_DIR, PEXO_DB_PATH
-from app.routers.admin import build_telemetry_payload
+from app.paths import ARTIFACTS_DIR, CHROMA_DB_DIR, PEXO_DB_PATH, PROJECT_ROOT
+from app.routers.admin import build_telemetry_payload, get_admin_snapshot
+from app.routers.artifacts import (
+    ArtifactPathRequest,
+    ArtifactTextRequest,
+    delete_artifact,
+    get_artifact,
+    list_artifacts,
+    register_artifact_path,
+    register_artifact_text,
+)
 from app.routers.backup import create_backup_archive
 from app.routers.memory import (
     MemorySearchRequest,
@@ -62,7 +81,8 @@ from app.routers.memory import (
     update_memory,
 )
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, derive_profile_answers, upsert_profile
-from app.routers.tools import resolve_tool_path
+from app.routers.tools import ToolExecutionRequest, ToolRegistrationRequest, execute_tool, register_tool, resolve_tool_path
+from app.runtime import build_runtime_status
 
 
 class FakeCollection:
@@ -97,6 +117,7 @@ class HardeningTests(unittest.TestCase):
         engine.dispose()
         PEXO_DB_PATH.unlink(missing_ok=True)
         shutil.rmtree(CHROMA_DB_DIR, ignore_errors=True)
+        shutil.rmtree(ARTIFACTS_DIR, ignore_errors=True)
 
     def test_init_db_creates_all_tables_without_preimporting_models(self):
         engine.dispose()
@@ -107,7 +128,7 @@ class HardeningTests(unittest.TestCase):
         inspector = inspect(engine)
         table_names = set(inspector.get_table_names())
         self.assertTrue(
-            {"profiles", "agent_profiles", "memories", "dynamic_tools", "agent_states", "workspaces"}.issubset(table_names)
+            {"profiles", "agent_profiles", "memories", "dynamic_tools", "agent_states", "workspaces", "artifacts", "system_settings"}.issubset(table_names)
         )
 
     def test_init_db_seeds_core_agents(self):
@@ -195,6 +216,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("saveProfileSettings()", html)
         self.assertIn("runMemoryMaintenance()", html)
         self.assertIn("telemetry-summary", html)
+        self.assertIn("artifact-list", html)
+        self.assertIn("promoteRuntime(", html)
         self.assertIn("/admin/snapshot", html)
 
     def test_install_scripts_report_progress_percentages(self):
@@ -290,6 +313,16 @@ class HardeningTests(unittest.TestCase):
         content = Path(".gitattributes").read_text(encoding="utf-8")
         self.assertIn("*.sh text eol=lf", content)
         self.assertIn("pexo text eol=lf", content)
+
+    def test_install_runtime_ci_workflow_covers_windows_and_linux(self):
+        workflow = Path(".github/workflows/install-runtime-ci.yml").read_text(encoding="utf-8")
+        self.assertIn("windows-latest", workflow)
+        self.assertIn("ubuntu-latest", workflow)
+        self.assertIn("Install Runtime CI", workflow)
+        self.assertIn("install.ps1 -UseCurrentCheckout", workflow)
+        self.assertIn("bash ./install.sh --use-current-checkout", workflow)
+        self.assertIn("uninstall.ps1", workflow)
+        self.assertIn("uninstall.sh", workflow)
 
     def test_uninstall_scripts_target_their_own_install_directory(self):
         windows_uninstall = Path("uninstall.ps1").read_text(encoding="utf-8")
@@ -497,6 +530,8 @@ class HardeningTests(unittest.TestCase):
             results = search_memory(MemorySearchRequest(query="repo-local MCP", n_results=3), db)
             self.assertTrue(results["results"])
             self.assertEqual(results["results"][0]["metadata"]["search_mode"], "keyword_fallback")
+            self.assertIn("runtime", results)
+            self.assertIsNotNone(results.get("promotion_offer"))
         finally:
             memory_router.chromadb = original_chromadb
             memory_router.Settings = original_settings
@@ -566,6 +601,202 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(telemetry["summary"]["action_count"], 2)
             self.assertTrue(any(session["session_id"] == "session-telemetry" for session in telemetry["recent_sessions"]))
             self.assertTrue(any(activity["agent_name"] == "Developer" for activity in telemetry["recent_activity"]))
+        finally:
+            db.close()
+
+    def test_runtime_status_reports_vector_offer_when_chromadb_missing(self):
+        init_db()
+        db = SessionLocal()
+        original_chromadb = memory_router.chromadb
+        original_settings = memory_router.Settings
+        original_collection = memory_router._memory_collection
+        memory_router.chromadb = None
+        memory_router.Settings = None
+        memory_router._memory_collection = None
+        try:
+            status = build_runtime_status(db)
+            self.assertFalse(status["vector_embeddings_available"])
+            self.assertTrue(status["vector_promotion_offer_pending"])
+            self.assertEqual(status["vector_promotion_offer"]["profile"], "vector")
+        finally:
+            memory_router.chromadb = original_chromadb
+            memory_router.Settings = original_settings
+            memory_router._memory_collection = original_collection
+            db.close()
+
+    @patch("app.routers.runtime.promote_runtime")
+    def test_mcp_runtime_tools_expose_status_and_promotion(self, mock_promote_runtime):
+        init_db()
+        mock_promote_runtime.return_value = {
+            "status": "success",
+            "profile": "vector",
+            "command": ["python", "-m", "pip"],
+            "duration_ms": 1,
+            "stdout": "ok",
+            "stderr": "",
+            "returncode": 0,
+            "runtime": {"active_profile": "vector"},
+        }
+
+        status = pexo_get_runtime_status()
+        self.assertIn("active_profile", status)
+
+        promotion = pexo_promote_runtime("vector")
+        self.assertEqual(promotion["status"], "success")
+        self.assertEqual(promotion["profile"], "vector")
+
+    def test_artifact_text_and_path_registration_round_trip(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                artifact_dir = Path(tmpdir) / "artifacts"
+                source_file = Path(tmpdir) / "note.txt"
+                source_file.write_text("Attachment body for artifact indexing.", encoding="utf-8")
+
+                with patch("app.routers.artifacts.ARTIFACTS_DIR", artifact_dir):
+                    text_result = register_artifact_text(
+                        ArtifactTextRequest(
+                            name="summary.md",
+                            content="Attached context from local execution.",
+                            session_id="artifact-session",
+                            task_context="docs",
+                        ),
+                        db,
+                    )
+                    path_result = register_artifact_path(
+                        ArtifactPathRequest(
+                            path=str(source_file),
+                            session_id="artifact-session",
+                            task_context="docs",
+                        ),
+                        db,
+                    )
+
+                    listing = list_artifacts(limit=10, query="artifact", db=db)
+                    self.assertEqual(len(listing["artifacts"]), 2)
+                    self.assertTrue(text_result["artifact"]["has_text"])
+                    self.assertTrue(path_result["artifact"]["has_text"])
+
+                    artifact = get_artifact(path_result["artifact"]["id"], db)
+                    self.assertIn("Attachment body", artifact["extracted_text"])
+
+                    deleted = delete_artifact(text_result["artifact"]["id"], db)
+                    self.assertEqual(deleted["status"], "success")
+        finally:
+            db.close()
+
+    def test_admin_snapshot_includes_runtime_and_artifacts(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                artifact_dir = Path(tmpdir) / "artifacts"
+                with patch("app.routers.artifacts.ARTIFACTS_DIR", artifact_dir):
+                    register_artifact_text(
+                        ArtifactTextRequest(
+                            name="summary.txt",
+                            content="Dashboard artifact.",
+                            session_id="artifact-session",
+                            task_context="admin",
+                        ),
+                        db,
+                    )
+                    snapshot = get_admin_snapshot(memory_limit=5, db=db)
+                    self.assertIn("runtime", snapshot)
+                    self.assertEqual(snapshot["stats"]["artifact_count"], 1)
+                    self.assertEqual(len(snapshot["recent_artifacts"]), 1)
+        finally:
+            db.close()
+
+    def test_artifact_upload_endpoint_accepts_file_content(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_dir = Path(tmpdir) / "artifacts"
+            with patch("app.routers.artifacts.ARTIFACTS_DIR", artifact_dir):
+                client = TestClient(app)
+                response = client.post(
+                    "/artifacts/upload",
+                    data={"session_id": "upload-session", "task_context": "uploads"},
+                    files={"file": ("trace.log", b"upload artifact body", "text/plain")},
+                )
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["status"], "success")
+                self.assertTrue(payload["artifact"]["has_text"])
+                self.assertIn("upload artifact body", payload["artifact"]["extracted_text"])
+
+    def test_tool_execution_runs_in_subprocess_and_captures_output(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir)
+                with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                    register_tool(
+                        ToolRegistrationRequest(
+                            name="cwd_echo",
+                            description="Echoes cwd and prints stdout.",
+                            python_code=(
+                                "from pathlib import Path\n"
+                                "def run(**kwargs):\n"
+                                "    print(f\"printed:{kwargs['value']}\")\n"
+                                "    return {'cwd': str(Path.cwd()), 'value': kwargs['value']}\n"
+                            ),
+                        ),
+                        db,
+                    )
+                    result = execute_tool(
+                        "cwd_echo",
+                        ToolExecutionRequest(
+                            kwargs={"value": "hello"},
+                            session_id="tool-session",
+                            working_directory=str(PROJECT_ROOT),
+                        ),
+                        db,
+                    )
+                    self.assertEqual(result["status"], "success")
+                    self.assertEqual(result["execution_mode"], "subprocess")
+                    self.assertIn("printed:hello", result["stdout"])
+                    self.assertEqual(result["result"]["value"], "hello")
+                    self.assertEqual(Path(result["result"]["cwd"]), PROJECT_ROOT)
+
+                    log_entry = db.query(AgentState).filter(AgentState.session_id == "tool-session").first()
+                    self.assertIsNotNone(log_entry)
+                    self.assertEqual(log_entry.agent_name, "Genesis:cwd_echo")
+        finally:
+            db.close()
+
+    def test_tool_execution_rejects_outside_working_directory_by_default(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir) / "tools"
+                outside_dir = Path(tmpdir) / "outside"
+                tool_dir.mkdir()
+                outside_dir.mkdir()
+                with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                    register_tool(
+                        ToolRegistrationRequest(
+                            name="safe_tool",
+                            description="No-op",
+                            python_code="def run(**kwargs):\n    return kwargs\n",
+                        ),
+                        db,
+                    )
+                    with self.assertRaises(HTTPException) as ctx:
+                        execute_tool(
+                            "safe_tool",
+                            ToolExecutionRequest(
+                                kwargs={},
+                                session_id="tool-session",
+                                working_directory=str(outside_dir),
+                            ),
+                            db,
+                        )
+                    self.assertEqual(ctx.exception.status_code, 400)
         finally:
             db.close()
 
@@ -708,6 +939,31 @@ class HardeningTests(unittest.TestCase):
                 deleted = pexo_delete_tool("echo_tool")
                 self.assertEqual(deleted["status"], "success")
                 self.assertFalse((temp_tools_dir / "echo_tool.py").exists())
+
+    def test_mcp_artifact_tools_round_trip(self):
+        init_db()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_dir = Path(tmpdir) / "artifacts"
+            source_path = Path(tmpdir) / "readme.txt"
+            source_path.write_text("Artifact MCP content.", encoding="utf-8")
+            with patch("app.routers.artifacts.ARTIFACTS_DIR", artifact_dir):
+                created_text = pexo_register_artifact_text(
+                    name="memo.txt",
+                    content="Artifact note body.",
+                    session_id="artifact-session",
+                    task_context="mcp",
+                )
+                created_path = pexo_register_artifact_path(
+                    path=str(source_path),
+                    session_id="artifact-session",
+                    task_context="mcp",
+                )
+                listing = pexo_list_artifacts(limit=10, query="Artifact")
+                self.assertEqual(len(listing["artifacts"]), 2)
+                fetched = pexo_get_artifact(created_path["artifact"]["id"])
+                self.assertIn("Artifact MCP content.", fetched["extracted_text"])
+                deleted = pexo_delete_artifact(created_text["artifact"]["id"])
+                self.assertEqual(deleted["status"], "success")
 
 
 if __name__ == "__main__":

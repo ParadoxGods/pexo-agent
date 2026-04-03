@@ -5,7 +5,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import AgentProfile, AgentState, DynamicTool, Memory, Profile
+from ..models import AgentProfile, AgentState, Artifact, DynamicTool, Memory, Profile
+from ..runtime import build_runtime_status
+from .artifacts import serialize_artifact
 from .memory import serialize_memory
 from .profile import derive_profile_answers
 
@@ -127,11 +129,13 @@ def build_telemetry_payload(db: Session) -> dict:
 def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
     safe_limit = max(1, min(memory_limit, 100))
     memory_recency = func.coalesce(Memory.updated_at, Memory.created_at)
+    artifact_recency = func.coalesce(Artifact.updated_at, Artifact.created_at)
 
     profile = db.query(Profile).filter(Profile.name == "default_user").first()
     agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
     tools = db.query(DynamicTool).order_by(DynamicTool.name.asc()).all()
     recent_memories = db.query(Memory).order_by(memory_recency.desc(), Memory.id.desc()).limit(safe_limit).all()
+    recent_artifacts = db.query(Artifact).order_by(artifact_recency.desc(), Artifact.id.desc()).limit(safe_limit).all()
 
     return {
         "configured": profile is not None,
@@ -140,13 +144,16 @@ def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
         "agents": [serialize_agent(agent) for agent in agents],
         "tools": [{"name": tool.name, "description": tool.description} for tool in tools],
         "recent_memories": [serialize_memory(memory) for memory in recent_memories],
+        "recent_artifacts": [serialize_artifact(artifact) for artifact in recent_artifacts],
         "stats": {
             "agent_count": db.query(func.count(AgentProfile.id)).scalar() or 0,
             "tool_count": db.query(func.count(DynamicTool.id)).scalar() or 0,
             "memory_count": db.query(func.count(Memory.id)).scalar() or 0,
+            "artifact_count": db.query(func.count(Artifact.id)).scalar() or 0,
             "archived_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_archived.is_(True)).scalar() or 0,
             "pinned_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_pinned.is_(True)).scalar() or 0,
             "compacted_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_compacted.is_(True)).scalar() or 0,
         },
+        "runtime": build_runtime_status(db),
         "telemetry": build_telemetry_payload(db),
     }

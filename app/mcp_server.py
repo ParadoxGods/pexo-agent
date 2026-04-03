@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from mcp.server.fastmcp import FastMCP
 
 from .database import SessionLocal, init_db
-from .models import AgentProfile, AgentState, Profile
+from .models import AgentProfile, AgentState, Artifact, Profile
 from .routers.admin import (
     build_telemetry_payload,
     get_admin_snapshot as build_admin_snapshot,
@@ -14,6 +14,15 @@ from .routers.admin import (
     serialize_profile,
 )
 from .routers.agents import AgentCreate, create_agent
+from .routers.artifacts import (
+    ArtifactPathRequest,
+    ArtifactTextRequest,
+    delete_artifact,
+    get_artifact,
+    list_artifacts,
+    register_artifact_path,
+    register_artifact_text,
+)
 from .routers.backup import run_backup_for_profile
 from .routers.evolve import EvolutionRequest, evolve_agent
 from .routers.memory import (
@@ -39,6 +48,7 @@ from .routers.profile import (
     get_profile_presets,
     upsert_profile,
 )
+from .routers.runtime import get_runtime_status as build_runtime_status_response, promote_runtime_profile
 from .routers.tools import (
     ToolExecutionRequest,
     ToolRegistrationRequest,
@@ -135,6 +145,13 @@ def _get_session_activity(db, session_id: str, limit: int = 50) -> list[dict]:
         .all()
     )
     return [serialize_agent_state(state) for state in states]
+
+
+def _require_artifact(db, artifact_id: int) -> Artifact:
+    artifact = db.query(Artifact).filter(Artifact.id == artifact_id).first()
+    if artifact is None:
+        raise ValueError("Artifact not found.")
+    return artifact
 
 
 @mcp.tool()
@@ -313,17 +330,32 @@ def pexo_delete_agent(agent_id: int | None = None, agent_name: str | None = None
 
 
 @mcp.tool()
-def pexo_search_memory(query: str, n_results: int = 3) -> dict:
+def pexo_search_memory(query: str, n_results: int = 3, auto_promote_vector: bool = False) -> dict:
     """Searches Pexo's Global Vector Brain for relevant historical context."""
-    return _with_db(lambda db: search_memory(MemorySearchRequest(query=query, n_results=n_results), db))
+    return _with_db(
+        lambda db: search_memory(
+            MemorySearchRequest(query=query, n_results=n_results, auto_promote_vector=auto_promote_vector),
+            db,
+        )
+    )
 
 
 @mcp.tool()
-def pexo_store_memory(content: str, task_context: str, session_id: str = "mcp_session") -> dict:
+def pexo_store_memory(
+    content: str,
+    task_context: str,
+    session_id: str = "mcp_session",
+    auto_promote_vector: bool = False,
+) -> dict:
     """Stores a memory record and triggers lifecycle maintenance."""
     return _with_db(
         lambda db: store_memory(
-            MemoryStoreRequest(session_id=session_id, content=content, task_context=task_context),
+            MemoryStoreRequest(
+                session_id=session_id,
+                content=content,
+                task_context=task_context,
+                auto_promote_vector=auto_promote_vector,
+            ),
             db,
         )
     )
@@ -420,9 +452,28 @@ def pexo_update_tool(tool_name: str, description: str | None = None, python_code
 
 
 @mcp.tool()
-def pexo_execute_tool(tool_name: str, kwargs: dict[str, Any] | None = None) -> dict:
-    """Executes a Genesis tool with structured keyword arguments."""
-    return _with_db(lambda db: execute_tool(tool_name, ToolExecutionRequest(kwargs=kwargs or {}), db))
+def pexo_execute_tool(
+    tool_name: str,
+    kwargs: dict[str, Any] | None = None,
+    session_id: str = "tool_execution",
+    working_directory: str | None = None,
+    allow_outside_project: bool = False,
+    timeout_seconds: int = 30,
+) -> dict:
+    """Executes a Genesis tool with structured keyword arguments in an isolated subprocess."""
+    return _with_db(
+        lambda db: execute_tool(
+            tool_name,
+            ToolExecutionRequest(
+                kwargs=kwargs or {},
+                session_id=session_id,
+                working_directory=working_directory,
+                allow_outside_project=allow_outside_project,
+                timeout_seconds=timeout_seconds,
+            ),
+            db,
+        )
+    )
 
 
 @mcp.tool()
@@ -483,6 +534,89 @@ def pexo_submit_task_result(session_id: str, result_data: Any) -> dict:
 def pexo_run_backup() -> dict:
     """Backs up the local database, vector store, and Genesis tools using the configured profile path."""
     return _with_db(lambda db: run_backup_for_profile(db))
+
+
+@mcp.tool()
+def pexo_get_runtime_status() -> dict:
+    """Returns the local runtime profile status and any recommended promotions."""
+    return _with_db(lambda db: build_runtime_status_response(db))
+
+
+@mcp.tool()
+def pexo_promote_runtime(profile: str) -> dict:
+    """Promotes the local runtime dependency profile in-place."""
+    return _with_db(lambda db: promote_runtime_profile(profile, db))
+
+
+@mcp.tool()
+def pexo_list_artifacts(
+    limit: int = 20,
+    query: str | None = None,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> dict:
+    """Lists stored local artifacts and supports lightweight text search."""
+    return _with_db(
+        lambda db: list_artifacts(limit=limit, query=query, session_id=session_id, task_context=task_context, db=db)
+    )
+
+
+@mcp.tool()
+def pexo_get_artifact(artifact_id: int) -> dict:
+    """Returns a single artifact and any extracted text preview."""
+    return _with_db(lambda db: get_artifact(artifact_id, db))
+
+
+@mcp.tool()
+def pexo_register_artifact_text(
+    name: str,
+    content: str,
+    session_id: str = "artifact_session",
+    task_context: str = "general",
+    source_uri: str | None = None,
+    content_type: str = "text/plain",
+) -> dict:
+    """Stores a text artifact inside Pexo's local artifact vault."""
+    return _with_db(
+        lambda db: register_artifact_text(
+            ArtifactTextRequest(
+                name=name,
+                content=content,
+                session_id=session_id,
+                task_context=task_context,
+                source_uri=source_uri,
+                content_type=content_type,
+            ),
+            db,
+        )
+    )
+
+
+@mcp.tool()
+def pexo_register_artifact_path(
+    path: str,
+    session_id: str = "artifact_session",
+    task_context: str = "general",
+    name: str | None = None,
+) -> dict:
+    """Copies a local file into Pexo's artifact vault and indexes any text preview."""
+    return _with_db(
+        lambda db: register_artifact_path(
+            ArtifactPathRequest(
+                path=path,
+                session_id=session_id,
+                task_context=task_context,
+                name=name,
+            ),
+            db,
+        )
+    )
+
+
+@mcp.tool()
+def pexo_delete_artifact(artifact_id: int) -> dict:
+    """Deletes an artifact from the local artifact vault."""
+    return _with_db(lambda db: delete_artifact(artifact_id, db))
 
 
 def start_mcp_server():
