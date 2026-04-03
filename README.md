@@ -23,4 +23,8 @@ Pexo takes a different approach:
 2. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
 3. Instruct the AI: **"Install Pexo and use it."**
 
+*(Alternatively, you can just double-click `start.bat` on Windows or run `./start.sh` on Mac/Linux to boot it instantly before telling your AI to connect to it.)*
+
+**Note for Windows Users:** Pexo uses ChromaDB for its Global Vector Brain. During the `pip install` phase, if you get an error regarding `hnswlib` or missing C++ Build Tools, you will need to install the [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). 
+
 The AI will automatically read the `PEXO_AI_PRIMER.md` protocol, set up the lightweight local Python environment, and assimilate itself under Pexo's orchestration. From that point on, Pexo acts as the primary "brain."
