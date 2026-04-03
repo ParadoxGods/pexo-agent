@@ -375,7 +375,10 @@ class HardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             override = Path(tmpdir) / "custom-pexo-home"
             resolved = resolve_state_root(code_root=CODE_ROOT, env_override=str(override))
-            self.assertEqual(resolved, override)
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(resolved))),
+                os.path.normcase(os.path.realpath(str(override))),
+            )
 
     def test_gitattributes_enforces_shell_script_line_endings(self):
         content = Path(".gitattributes").read_text(encoding="utf-8")
