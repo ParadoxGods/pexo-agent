@@ -141,6 +141,50 @@ function Test-GhAuthentication {
     return $LASTEXITCODE -eq 0
 }
 
+function Resolve-PackageSource {
+    param([string]$Repository)
+
+    if ($Repository -match "^git\+") {
+        return $Repository
+    }
+    if ($Repository -match "^https?://") {
+        return "git+$Repository"
+    }
+    if ($Repository -match "^git@") {
+        return $Repository
+    }
+    if ($Repository -match "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") {
+        return "git+https://github.com/$Repository.git"
+    }
+
+    throw "Unsupported repository source '$Repository' for packaged installation."
+}
+
+function Should-UsePackagedInstall {
+    param([bool]$UsingExistingCheckout)
+
+    if ($UsingExistingCheckout) {
+        return $false
+    }
+    if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
+        return $false
+    }
+    return (Test-CommandAvailable "uv")
+}
+
+function Format-PackagedWindowsMcpSnippet {
+    return @"
+{
+  "mcpServers": {
+    "pexo": {
+      "command": "pexo-mcp",
+      "args": []
+    }
+  }
+}
+"@
+}
+
 function Get-CloneInvocation {
     param(
         [string]$Repository,
@@ -323,6 +367,94 @@ Write-Host "Installing Pexo (The OpenClaw Killer) ..."
 Write-Host "=================================================="
 
 Assert-Preflight -ResolvedInstallDir $PexoDir -UsingExistingCheckout $UsingExistingCheckout
+
+if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
+    $packageSource = Resolve-PackageSource -Repository $Repository
+    Invoke-TrackedProcess -Percent 20 -StartMessage "Installing packaged Pexo tool from GitHub..." -HeartbeatMessage "Installing packaged Pexo tool... still working" -FilePath "uv" -ArgumentList @("tool", "install", "--reinstall", $packageSource)
+    try {
+        & uv tool update-shell *> $null
+    }
+    catch {
+    }
+
+    $uvBinDir = ""
+    try {
+        $uvBinDir = (& uv tool dir --bin 2>$null | Out-String).Trim()
+    }
+    catch {
+        $uvBinDir = ""
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($uvBinDir)) {
+        $sessionEntries = @()
+        if (-not [string]::IsNullOrWhiteSpace($env:Path)) {
+            $sessionEntries = $env:Path.Split(";") | Where-Object { $_ }
+        }
+        if ($sessionEntries -notcontains $uvBinDir) {
+            $env:Path = (($sessionEntries + $uvBinDir) -join ";")
+        }
+    }
+
+    if (-not (Get-Command pexo -ErrorAction SilentlyContinue)) {
+        throw "Packaged install completed, but the 'pexo' command is not visible in this shell. Run 'uv tool update-shell' and reopen the terminal, or invoke the tool from the uv tool bin directory directly."
+    }
+
+    $finalProfile = "full"
+    if ($RequestedProfile -eq "vector") {
+        Invoke-TrackedProcess -Percent 85 -StartMessage "Promoting packaged install to the vector runtime..." -HeartbeatMessage "Promoting packaged install... still working" -FilePath "pexo" -ArgumentList @("promote", "vector")
+        $finalProfile = "vector"
+    }
+
+    if ($HeadlessSetup) {
+        $headlessArgs = @("headless-setup", "--preset", $Preset, "--name", $ProfileName)
+        if (-not [string]::IsNullOrWhiteSpace($BackupPath)) {
+            $headlessArgs += @("--backup-path", $BackupPath)
+        }
+        Invoke-TrackedProcess -Percent 95 -StartMessage "Applying headless profile setup..." -HeartbeatMessage "Applying headless profile setup... still working" -FilePath "pexo" -ArgumentList $headlessArgs
+    }
+
+    $stateRoot = [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".pexo"))
+    $databasePath = Join-Path $stateRoot "pexo.db"
+    $memoryStorePath = Join-Path $stateRoot "chroma_db"
+    $artifactPath = Join-Path $stateRoot "artifacts"
+    $toolsPath = Join-Path $stateRoot "dynamic_tools"
+    $effectiveBackupPath = if ($HeadlessSetup -and -not [string]::IsNullOrWhiteSpace($BackupPath)) { $BackupPath } elseif ($HeadlessSetup) { "not set" } else { "not configured during install" }
+    $profileSummary = if ($HeadlessSetup) { $ProfileName } else { "not initialized" }
+
+    Show-InstallProgress -Percent 100 -Status "Installation complete"
+    Write-Progress -Activity "Installing Pexo" -Completed -Status "Installation complete"
+    Write-Host "=================================================="
+    Write-Host "Pexo installed successfully!"
+    Write-Host "Install mode: packaged GitHub tool via uv"
+    Write-Host "Package source: $packageSource"
+    Write-Host "State directory: $stateRoot"
+    Write-Host "Dependency profile ready now: $finalProfile"
+    Write-Host "Profile initialized: $profileSummary"
+    Write-Host "Backup path: $effectiveBackupPath"
+    Write-Host "Local database path: $databasePath"
+    Write-Host "Local vector store path: $memoryStorePath"
+    Write-Host "Local artifacts path: $artifactPath"
+    Write-Host "Local dynamic tools path: $toolsPath"
+    Write-Host "Works now in this shell via bare command:"
+    Write-Host "  pexo --version"
+    Write-Host "Ready-to-paste Windows MCP config:"
+    Write-Host (Format-PackagedWindowsMcpSnippet)
+    Write-Host "To uninstall the packaged tool later:"
+    Write-Host "  uv tool uninstall pexo-agent"
+    Write-Host "To remove local state as well:"
+    Write-Host "  Remove-Item -Recurse -Force `"$stateRoot`""
+    if ($HeadlessSetup) {
+        Write-Host "Headless profile setup completed during install."
+        Write-Host "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
+    }
+    else {
+        Write-Host "Preferred terminal-first setup path:"
+        Write-Host "  pexo headless-setup --preset $Preset"
+        Write-Host "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+    }
+    Write-Host "=================================================="
+    return
+}
 
 Show-InstallProgress -Percent 5 -Status "Validating install target at $PexoDir"
 if ($UsingExistingCheckout) {

@@ -190,6 +190,51 @@ gh_auth_available() {
     command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1
 }
 
+resolve_package_source() {
+    local repository="$1"
+    if [[ "$repository" =~ ^git\+ ]]; then
+        printf '%s\n' "$repository"
+        return
+    fi
+    if [[ "$repository" =~ ^https?:// ]]; then
+        printf 'git+%s\n' "$repository"
+        return
+    fi
+    if [[ "$repository" =~ ^git@ ]]; then
+        printf '%s\n' "$repository"
+        return
+    fi
+    if [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        printf 'git+https://github.com/%s.git\n' "$repository"
+        return
+    fi
+    echo "Unsupported repository source: $repository" >&2
+    exit 1
+}
+
+should_use_packaged_install() {
+    if [ "$USING_EXISTING_CHECKOUT" -eq 1 ]; then
+        return 1
+    fi
+    if [ -n "$INSTALL_DIR" ]; then
+        return 1
+    fi
+    command -v uv >/dev/null 2>&1
+}
+
+print_packaged_mcp_snippet() {
+    cat <<EOF
+{
+  "mcpServers": {
+    "pexo": {
+      "command": "pexo-mcp",
+      "args": []
+    }
+  }
+}
+EOF
+}
+
 profile_rank() {
     case "$1" in
         core) echo 1 ;;
@@ -336,6 +381,88 @@ echo "Installing Pexo (The OpenClaw Killer) ..."
 echo "=================================================="
 
 assert_preflight "$PEXO_DIR" "$USING_EXISTING_CHECKOUT"
+
+if should_use_packaged_install; then
+    PACKAGE_SOURCE=$(resolve_package_source "$REPOSITORY")
+    run_tracked 20 "Installing packaged Pexo tool from GitHub..." "Installing packaged Pexo tool... still working" uv tool install --reinstall "$PACKAGE_SOURCE"
+    uv tool update-shell >/dev/null 2>&1 || true
+
+    UV_BIN_DIR=""
+    if uv tool dir --bin >/dev/null 2>&1; then
+        UV_BIN_DIR=$(uv tool dir --bin)
+    fi
+    if [ -n "$UV_BIN_DIR" ]; then
+        export PATH="$PATH:$UV_BIN_DIR"
+    fi
+
+    if ! command -v pexo >/dev/null 2>&1; then
+        echo "Packaged install completed, but the 'pexo' command is not visible in this shell. Run 'uv tool update-shell' and reopen the terminal." >&2
+        exit 1
+    fi
+
+    FINAL_PROFILE="full"
+    if [ "$REQUESTED_PROFILE" = "vector" ]; then
+        run_tracked 85 "Promoting packaged install to the vector runtime..." "Promoting packaged install... still working" pexo promote vector
+        FINAL_PROFILE="vector"
+    fi
+
+    if [ "$HEADLESS_SETUP" -eq 1 ]; then
+        HEADLESS_ARGS=(headless-setup --preset "$PRESET" --name "$PROFILE_NAME")
+        if [ -n "$BACKUP_PATH" ]; then
+            HEADLESS_ARGS+=(--backup-path "$BACKUP_PATH")
+        fi
+        run_tracked 95 "Applying headless profile setup..." "Applying headless profile setup... still working" pexo "${HEADLESS_ARGS[@]}"
+    fi
+
+    STATE_ROOT="$HOME/.pexo"
+    DATABASE_PATH="$STATE_ROOT/pexo.db"
+    VECTOR_STORE_PATH="$STATE_ROOT/chroma_db"
+    ARTIFACT_PATH="$STATE_ROOT/artifacts"
+    TOOLS_PATH="$STATE_ROOT/dynamic_tools"
+    if [ "$HEADLESS_SETUP" -eq 1 ]; then
+        PROFILE_SUMMARY="$PROFILE_NAME"
+        if [ -n "$BACKUP_PATH" ]; then
+            BACKUP_SUMMARY="$BACKUP_PATH"
+        else
+            BACKUP_SUMMARY="not set"
+        fi
+    else
+        PROFILE_SUMMARY="not initialized"
+        BACKUP_SUMMARY="not configured during install"
+    fi
+
+    print_progress 100 "Installation complete"
+    echo "=================================================="
+    echo "Pexo installed successfully!"
+    echo "Install mode: packaged GitHub tool via uv"
+    echo "Package source: $PACKAGE_SOURCE"
+    echo "State directory: $STATE_ROOT"
+    echo "Dependency profile ready now: $FINAL_PROFILE"
+    echo "Profile initialized: $PROFILE_SUMMARY"
+    echo "Backup path: $BACKUP_SUMMARY"
+    echo "Local database path: $DATABASE_PATH"
+    echo "Local vector store path: $VECTOR_STORE_PATH"
+    echo "Local artifacts path: $ARTIFACT_PATH"
+    echo "Local dynamic tools path: $TOOLS_PATH"
+    echo "Works now in this shell via bare command:"
+    echo "  pexo --version"
+    echo "Ready-to-paste MCP config:"
+    print_packaged_mcp_snippet
+    echo "To uninstall the packaged tool later:"
+    echo "  uv tool uninstall pexo-agent"
+    echo "To remove local state as well:"
+    echo "  rm -rf \"$STATE_ROOT\""
+    if [ "$HEADLESS_SETUP" -eq 1 ]; then
+        echo "Headless profile setup completed during install."
+        echo "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
+    else
+        echo "Preferred terminal-first setup path:"
+        echo "  pexo headless-setup --preset $PRESET"
+        echo "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+    fi
+    echo "=================================================="
+    exit 0
+fi
 
 print_progress 5 "Validating install target at $PEXO_DIR"
 if [ "$USING_EXISTING_CHECKOUT" -eq 1 ]; then

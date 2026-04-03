@@ -58,7 +58,7 @@ from app.mcp_server import (
     pexo_update_tool,
 )
 from app.models import AgentProfile, AgentState, Memory, Profile
-from app.paths import ARTIFACTS_DIR, CHROMA_DB_DIR, PEXO_DB_PATH, PROJECT_ROOT
+from app.paths import ARTIFACTS_DIR, CHROMA_DB_DIR, CODE_ROOT, PEXO_DB_PATH, PROJECT_ROOT, looks_like_repo_checkout, resolve_state_root
 from app.routers.admin import build_telemetry_payload, get_admin_snapshot
 from app.routers.artifacts import (
     ArtifactPathRequest,
@@ -241,6 +241,12 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--disable-pip-version-check", powershell_installer)
         self.assertIn("Running installer preflight checks", powershell_installer)
         self.assertIn("Running installer preflight checks", shell_installer)
+        self.assertIn('@("tool", "install", "--reinstall", $packageSource)', powershell_installer)
+        self.assertIn("uv tool install --reinstall", shell_installer)
+        self.assertIn("uv tool update-shell", powershell_installer)
+        self.assertIn("uv tool update-shell", shell_installer)
+        self.assertIn("pexo-mcp", powershell_installer)
+        self.assertIn("pexo-mcp", shell_installer)
         self.assertIn("Installing Python dependencies (", powershell_installer)
         self.assertIn("still working", powershell_installer)
         self.assertIn("Same-shell PATH activation verified", powershell_installer)
@@ -308,6 +314,46 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("psutil", full_requirements)
         self.assertIn("chromadb==0.4.24", constraints)
         self.assertIn("mcp==1.27.0", constraints)
+
+    def test_pyproject_exposes_github_native_console_scripts(self):
+        pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('name = "pexo-agent"', pyproject)
+        self.assertIn('pexo = "app.launcher:main"', pyproject)
+        self.assertIn('pexo-mcp = "app.launcher:mcp_main"', pyproject)
+        self.assertIn('langgraph==0.2.0', pyproject)
+        self.assertNotIn('chromadb==0.4.24"\n]', pyproject)
+        self.assertIn("[project.optional-dependencies]", pyproject)
+        self.assertIn('vector = ["chromadb==0.4.24"]', pyproject)
+
+    def test_release_workflow_builds_and_publishes_package_assets(self):
+        workflow = Path(".github/workflows/release-package.yml").read_text(encoding="utf-8")
+        self.assertIn("Build And Release Package", workflow)
+        self.assertIn('python -m build', workflow)
+        self.assertIn("SHA256SUMS.txt", workflow)
+        self.assertIn("softprops/action-gh-release", workflow)
+
+    def test_readme_documents_packaged_install_and_pexo_mcp(self):
+        readme = Path("README.md").read_text(encoding="utf-8")
+        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"', readme)
+        self.assertIn("pexo-mcp", readme)
+        self.assertIn("PEXO_HOME", readme)
+
+    def test_paths_use_repo_checkout_locally_and_home_for_packaged_mode(self):
+        self.assertTrue(looks_like_repo_checkout(CODE_ROOT))
+        self.assertEqual(resolve_state_root(code_root=CODE_ROOT, env_override=None), CODE_ROOT)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_code_root = Path(tmpdir) / "site-packages-pexo"
+            fake_code_root.mkdir()
+            fake_home = Path(tmpdir) / "home"
+            fake_home.mkdir()
+            resolved = resolve_state_root(code_root=fake_code_root, env_override=None, home_dir=fake_home)
+            self.assertEqual(resolved, fake_home / ".pexo")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            override = Path(tmpdir) / "custom-pexo-home"
+            resolved = resolve_state_root(code_root=CODE_ROOT, env_override=str(override))
+            self.assertEqual(resolved, override)
 
     def test_gitattributes_enforces_shell_script_line_endings(self):
         content = Path(".gitattributes").read_text(encoding="utf-8")

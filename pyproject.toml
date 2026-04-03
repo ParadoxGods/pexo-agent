@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pexo-agent"
+dynamic = ["version"]
+description = "Local-first orchestration, MCP control plane, and memory layer for AI assistants."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "ParadoxGods" }]
+dependencies = [
+    "fastapi==0.115.0",
+    "pydantic==2.12.5",
+    "sqlalchemy==2.0.29",
+    "mcp==1.27.0",
+    "uvicorn==0.32.0",
+    "langgraph==0.2.0",
+]
+
+[project.optional-dependencies]
+vector = ["chromadb==0.4.24"]
+
+[project.urls]
+Homepage = "https://github.com/ParadoxGods/pexo-agent"
+Repository = "https://github.com/ParadoxGods/pexo-agent"
+Issues = "https://github.com/ParadoxGods/pexo-agent/issues"
+
+[project.scripts]
+pexo = "app.launcher:main"
+pexo-mcp = "app.launcher:mcp_main"
+
+[tool.setuptools.dynamic]
+version = { attr = "app.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["static/*.html"]

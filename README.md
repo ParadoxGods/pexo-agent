@@ -2,7 +2,7 @@
 
 Pexo is a lightweight, strictly local multi-agent orchestration framework designed to serve as a persistent execution environment and memory layer for Large Language Models (LLMs).
 
-Operating entirely within the directory it is deployed, Pexo provides an autonomous execution engine, a vector-based memory system, and a dynamic tool-generation API without requiring background daemons, external database services, or complex containerization.
+Operating entirely on the local machine, Pexo provides an autonomous execution engine, a vector-based memory system, and a dynamic tool-generation API without requiring background daemons, external database services, or complex containerization.
 
 ## Core Architecture
 
@@ -26,18 +26,63 @@ Pexo is built on three foundational pillars that separate it from traditional ag
 
 ## Installation and Deployment
 
-Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone the repository manually.
+Pexo now supports two installation models:
 
-### Automated Initialization
+1.  **GitHub-native packaged install (preferred):** install the `pexo` and `pexo-mcp` entrypoints directly from GitHub with a Python tool manager such as `uv`.
+2.  **Repo-local checkout install (fallback / contributor mode):** clone the checkout, create a local venv, and run the legacy launchers from that checkout.
 
-1.  Open an interactive session with an LLM (e.g., Claude, Codex, Gemini).
-2.  Provide the following instruction: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
+### Preferred Install Path: GitHub Packaged Tool
 
-The AI will execute the installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly, runs preflight validation before cloning, updates the current shell PATH as well as the persistent PATH, and prefers `gh repo clone` when GitHub CLI authentication is already available. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
+The cleanest path is to install Pexo directly from GitHub instead of cloning the repository into `~/.pexo`.
 
-The install path is now staged for speed:
+**Recommended with `uv`:**
+```bash
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"
+```
 
-*   the first AI-driven install defaults to the `core` runtime so `list-presets` and `headless-setup` are fast
+If you are installing from a tagged release, use the tag instead of `master`:
+
+```bash
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
+```
+
+Then initialize the local profile entirely from the terminal:
+
+```bash
+pexo list-presets
+pexo headless-setup --preset efficient_operator
+```
+
+Use the dashboard later only when needed:
+
+```bash
+pexo
+```
+
+The packaged install keeps all mutable local state under `~/.pexo` by default:
+
+*   `~/.pexo/pexo.db`
+*   `~/.pexo/chroma_db/`
+*   `~/.pexo/artifacts/`
+*   `~/.pexo/dynamic_tools/`
+
+You can override the state directory with `PEXO_HOME`.
+
+### AI-Driven Install Prompt
+
+If you want another AI to perform the install for you, use:
+
+**"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the packaged GitHub install path, then run headless setup with the efficient_operator preset."**
+
+That instruction is now preferable to clone-first installation.
+
+### Repo-Local Checkout Install
+
+The checkout-based installers remain supported for contributors, custom install directories, deterministic repo-local MCP nodes, or environments without `uv`.
+
+The install path is still staged for speed:
+
+*   the first checkout-based install defaults to the `core` runtime so `list-presets` and `headless-setup` are fast
 *   `pexo --mcp` promotes the environment to the `mcp` runtime if needed
 *   `pexo` promotes the environment to the `full` runtime if needed, enabling the browser UI and LangGraph-backed orchestration
 *   `pexo --promote vector` adds native Chroma vector embeddings when the user wants semantic memory enabled locally
@@ -65,36 +110,24 @@ The installers also support custom or repo-local targets, so an existing checkou
 ./install.sh --install-dir ~/tools/pexo --headless-setup --preset efficient_operator
 ```
 
-For AI-driven installs, the preferred path is now fully terminal-first:
-
-```bash
-pexo --list-presets
-pexo --headless-setup --preset efficient_operator
-```
-
-If the terminal has not been restarted yet and the refreshed PATH is not visible, run the installed launcher directly from the install directory instead:
-
-**Windows:**
-```powershell
-& "$env:USERPROFILE\.pexo\pexo.bat" --headless-setup --preset efficient_operator
-```
-
-**macOS/Linux:**
-```bash
-"$HOME/.pexo/pexo" --headless-setup --preset efficient_operator
-```
-
 The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, editing agents, correcting stored memories, adjusting profile settings, reviewing execution telemetry, or managing additional backups.
 
 ### Uninstallation
 
-If Pexo is already installed, the fastest removal path is:
+If Pexo is installed from a repo checkout, the fastest removal path is:
 
 ```bash
 pexo --uninstall
 ```
 
 `pexo uninstall` is also supported.
+
+If Pexo is installed as a packaged tool, remove the tool with your package manager and optionally delete the local state directory:
+
+```bash
+uv tool uninstall pexo-agent
+rm -rf ~/.pexo
+```
 
 If you need a raw script-driven uninstall, execute the following command:
 
@@ -110,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/unins
 
 ### Native MCP Configuration (Recommended)
 
-To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings. `pexo --mcp` starts in a quiet stdio mode and skips the interactive browser-launch workflow.
+To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings. `pexo-mcp` and `pexo --mcp` both start in a quiet stdio mode and skip the interactive browser-launch workflow.
 
 Once connected, the MCP server can drive:
 
@@ -122,7 +155,21 @@ Once connected, the MCP server can drive:
 *   Genesis tool register/read/update/execute/delete
 *   backup execution
 
-If you want MCP from an existing checkout instead of a global `~/.pexo` install, initialize that checkout in place and point the client at the repo-local launcher:
+If you are using the packaged install, the simplest configuration is to call `pexo-mcp` directly:
+
+**Cross-platform packaged install MCP config:**
+```json
+{
+  "mcpServers": {
+    "pexo": {
+      "command": "pexo-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+If you want MCP from an existing checkout instead of a packaged install, initialize that checkout in place and point the client at the repo-local launcher:
 
 **Windows repo-local MCP setup:**
 ```powershell
@@ -174,7 +221,7 @@ cd C:\Users\<USER>\code\pexo-agent
 
 ## Architecture Integrity
 
-Pexo ensures absolute data sovereignty. All configuration parameters, memory embeddings, and agent prompts are stored locally in the deployment directory (`pexo.db` and `chroma_db/`). No telemetry or state data is transmitted externally.
+Pexo ensures absolute data sovereignty. All configuration parameters, memory embeddings, artifacts, and agent prompts are stored locally either in the repo checkout (checkout mode) or the user-local state directory `~/.pexo` (packaged mode). No telemetry or state data is transmitted externally.
 
 ## Command Surface
 
@@ -189,7 +236,16 @@ The launcher exposes the following setup and administration commands:
 *   `pexo --offline` or `pexo --skip-update`
 *   `pexo --uninstall` or `pexo uninstall`
 *   `pexo --mcp`
+*   `pexo-mcp`
 *   `pexo`
+
+For GitHub-native tool installs, the preferred commands are now:
+
+```bash
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"
+pexo headless-setup --preset efficient_operator
+pexo
+```
 
 The installation scripts also support an AI-friendly one-shot terminal setup path:
 

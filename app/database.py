@@ -44,6 +44,7 @@ def init_db():
     from . import models  # Ensure SQLAlchemy metadata is registered before create_all.
     from .core_agents import ensure_core_agent_profiles
 
+    PEXO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     run_schema_migrations()
     db = SessionLocal()
