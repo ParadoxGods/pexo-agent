@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from .database import SessionLocal, init_db
 from .models import AgentProfile, AgentState, Artifact, Profile
 from .routers.admin import (
+    build_client_surface,
     build_telemetry_payload,
     get_admin_snapshot as build_admin_snapshot,
     serialize_agent,
@@ -22,6 +23,7 @@ from .routers.artifacts import (
     list_artifacts,
     register_artifact_path,
     register_artifact_text,
+    serialize_artifact,
 )
 from .routers.backup import run_backup_for_profile
 from .routers.evolve import EvolutionRequest, evolve_agent
@@ -35,6 +37,7 @@ from .routers.memory import (
     list_recent_memories,
     run_memory_maintenance,
     search_memory,
+    serialize_memory,
     store_memory,
     update_memory,
 )
@@ -164,6 +167,367 @@ def _require_artifact(db, artifact_id: int) -> Artifact:
     if artifact is None:
         raise ValueError("Artifact not found.")
     return artifact
+
+
+def _brain_usage_rules() -> list[str]:
+    return [
+        "Call pexo_bootstrap_brain first whenever Pexo is available for a new task.",
+        "Use pexo_start_task, pexo_continue_task, and pexo_get_task_status for task execution.",
+        "Show user_message to the user whenever it is present.",
+        "Keep internal orchestration instructions hidden unless the user explicitly asks for them.",
+        "Use pexo_recall_context to find relevant memory and artifacts before asking the user to repeat context.",
+        "Use pexo_remember_context and pexo_attach_context to persist useful context for future sessions.",
+    ]
+
+
+def _summarize_profile(profile: dict | None, profile_answers: dict | None) -> dict:
+    if not profile:
+        return {
+            "configured": False,
+            "name": "default_user",
+            "summary": "No profile is configured yet.",
+        }
+    personality = (profile.get("personality_prompt") or "").strip()
+    scripting = (profile.get("scripting_preferences") or {}).get("scripting_preferences")
+    parts = []
+    if personality:
+        parts.append(personality)
+    if scripting:
+        parts.append(str(scripting))
+    return {
+        "configured": True,
+        "name": profile.get("name") or "default_user",
+        "summary": " | ".join(parts) or "Profile is configured.",
+        "answers": profile_answers or {},
+    }
+
+
+def _summarize_clients(surface: dict) -> dict:
+    results = surface.get("results") or []
+    connected = [result["client"] for result in results if result.get("status") == "connected"]
+    available = [result["client"] for result in results if result.get("status") == "available"]
+    missing = [result["client"] for result in results if result.get("status") == "missing"]
+    return {
+        "status": surface.get("status", "unknown"),
+        "connected": connected,
+        "available": available,
+        "missing": missing,
+        "mcp_server": surface.get("mcp_server"),
+    }
+
+
+def _summarize_agents(agents: list[AgentProfile], limit: int = 8) -> list[dict]:
+    return [
+        {
+            "name": agent.name,
+            "role": agent.role,
+            "capabilities": list(agent.capabilities or []),
+            "is_core": bool(agent.is_core),
+        }
+        for agent in agents[:limit]
+    ]
+
+
+def _truncate(value: str | None, limit: int = 220) -> str:
+    if not value:
+        return ""
+    compact = " ".join(str(value).split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit].rstrip()}..."
+
+
+def _compact_memory_result(payload: dict) -> dict:
+    return {
+        "id": payload.get("id"),
+        "session_id": payload.get("session_id"),
+        "task_context": payload.get("task_context"),
+        "content": _truncate(payload.get("content"), limit=240),
+        "is_archived": bool(payload.get("is_archived")),
+        "is_pinned": bool(payload.get("is_pinned")),
+    }
+
+
+def _compact_artifact_result(payload: dict) -> dict:
+    return {
+        "id": payload.get("id"),
+        "name": payload.get("name"),
+        "session_id": payload.get("session_id"),
+        "task_context": payload.get("task_context"),
+        "source_type": payload.get("source_type"),
+        "source_uri": payload.get("source_uri"),
+        "preview": _truncate(payload.get("preview"), limit=240),
+        "has_text": bool(payload.get("has_text")),
+    }
+
+
+def _brain_bootstrap_payload(
+    db,
+    *,
+    prompt: str | None = None,
+    query: str | None = None,
+    user_id: str = "default_user",
+    session_id: str | None = None,
+    memory_results: int = 5,
+    artifact_results: int = 5,
+) -> dict:
+    profile_model = db.query(Profile).filter(Profile.name == user_id).first()
+    profile_payload = serialize_profile(profile_model)
+    profile_answers = derive_profile_answers(profile_model)
+    client_surface = build_client_surface()
+    runtime = build_runtime_status_response(db)
+    agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
+
+    recall_query = (query or prompt or "").strip()
+    memory_payload = (
+        search_memory(
+            MemorySearchRequest(query=recall_query, n_results=max(1, min(memory_results, 10))),
+            db,
+        )
+        if recall_query
+        else list_recent_memories(limit=max(1, min(memory_results, 10)), include_archived=True, db=db)
+    )
+    artifact_payload = list_artifacts(
+        limit=max(1, min(artifact_results, 10)),
+        query=recall_query or None,
+        session_id=None,
+        task_context=None,
+        db=db,
+    )
+    task_payload = (
+        start_simple_task(PromptRequest(user_id=user_id, prompt=prompt, session_id=session_id), db)
+        if prompt
+        else None
+    )
+
+    memory_items = memory_payload.get("results") if recall_query else memory_payload.get("memories", [])
+    return {
+        "mode": "brain",
+        "user_message": "Pexo is ready. Use the returned context and simple task flow.",
+        "operating_contract": _brain_usage_rules(),
+        "profile": _summarize_profile(profile_payload, profile_answers),
+        "runtime": {
+            "active_profile": runtime.get("runtime", {}).get("active_profile"),
+            "recommended_promotions": runtime.get("runtime", {}).get("recommended_promotions", []),
+            "vector_embeddings_available": runtime.get("runtime", {}).get("vector_embeddings_available"),
+            "install_mode": runtime.get("runtime", {}).get("install_mode"),
+        },
+        "clients": _summarize_clients(client_surface),
+        "agents": _summarize_agents(agents),
+        "memory": {
+            "query": recall_query or None,
+            "results": [_compact_memory_result(item) for item in memory_items[: max(1, min(memory_results, 10))]],
+        },
+        "artifacts": {
+            "query": recall_query or None,
+            "results": [
+                _compact_artifact_result(item)
+                for item in (artifact_payload.get("artifacts") or [])[: max(1, min(artifact_results, 10))]
+            ],
+        },
+        "task": task_payload,
+    }
+
+
+@mcp.resource(
+    "pexo://brain-guide",
+    name="Pexo Brain Guide",
+    description="Default operating contract for AI clients using Pexo as a local brain.",
+    mime_type="text/markdown",
+)
+def pexo_brain_guide_resource() -> str:
+    rules = "\n".join([f"- {rule}" for rule in _brain_usage_rules()])
+    return (
+        "# Pexo Brain Guide\n\n"
+        "Use Pexo as the default local brain for tasks, memory, artifacts, and execution flow.\n\n"
+        "## Default Flow\n\n"
+        "1. Call `pexo_bootstrap_brain` first.\n"
+        "2. If you need task execution, use `pexo_start_task`, `pexo_continue_task`, and `pexo_get_task_status`.\n"
+        "3. Use `user_message` for user-facing replies.\n"
+        "4. Use `pexo_recall_context` before asking the user to repeat context.\n"
+        "5. Persist useful notes with `pexo_remember_context` and files with `pexo_attach_context`.\n\n"
+        "## Rules\n\n"
+        f"{rules}\n"
+    )
+
+
+@mcp.prompt(
+    name="pexo_default_task_flow",
+    description="Instruction template for using Pexo as the default local brain for a plain-language task.",
+)
+def pexo_default_task_prompt(user_task: str) -> list[dict]:
+    return [
+        {
+            "role": "user",
+            "content": (
+                "Use Pexo as the default local brain for this task. "
+                "Call pexo_bootstrap_brain first with the task, use pexo_start_task/pexo_continue_task/pexo_get_task_status "
+                "for execution, and keep user-facing replies short by using user_message whenever it is present. "
+                f"Task: {user_task}"
+            ),
+        }
+    ]
+
+
+@mcp.tool()
+def pexo_bootstrap_brain(
+    prompt: str | None = None,
+    query: str | None = None,
+    user_id: str = "default_user",
+    session_id: str | None = None,
+    memory_results: int = 5,
+    artifact_results: int = 5,
+) -> dict:
+    """Default first call whenever Pexo is available. Returns the current operating contract, profile, client status, relevant context, and optionally starts a simple task."""
+    return _with_db(
+        lambda db: _brain_bootstrap_payload(
+            db,
+            prompt=prompt,
+            query=query,
+            user_id=user_id,
+            session_id=session_id,
+            memory_results=memory_results,
+            artifact_results=artifact_results,
+        )
+    )
+
+
+@mcp.tool()
+def pexo_recall_context(
+    query: str,
+    memory_results: int = 5,
+    artifact_results: int = 5,
+    auto_promote_vector: bool = False,
+) -> dict:
+    """Simple context recall surface. Searches both memory and artifacts in one call before asking the user to repeat context."""
+
+    def operation(db):
+        memory_payload = search_memory(
+            MemorySearchRequest(
+                query=query,
+                n_results=max(1, min(memory_results, 10)),
+                auto_promote_vector=auto_promote_vector,
+            ),
+            db,
+        )
+        artifact_payload = list_artifacts(
+            limit=max(1, min(artifact_results, 10)),
+            query=query,
+            session_id=None,
+            task_context=None,
+            db=db,
+        )
+        return {
+            "user_message": f"Pexo found context for '{query}'.",
+            "query": query,
+            "memory": {
+                "results": [_compact_memory_result(item) for item in memory_payload.get("results", [])],
+                "runtime": memory_payload.get("runtime"),
+                "promotion_offer": memory_payload.get("promotion_offer"),
+            },
+            "artifacts": {
+                "results": [_compact_artifact_result(item) for item in artifact_payload.get("artifacts", [])],
+            },
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
+def pexo_remember_context(
+    content: str,
+    task_context: str = "general",
+    session_id: str = "brain_session",
+    auto_promote_vector: bool = False,
+) -> dict:
+    """Simple memory write surface. Store a note or decision in Pexo's local brain."""
+
+    def operation(db):
+        stored = store_memory(
+            MemoryStoreRequest(
+                session_id=session_id,
+                content=content,
+                task_context=task_context,
+                auto_promote_vector=auto_promote_vector,
+            ),
+            db,
+        )
+        memory_id = stored.get("memory_id")
+        memory_payload = get_memory(memory_id, db) if memory_id else None
+        return {
+            "status": "success",
+            "detail": stored.get("status"),
+            "user_message": "Pexo stored the context for future tasks.",
+            "memory": _compact_memory_result(memory_payload) if memory_payload else None,
+            "runtime": stored.get("runtime"),
+            "promotion_offer": stored.get("promotion_offer"),
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
+def pexo_attach_context(
+    path: str,
+    session_id: str = "brain_session",
+    task_context: str = "general",
+    name: str | None = None,
+) -> dict:
+    """Simple artifact attach surface. Copy a local file into Pexo so later AI sessions can retrieve it."""
+
+    def operation(db):
+        stored = register_artifact_path(
+            ArtifactPathRequest(
+                path=path,
+                session_id=session_id,
+                task_context=task_context,
+                name=name,
+            ),
+            db,
+        )
+        artifact_payload = stored.get("artifact")
+        return {
+            "status": "success",
+            "detail": stored.get("status"),
+            "user_message": "Pexo attached the file to local context.",
+            "artifact": _compact_artifact_result(artifact_payload) if artifact_payload else None,
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
+def pexo_attach_text_context(
+    name: str,
+    content: str,
+    session_id: str = "brain_session",
+    task_context: str = "general",
+    source_uri: str | None = None,
+    content_type: str = "text/plain",
+) -> dict:
+    """Simple text attachment surface. Save generated notes, plans, or summaries as an artifact inside Pexo."""
+
+    def operation(db):
+        stored = register_artifact_text(
+            ArtifactTextRequest(
+                name=name,
+                content=content,
+                session_id=session_id,
+                task_context=task_context,
+                source_uri=source_uri,
+                content_type=content_type,
+            ),
+            db,
+        )
+        artifact_payload = stored.get("artifact")
+        return {
+            "status": "success",
+            "detail": stored.get("status"),
+            "user_message": "Pexo saved the text artifact for future retrieval.",
+            "artifact": _compact_artifact_result(artifact_payload) if artifact_payload else None,
+        }
+
+    return _with_db(operation)
 
 
 @mcp.tool()

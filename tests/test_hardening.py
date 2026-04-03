@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import shutil
@@ -22,6 +23,10 @@ from app.agents.graph import FallbackPexoApp
 from app.main import app
 from app.database import SessionLocal, engine, init_db
 from app.mcp_server import (
+    mcp,
+    pexo_attach_context,
+    pexo_attach_text_context,
+    pexo_bootstrap_brain,
     pexo_delete_artifact,
     pexo_create_agent,
     pexo_delete_agent,
@@ -48,7 +53,9 @@ from app.mcp_server import (
     pexo_list_sessions,
     pexo_list_tools,
     pexo_quick_setup_profile,
+    pexo_recall_context,
     pexo_read_profile,
+    pexo_remember_context,
     pexo_register_artifact_path,
     pexo_register_artifact_text,
     pexo_register_tool,
@@ -419,9 +426,13 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
+        self.assertIn("pexo_bootstrap_brain", readme)
         self.assertIn("pexo_start_task", readme)
         self.assertIn("pexo_continue_task", readme)
         self.assertIn("pexo_get_task_status", readme)
+        self.assertIn("pexo_recall_context", readme)
+        self.assertIn("pexo_remember_context", readme)
+        self.assertIn("pexo_attach_context", readme)
         self.assertIn("user_message", readme)
         self.assertIn("Existing Git checkouts are protected by default", readme)
         self.assertIn(".\\install.cmd", readme)
@@ -446,9 +457,13 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Do not touch the current repo", agents_doc)
         self.assertIn("Do not execute raw remote scripts", agents_doc)
         self.assertIn("## Simple Task Flow", agents_doc)
+        self.assertIn("pexo_bootstrap_brain", agents_doc)
         self.assertIn("pexo_start_task", agents_doc)
         self.assertIn("pexo_continue_task", agents_doc)
         self.assertIn("pexo_get_task_status", agents_doc)
+        self.assertIn("pexo_recall_context", agents_doc)
+        self.assertIn("pexo_remember_context", agents_doc)
+        self.assertIn("pexo_attach_context", agents_doc)
         self.assertIn("user_message", agents_doc)
 
     def test_release_bundle_installers_exist_and_emit_summary(self):
@@ -1242,6 +1257,69 @@ class HardeningTests(unittest.TestCase):
 
         deleted = pexo_delete_memory(memory_id)
         self.assertEqual(deleted["status"], "success")
+
+    def test_mcp_brain_surface_bootstraps_context_and_exposes_resources(self):
+        init_db()
+        pexo_quick_setup_profile("efficient_operator")
+
+        remembered = pexo_remember_context(
+            "Brain bootstrap note for later recall.",
+            task_context="brain-test",
+            session_id="brain-session",
+        )
+        self.assertEqual(remembered["status"], "success")
+        self.assertEqual(remembered["memory"]["task_context"], "brain-test")
+
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as handle:
+            handle.write("# Brain artifact\n\nStored for bootstrap testing.\n")
+            artifact_path = handle.name
+
+        try:
+            attached = pexo_attach_context(
+                artifact_path,
+                session_id="brain-session",
+                task_context="brain-test",
+            )
+            self.assertEqual(attached["status"], "success")
+            self.assertTrue(attached["artifact"]["has_text"])
+        finally:
+            Path(artifact_path).unlink(missing_ok=True)
+
+        attached_text = pexo_attach_text_context(
+            name="brain-note.txt",
+            content="Saved inline context for bootstrap.",
+            session_id="brain-session",
+            task_context="brain-test",
+        )
+        self.assertEqual(attached_text["status"], "success")
+
+        recall = pexo_recall_context("brain", memory_results=5, artifact_results=5)
+        self.assertTrue(any("Brain bootstrap note" in item["content"] for item in recall["memory"]["results"]))
+        self.assertGreaterEqual(len(recall["artifacts"]["results"]), 1)
+
+        bootstrap = pexo_bootstrap_brain(
+            prompt="Summarize the current local brain state.",
+            query="brain",
+        )
+        self.assertEqual(bootstrap["mode"], "brain")
+        self.assertIn("operating_contract", bootstrap)
+        self.assertIn("pexo_bootstrap_brain", " ".join(bootstrap["operating_contract"]))
+        self.assertEqual(bootstrap["task"]["status"], "clarification_required")
+        self.assertGreaterEqual(len(bootstrap["memory"]["results"]), 1)
+        self.assertGreaterEqual(len(bootstrap["artifacts"]["results"]), 1)
+
+        prompts = mcp.list_prompts()
+        if asyncio.iscoroutine(prompts):
+            prompts = asyncio.run(prompts)
+        self.assertTrue(any(prompt.name == "pexo_default_task_flow" for prompt in prompts))
+
+        resource_items = mcp.read_resource("pexo://brain-guide")
+        if asyncio.iscoroutine(resource_items):
+            resource_items = asyncio.run(resource_items)
+        resource_items = list(resource_items)
+        resource_text = "\n".join(getattr(item, "text", str(item)) for item in resource_items)
+        self.assertIn("pexo_bootstrap_brain", resource_text)
+        self.assertIn("pexo_recall_context", resource_text)
 
     def test_mcp_genesis_tool_lifecycle(self):
         init_db()

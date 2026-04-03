@@ -91,7 +91,23 @@ Useful commands:
 
 ## Simple Task Flow
 
-When using Pexo from Codex, Claude, or Gemini, prefer the simplified task tools over the raw orchestration tools:
+When using Pexo from Codex, Claude, or Gemini, treat Pexo as the default local brain.
+
+Default call order:
+
+1. `pexo_bootstrap_brain`
+2. `pexo_start_task`
+3. `pexo_continue_task`
+4. `pexo_get_task_status`
+
+Use these context tools around that flow:
+
+- `pexo_recall_context`
+- `pexo_remember_context`
+- `pexo_attach_context`
+- `pexo_attach_text_context`
+
+Prefer the simplified task tools over the raw orchestration tools:
 
 - `pexo_start_task`
 - `pexo_continue_task`
@@ -104,6 +120,8 @@ Behavior rules:
 3. Keep `instruction` or `agent_instruction` internal unless the user explicitly asks for orchestration details.
 4. Ask only the single clarification question returned by Pexo when one is required.
 5. Continue the task through Pexo instead of making the user drive each internal step manually.
+6. Use `pexo_recall_context` before asking the user to restate prior context.
+7. Use `pexo_remember_context` and `pexo_attach_context` to keep Pexo useful across sessions.
 
 ## Uninstall
 

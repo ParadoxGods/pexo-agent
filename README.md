@@ -97,11 +97,19 @@ Repository-level AI install and usage rules live in `AGENTS.md`.
 
 For AI-driven task work, prefer the simplified MCP flow:
 
+- `pexo_bootstrap_brain`
 - `pexo_start_task`
 - `pexo_continue_task`
 - `pexo_get_task_status`
 
 Clients should use `user_message` for user-facing replies and keep raw orchestration instructions internal unless the user explicitly asks for them.
+
+For general context handling, use:
+
+- `pexo_recall_context`
+- `pexo_remember_context`
+- `pexo_attach_context`
+- `pexo_attach_text_context`
 
 ## Commands
 
