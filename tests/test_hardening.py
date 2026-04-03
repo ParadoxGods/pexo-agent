@@ -199,10 +199,23 @@ class HardeningTests(unittest.TestCase):
 
         self.assertIn("Show-InstallProgress", powershell_installer)
         self.assertIn("HeadlessSetup", powershell_installer)
-        self.assertIn("Installing Python dependencies... still working", powershell_installer)
+        self.assertIn("gh repo clone", shell_installer)
+        self.assertIn("Test-GhAuthentication", powershell_installer)
+        self.assertIn("WaitForExit(5000)", powershell_installer)
+        self.assertIn("--disable-pip-version-check", powershell_installer)
+        self.assertIn("--disable-pip-version-check", shell_installer)
+        self.assertIn("Running installer preflight checks", powershell_installer)
+        self.assertIn("Running installer preflight checks", shell_installer)
+        self.assertIn("Installing Python dependencies...", powershell_installer)
+        self.assertIn("still working", powershell_installer)
+        self.assertIn("Same-shell PATH activation verified", powershell_installer)
         self.assertIn("--headless-setup", shell_installer)
+        self.assertIn("--skip-update", shell_installer)
+        self.assertIn("gh auth status -h github.com", shell_installer)
+        self.assertIn("Same-shell PATH activation verified", shell_installer)
         self.assertIn("print_progress 100", shell_installer)
-        self.assertIn("Installing Python dependencies... still working", shell_installer)
+        self.assertIn("Installing Python dependencies...", shell_installer)
+        self.assertIn("still working", shell_installer)
 
     def test_launchers_expose_headless_setup_commands(self):
         shell_launcher = Path("pexo").read_text(encoding="utf-8")
@@ -212,12 +225,22 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--headless-setup", shell_launcher)
         self.assertIn("--update", shell_launcher)
         self.assertIn("--no-browser", shell_launcher)
+        self.assertIn("--offline", shell_launcher)
+        self.assertIn("--skip-update", shell_launcher)
         self.assertIn(".pexo-update-check", shell_launcher)
         self.assertIn("--list-presets", batch_launcher)
         self.assertIn("--headless-setup", batch_launcher)
         self.assertIn("--update", batch_launcher)
         self.assertIn("--no-browser", batch_launcher)
+        self.assertIn("--offline", batch_launcher)
+        self.assertIn("--skip-update", batch_launcher)
+        self.assertIn("Run 'pexo update' for full git or auth output.", batch_launcher)
         self.assertIn(".pexo-update-check", batch_launcher)
+
+    def test_requirements_trim_unused_sentence_transformers(self):
+        requirements = Path("requirements.txt").read_text(encoding="utf-8")
+        self.assertNotIn("sentence-transformers", requirements)
+        self.assertIn("chromadb", requirements)
 
     def test_gitattributes_enforces_shell_script_line_endings(self):
         content = Path(".gitattributes").read_text(encoding="utf-8")

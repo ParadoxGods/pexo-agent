@@ -5,6 +5,23 @@ cd "$(dirname "$0")"
 PEXO_DIR=$(pwd)
 UPDATE_STAMP="$PEXO_DIR/.pexo-update-check"
 UPDATE_INTERVAL_SECONDS=$((12 * 60 * 60))
+NO_BROWSER=0
+
+while [ "$#" -gt 0 ]; do
+    case "${1:-}" in
+        --no-browser)
+            NO_BROWSER=1
+            shift
+            ;;
+        --offline|--skip-update)
+            export PEXO_SKIP_UPDATE=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 venv_python() {
     if [ -x "venv/bin/python3" ]; then
@@ -14,11 +31,19 @@ venv_python() {
     fi
 }
 
+python_command() {
+    if command -v python3 >/dev/null 2>&1; then
+        echo "python3"
+    else
+        echo "python"
+    fi
+}
+
 ensure_venv() {
     if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
         echo "Virtual environment not found. Creating one..." >&2
-        python3 -m venv venv 1>&2
-        "$(venv_python)" -m pip install -r requirements.txt 1>&2
+        "$(python_command)" -m venv venv 1>&2
+        "$(venv_python)" -m pip install --disable-pip-version-check -r requirements.txt 1>&2
     fi
 }
 
@@ -48,6 +73,7 @@ maybe_update() {
         printf '%s' "$now" > "$UPDATE_STAMP"
     else
         echo "Update check failed. Continuing with the local version." >&2
+        echo "Run 'pexo update' for full git or auth output. If this repo is private, ensure git or gh authentication is configured." >&2
     fi
 }
 
@@ -59,12 +85,12 @@ run_update() {
     printf '%s' "$now" > "$UPDATE_STAMP"
 }
 
-if [ "$1" = "--version" ]; then
+if [ "${1:-}" = "--version" ]; then
     echo "Pexo v1.0.0-stable"
     exit 0
 fi
 
-if [ "$1" = "--help" ]; then
+if [ "${1:-}" = "--help" ]; then
     echo "Pexo: Primary EXecution Operator"
     echo ""
     echo "Usage:"
@@ -77,6 +103,8 @@ if [ "$1" = "--help" ]; then
     echo "                 Pulls the latest repository changes immediately"
     echo "  pexo --no-browser"
     echo "                 Starts the API without opening the dashboard automatically"
+    echo "  pexo --offline | pexo --skip-update"
+    echo "                 Starts Pexo without attempting an update check"
     echo "  pexo --mcp     Starts Pexo as a native MCP server (stdio)"
     echo "  pexo --uninstall | pexo uninstall"
     echo "                 Removes the local Pexo installation and saved state"
@@ -85,37 +113,31 @@ if [ "$1" = "--help" ]; then
     exit 0
 fi
 
-if [ "$1" = "--mcp" ]; then
+if [ "${1:-}" = "--mcp" ]; then
     ensure_venv
     "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
     exit $?
 fi
 
-if [ "$1" = "--update" ] || [ "$1" = "update" ]; then
+if [ "${1:-}" = "--update" ] || [ "${1:-}" = "update" ]; then
     run_update
     exit $?
 fi
 
-if [ "$1" = "--list-presets" ] || [ "$1" = "list-presets" ]; then
+if [ "${1:-}" = "--list-presets" ] || [ "${1:-}" = "list-presets" ]; then
     shift
     run_cli list-presets "$@"
     exit $?
 fi
 
-if [ "$1" = "--headless-setup" ] || [ "$1" = "headless-setup" ]; then
+if [ "${1:-}" = "--headless-setup" ] || [ "${1:-}" = "headless-setup" ]; then
     shift
     run_cli headless-setup "$@"
     exit $?
 fi
 
-if [ "$1" = "--uninstall" ] || [ "$1" = "uninstall" ]; then
+if [ "${1:-}" = "--uninstall" ] || [ "${1:-}" = "uninstall" ]; then
     exec bash "$PEXO_DIR/uninstall.sh"
-fi
-
-NO_BROWSER=0
-if [ "$1" = "--no-browser" ]; then
-    NO_BROWSER=1
-    shift
 fi
 
 maybe_update
@@ -137,15 +159,16 @@ if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then
     if [[ "$add_path" =~ ^[Yy]$ ]]; then
         echo "export PATH=\"\$PATH:$PEXO_DIR\"" >> ~/.bashrc
         echo "export PATH=\"\$PATH:$PEXO_DIR\"" >> ~/.zshrc
+        export PATH="$PATH:$PEXO_DIR"
         echo "Added $PEXO_DIR to PATH in ~/.bashrc and ~/.zshrc. Please restart your terminal for it to take effect globally."
     fi
 fi
 
 if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
     echo "Virtual environment not found. Creating one..."
-    python3 -m venv venv
+    "$(python_command)" -m venv venv
     echo "Installing dependencies..."
-    "$(venv_python)" -m pip install -r requirements.txt
+    "$(venv_python)" -m pip install --disable-pip-version-check -r requirements.txt
 fi
 
 echo "Starting Pexo API..."

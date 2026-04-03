@@ -33,7 +33,7 @@ Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone 
 1.  Open an interactive session with an LLM (e.g., Claude, Codex, Gemini).
 2.  Provide the following instruction: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
 
-The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
+The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly, runs preflight validation before cloning, updates the current shell PATH as well as the persistent PATH, and prefers `gh repo clone` when GitHub CLI authentication is already available. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
 
 For AI-driven installs, the preferred path is now fully terminal-first:
 
@@ -134,6 +134,7 @@ The launcher exposes the following setup and administration commands:
 *   `pexo --headless-setup --preset efficient_operator`
 *   `pexo --update` or `pexo update`
 *   `pexo --no-browser`
+*   `pexo --offline` or `pexo --skip-update`
 *   `pexo --uninstall` or `pexo uninstall`
 *   `pexo --mcp`
 *   `pexo`
@@ -148,4 +149,16 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/
 **macOS/Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator
+```
+
+For deterministic installs that skip repository update checks:
+
+**Windows:**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator -SkipUpdate
+```
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator --skip-update
 ```
