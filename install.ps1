@@ -25,5 +25,6 @@ if ($UserPath -notmatch [regex]::Escape($PexoDir)) {
 Write-Host "=================================================="
 Write-Host "Pexo installed successfully!"
 Write-Host "AI AGENT: Inform the user to restart their terminal/IDE to refresh the PATH."
-Write-Host "Then, execute 'pexo' in the terminal to begin the Onboarding and Backup Setup."
+Write-Host "Then, execute 'pexo' in the terminal to boot the local server."
+Write-Host "Finally, tell the user to open http://127.0.0.1:8000 in their browser to access their private local Control Panel."
 Write-Host "=================================================="

@@ -25,6 +25,7 @@ Pexo takes a different approach:
 2. **Self-Evolving Agents (RLAIF):** Pexo gets smarter every time you use it. When your AI makes a mistake or learns a user preference during a task, it posts a "Lesson Learned" to Pexo. Pexo *permanently mutates* the base system prompt of that agent in the database. The same mistake will never be made twice. Your swarm literally evolves to fit your exact coding style.
 3. **The Global Vector Brain:** Pexo uses ChromaDB to vectorize every bug fix, architecture decision, and code snippet you complete. Before an agent writes a line of code, it semantically searches Pexo's brain for past solutions, creating an unbroken chain of persistent memory across your entire project lifecycle.
 4. **The Genesis Engine (Dynamic Tool Creation):** If the AI encounters a task it can't perform (like parsing a weird file type or hitting a proprietary API), it is explicitly instructed to *write a Python tool for itself*. It POSTs the code to Pexo's Genesis Engine, which dynamically loads the script and exposes it. Pexo literally writes its own API extensions on the fly to expand its physical capabilities.
+5. **Private Local UI Control Panel:** Once running, Pexo hosts a sleek, local-only web portal at `http://127.0.0.1:8000`. You can manually add custom agents, trigger brain backups, search vector memory, and view dynamically generated tools without ever exposing your data to the internet.
 
 ## How to Use (For Users)
 
@@ -32,7 +33,7 @@ Pexo takes a different approach:
 1. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
 2. Tell the AI: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
 
-The AI will automatically run the global installer, set up your Python environment, and add Pexo to your system PATH. Then, simply type `pexo` in any terminal. During its first run, Pexo will ask you to set your personality preferences and configure a **local or network backup path** to ensure your evolving brain is always safe.
+The AI will automatically run the global installer, set up your Python environment, and add Pexo to your system PATH. Then, simply type `pexo` in any terminal to boot the server. The AI will then tell you to open `http://127.0.0.1:8000` in your web browser to access your private Control Panel.
 
 ### Option 1: Native MCP Integration (Recommended)
 You can connect Pexo directly to **Claude Desktop** or **Cursor** so the AI natively understands its tools.

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pexo Control Panel</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --surface: #111111;
+            --border: #222222;
+            --text: #e0e0e0;
+            --accent: #00ff88;
+            --accent-hover: #00cc6a;
+            --danger: #ff4444;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+        .container { max-width: 1000px; margin: 0 auto; padding: 2rem; }
+        .header { text-align: center; margin-bottom: 3rem; border-bottom: 1px solid var(--border); padding-bottom: 2rem; }
+        .ascii-logo { color: var(--accent); white-space: pre; font-size: 1.2rem; font-weight: bold; margin-bottom: 1rem; }
+        .warning { background: #331111; border: 1px solid var(--danger); padding: 1rem; text-align: center; font-size: 0.9rem; margin-bottom: 2rem; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .card { background: var(--surface); border: 1px solid var(--border); padding: 1.5rem; border-radius: 4px; }
+        .card h2 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; color: var(--accent); font-size: 1.2rem; }
+        
+        input, select, textarea { 
+            width: 100%; padding: 0.5rem; margin-bottom: 1rem; 
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            font-family: inherit; box-sizing: border-box;
+        }
+        button {
+            background: var(--accent); color: #000; border: none; padding: 0.5rem 1rem; 
+            font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 2px;
+        }
+        button:hover { background: var(--accent-hover); }
+        button.danger { background: var(--danger); color: #fff; }
+        
+        .agent-list, .tool-list { list-style: none; padding: 0; margin: 0; }
+        .agent-list li, .tool-list li { padding: 0.5rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; }
+        
+        #memory-results pre { background: var(--bg); padding: 1rem; overflow-x: auto; font-size: 0.85rem; border: 1px solid var(--border); }
+        
+        /* Layout overrides for full width cards */
+        .full-width { grid-column: 1 / -1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ascii-logo">
+  ____  _____ __  __ ___  
+ |  _ \| ____|\ \/ // _ \ 
+ | |_) |  _|   \  /| | | |
+ |  __/| |___  /  \| |_| |
+ |_|   |_____|/_/\_\___/ 
+            </div>
+            <p><strong>Primary EXecution Officer</strong> - Global Control Panel</p>
+        </div>
+
+        <div class="warning">
+            <strong>SECURE LOCAL ENVIRONMENT:</strong> This portal is bound strictly to localhost (127.0.0.1). It cannot be accessed from outside your machine. Your data is 100% private.
+        </div>
+
+        <div class="grid">
+            <!-- Profile Section -->
+            <div class="card">
+                <h2>User Profile & Backup</h2>
+                <div id="profile-display">Loading profile...</div>
+                <button onclick="fetchProfile()" style="margin-top:1rem;">Refresh</button>
+                <button onclick="runBackup()" style="margin-top:1rem; margin-left: 0.5rem;">Trigger Backup</button>
+                <p id="backup-status" style="color: var(--accent); font-size: 0.85rem;"></p>
+            </div>
+
+            <!-- Agents Section -->
+            <div class="card">
+                <h2>Swarm Agents</h2>
+                <ul class="agent-list" id="agent-list">Loading agents...</ul>
+                <div style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                    <input type="text" id="new-agent-name" placeholder="Agent Name (e.g. Frontend)">
+                    <input type="text" id="new-agent-role" placeholder="Role (e.g. React Expert)">
+                    <textarea id="new-agent-prompt" placeholder="System Prompt..."></textarea>
+                    <button onclick="createAgent()">Create Custom Agent</button>
+                </div>
+            </div>
+
+            <!-- Memory Section -->
+            <div class="card full-width">
+                <h2>Global Vector Brain</h2>
+                <div style="display: flex; gap: 1rem;">
+                    <input type="text" id="memory-search-query" placeholder="Search the swarm's memory...">
+                    <button onclick="searchMemory()" style="width: auto;">Search</button>
+                </div>
+                <div id="memory-results"></div>
+            </div>
+
+            <!-- Genesis Engine -->
+            <div class="card full-width">
+                <h2>Genesis Engine (Dynamic Tools)</h2>
+                <ul class="tool-list" id="tool-list">Loading tools...</ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchProfile() {
+            try {
+                const res = await fetch('/profile/default_user');
+                if(res.status === 404) {
+                    document.getElementById('profile-display').innerHTML = '<span style="color:var(--danger)">Profile not found. Please complete onboarding in terminal.</span>';
+                    return;
+                }
+                const data = await res.json();
+                document.getElementById('profile-display').innerHTML = `
+                    <strong>Personality:</strong><br> <pre style="font-size:0.8rem; margin-top:0">${data.personality_prompt}</pre>
+                    <strong>Backup Path:</strong> ${data.backup_path || 'Not set'}
+                `;
+            } catch(e) { console.error(e); }
+        }
+
+        async function fetchAgents() {
+            try {
+                const res = await fetch('/agents/');
+                const data = await res.json();
+                const list = document.getElementById('agent-list');
+                list.innerHTML = data.map(a => `
+                    <li>
+                        <span><strong>${a.name}</strong> <small>(${a.role})</small></span>
+                        ${!a.is_core ? `<button class="danger" style="padding:0.2rem 0.5rem; font-size:0.7rem;" onclick="deleteAgent(${a.id})">Delete</button>` : '<i>Core</i>'}
+                    </li>
+                `).join('');
+            } catch(e) { console.error(e); }
+        }
+
+        async function createAgent() {
+            const name = document.getElementById('new-agent-name').value;
+            const role = document.getElementById('new-agent-role').value;
+            const prompt = document.getElementById('new-agent-prompt').value;
+            if(!name || !role) return alert('Name and Role required');
+            
+            await fetch('/agents/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, role, system_prompt: prompt, capabilities: []})
+            });
+            document.getElementById('new-agent-name').value = '';
+            document.getElementById('new-agent-role').value = '';
+            document.getElementById('new-agent-prompt').value = '';
+            fetchAgents();
+        }
+
+        async function deleteAgent(id) {
+            if(!confirm('Are you sure?')) return;
+            await fetch(`/agents/${id}`, {method: 'DELETE'});
+            fetchAgents();
+        }
+
+        async function fetchTools() {
+            try {
+                const res = await fetch('/tools/');
+                const data = await res.json();
+                const list = document.getElementById('tool-list');
+                list.innerHTML = data.length ? data.map(t => `<li><strong>${t.name}</strong>: ${t.description}</li>`).join('') : '<li>No dynamic tools created yet.</li>';
+            } catch(e) { console.error(e); }
+        }
+
+        async function searchMemory() {
+            const query = document.getElementById('memory-search-query').value;
+            if(!query) return;
+            const res = await fetch('/memory/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query, n_results: 3})
+            });
+            const data = await res.json();
+            const resultsDiv = document.getElementById('memory-results');
+            if(!data.results || data.results.length === 0) {
+                resultsDiv.innerHTML = '<p>No memories found.</p>';
+                return;
+            }
+            resultsDiv.innerHTML = data.results.map(r => `
+                <pre><strong>Task Context:</strong> ${r.metadata.task_context}\n\n${r.content}</pre>
+            `).join('');
+        }
+
+        async function runBackup() {
+            document.getElementById('backup-status').innerText = "Backing up...";
+            const res = await fetch('/backup/run', {method: 'POST'});
+            const data = await res.json();
+            if(res.ok) document.getElementById('backup-status').innerText = data.message;
+            else document.getElementById('backup-status').innerText = "Error: " + data.detail;
+        }
+
+        // Initialize
+        fetchProfile();
+        fetchAgents();
+        fetchTools();
+    </script>
+</body>
+</html>

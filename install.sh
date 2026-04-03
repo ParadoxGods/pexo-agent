@@ -28,5 +28,6 @@ fi
 echo "=================================================="
 echo "Pexo installed successfully!"
 echo "AI AGENT: Inform the user to restart their terminal/IDE to refresh the PATH."
-echo "Then, execute 'pexo' in the terminal to begin the Onboarding and Backup Setup."
+echo "Then, execute 'pexo' in the terminal to boot the local server."
+echo "Finally, tell the user to open http://127.0.0.1:8000 in their browser to access their private local Control Panel."
 echo "=================================================="

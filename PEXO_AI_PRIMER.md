@@ -10,7 +10,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
 2.  **Global Installation (Phase 0):** If the user asks you to "install pexo", immediately execute this command in their terminal to install Pexo globally:
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
-    *   Once installed, ask the user to restart their terminal and run `pexo`.
+    *   Once installed, ask the user to restart their terminal, run `pexo`, and open `http://127.0.0.1:8000` in their browser to view the Pexo Control Panel.
 3.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal.
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
 4.  **The Onboarding & Backup Check (CRITICAL):**
