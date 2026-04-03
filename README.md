@@ -16,6 +16,7 @@ Pexo is built on three foundational pillars that separate it from traditional ag
 
 *   **Zero-Daemon Execution:** Pexo processes are invoked only when required by the user or the connecting AI model. It does not run persistent background services, mitigating local resource consumption and privacy concerns.
 *   **Native MCP Server Integration:** Pexo implements the Model Context Protocol (MCP) natively. This allows seamless integration with MCP-compliant interfaces (such as Claude Desktop and Cursor), surfacing Pexo's memory operations, agent evolution, and dynamic tools directly within the AI's native interface.
+*   **Structured MCP Control Plane:** The MCP surface now exposes structured tools for profile management, agent CRUD, memory CRUD and maintenance, orchestration sessions, telemetry, Genesis tool lifecycle control, and backups. A connected AI can manage nearly the entire local Pexo node without falling back to the browser UI.
 *   **Local Administration Interface:** Pexo hosts a secure, localhost-bound administrative terminal (accessible via `127.0.0.1:9999`). This interface provides manual oversight of the agent registry, vector database queries, and automated backup configurations.
 *   **Editable Local Brain:** The dashboard can inspect and edit both core and custom agents, browse recent memories, update memory records, pin high-value memories, archive stale memories, and delete bad entries without leaving the local machine.
 *   **Memory Lifecycle Controls:** Memory maintenance now compacts older context into short summaries, archives excess raw entries, preserves pinned records, and keeps vector search noise under control as the local brain grows.
@@ -80,6 +81,16 @@ curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/unins
 ### Native MCP Configuration (Recommended)
 
 To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings. `pexo --mcp` starts in a quiet stdio mode and skips the interactive browser-launch workflow.
+
+Once connected, the MCP server can drive:
+
+*   profile read/update and preset setup
+*   core/custom agent inspection and editing
+*   memory search, storage, editing, deletion, and maintenance
+*   orchestration intake, execution, task polling, and result submission
+*   telemetry and session inspection
+*   Genesis tool register/read/update/execute/delete
+*   backup execution
 
 **Windows Configuration:**
 ```json
