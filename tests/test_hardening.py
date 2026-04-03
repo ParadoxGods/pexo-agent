@@ -6,9 +6,10 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import inspect
 
-from app.database import engine, init_db
+from app.database import SessionLocal, engine, init_db
 from app.paths import PEXO_DB_PATH
 from app.routers.backup import create_backup_archive
+from app.routers.profile import ProfileAnswers, build_profile_from_preset, upsert_profile
 from app.routers.tools import resolve_tool_path
 
 
@@ -79,6 +80,43 @@ class HardeningTests(unittest.TestCase):
         html = Path("app/static/index.html").read_text(encoding="utf-8")
         self.assertNotIn("fonts.googleapis.com", html)
         self.assertNotIn("fonts.gstatic.com", html)
+
+    def test_profile_preset_builds_expected_answers(self):
+        answers = build_profile_from_preset("efficient_operator")
+
+        self.assertEqual(answers.personality_answers["p1"], "1")
+        self.assertEqual(answers.personality_answers["p5"], "3")
+        self.assertEqual(answers.scripting_answers["s3"], "1")
+
+    def test_quick_setup_profile_can_be_created_without_backup_path(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            profile = upsert_profile(build_profile_from_preset("efficient_operator"), db)
+            self.assertIsNone(profile.backup_path)
+            self.assertIn("Communication Style: Direct & Concise", profile.personality_prompt)
+            self.assertEqual(profile.scripting_preferences["Type Checking"], "Strict typing always")
+        finally:
+            db.close()
+
+    def test_profile_update_can_clear_backup_path(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                profile = upsert_profile(
+                    build_profile_from_preset("balanced_builder", backup_path=tmpdir),
+                    db,
+                )
+                self.assertEqual(profile.backup_path, str(Path(tmpdir).resolve()))
+
+                cleared = upsert_profile(
+                    ProfileAnswers(name="default_user", clear_backup_path=True),
+                    db,
+                )
+                self.assertIsNone(cleared.backup_path)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

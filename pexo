@@ -31,6 +31,8 @@ if [ "$1" = "--help" ]; then
     echo "Usage:"
     echo "  pexo           Starts the Pexo API and Control Panel"
     echo "  pexo --mcp     Starts Pexo as a native MCP server (stdio)"
+    echo "  pexo --uninstall | pexo uninstall"
+    echo "                 Removes the local Pexo installation and saved state"
     echo "  pexo --version Displays the current version"
     echo "  pexo --help    Displays this help menu"
     exit 0
@@ -40,6 +42,10 @@ if [ "$1" = "--mcp" ]; then
     ensure_venv
     "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
     exit $?
+fi
+
+if [ "$1" = "--uninstall" ] || [ "$1" = "uninstall" ]; then
+    exec bash "$PEXO_DIR/uninstall.sh"
 fi
 
 # Auto-Update: Pull latest changes from GitHub silently
