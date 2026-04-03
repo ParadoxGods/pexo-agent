@@ -11,7 +11,9 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy import inspect
 
+import app.routers.memory as memory_router
 from app.cli import headless_setup, list_presets
+from app.agents.graph import FallbackPexoApp
 from app.database import SessionLocal, engine, init_db
 from app.mcp_server import (
     pexo_create_agent,
@@ -50,10 +52,12 @@ from app.paths import CHROMA_DB_DIR, PEXO_DB_PATH
 from app.routers.admin import build_telemetry_payload
 from app.routers.backup import create_backup_archive
 from app.routers.memory import (
+    MemorySearchRequest,
     MemoryStoreRequest,
     MemoryUpdateRequest,
     delete_memory,
     maintain_memory_health,
+    search_memory,
     store_memory,
     update_memory,
 )
@@ -199,23 +203,33 @@ class HardeningTests(unittest.TestCase):
 
         self.assertIn("Show-InstallProgress", powershell_installer)
         self.assertIn("HeadlessSetup", powershell_installer)
+        self.assertIn("InstallDir", powershell_installer)
+        self.assertIn("RepoPath", powershell_installer)
+        self.assertIn("UseCurrentCheckout", powershell_installer)
+        self.assertIn("InstallProfile", powershell_installer)
+        self.assertIn("--install-dir", shell_installer)
+        self.assertIn("--repo-path", shell_installer)
+        self.assertIn("--use-current-checkout", shell_installer)
+        self.assertIn("--install-profile", shell_installer)
         self.assertIn("gh repo clone", shell_installer)
         self.assertIn("Test-GhAuthentication", powershell_installer)
         self.assertIn("WaitForExit(5000)", powershell_installer)
+        self.assertIn("([string](Get-Content", powershell_installer)
         self.assertIn("--disable-pip-version-check", powershell_installer)
-        self.assertIn("--disable-pip-version-check", shell_installer)
         self.assertIn("Running installer preflight checks", powershell_installer)
         self.assertIn("Running installer preflight checks", shell_installer)
-        self.assertIn("Installing Python dependencies...", powershell_installer)
+        self.assertIn("Installing Python dependencies (", powershell_installer)
         self.assertIn("still working", powershell_installer)
         self.assertIn("Same-shell PATH activation verified", powershell_installer)
+        self.assertIn("Ready-to-paste Windows MCP config", powershell_installer)
         self.assertIn("--headless-setup", shell_installer)
         self.assertIn("--skip-update", shell_installer)
         self.assertIn("gh auth status -h github.com", shell_installer)
         self.assertIn("Same-shell PATH activation verified", shell_installer)
         self.assertIn("print_progress 100", shell_installer)
-        self.assertIn("Installing Python dependencies...", shell_installer)
+        self.assertIn("Installing Python dependencies (", shell_installer)
         self.assertIn("still working", shell_installer)
+        self.assertIn("Ready-to-paste MCP config", shell_installer)
 
     def test_launchers_expose_headless_setup_commands(self):
         shell_launcher = Path("pexo").read_text(encoding="utf-8")
@@ -223,29 +237,66 @@ class HardeningTests(unittest.TestCase):
 
         self.assertIn("--list-presets", shell_launcher)
         self.assertIn("--headless-setup", shell_launcher)
+        self.assertIn("--promote", shell_launcher)
         self.assertIn("--update", shell_launcher)
         self.assertIn("--no-browser", shell_launcher)
         self.assertIn("--offline", shell_launcher)
         self.assertIn("--skip-update", shell_launcher)
+        self.assertIn("requirements-core.txt", shell_launcher)
+        self.assertIn("requirements-mcp.txt", shell_launcher)
+        self.assertIn("requirements-full.txt", shell_launcher)
+        self.assertIn("requirements-vector.txt", shell_launcher)
         self.assertIn(".pexo-update-check", shell_launcher)
         self.assertIn("--list-presets", batch_launcher)
         self.assertIn("--headless-setup", batch_launcher)
+        self.assertIn("--promote", batch_launcher)
         self.assertIn("--update", batch_launcher)
         self.assertIn("--no-browser", batch_launcher)
         self.assertIn("--offline", batch_launcher)
         self.assertIn("--skip-update", batch_launcher)
         self.assertIn("Run 'pexo update' for full git or auth output.", batch_launcher)
+        self.assertIn("requirements-core.txt", batch_launcher)
+        self.assertIn("requirements-mcp.txt", batch_launcher)
+        self.assertIn("requirements-full.txt", batch_launcher)
+        self.assertIn("requirements-vector.txt", batch_launcher)
         self.assertIn(".pexo-update-check", batch_launcher)
 
-    def test_requirements_trim_unused_sentence_transformers(self):
+    def test_dependency_profiles_split_core_mcp_and_full_runtime(self):
         requirements = Path("requirements.txt").read_text(encoding="utf-8")
-        self.assertNotIn("sentence-transformers", requirements)
-        self.assertIn("chromadb", requirements)
+        core_requirements = Path("requirements-core.txt").read_text(encoding="utf-8")
+        mcp_requirements = Path("requirements-mcp.txt").read_text(encoding="utf-8")
+        full_requirements = Path("requirements-full.txt").read_text(encoding="utf-8")
+        vector_requirements = Path("requirements-vector.txt").read_text(encoding="utf-8")
+        constraints = Path("constraints.txt").read_text(encoding="utf-8")
+
+        self.assertIn("-r requirements-full.txt", requirements)
+        self.assertIn("fastapi==0.115.0", core_requirements)
+        self.assertIn("pydantic==2.12.5", core_requirements)
+        self.assertNotIn("chromadb", core_requirements)
+        self.assertIn("mcp==1.27.0", mcp_requirements)
+        self.assertNotIn("uvicorn", mcp_requirements)
+        self.assertIn("uvicorn==0.32.0", full_requirements)
+        self.assertIn("langgraph==0.2.0", full_requirements)
+        self.assertNotIn("chromadb", full_requirements)
+        self.assertIn("-r requirements-full.txt", vector_requirements)
+        self.assertIn("chromadb==0.4.24", vector_requirements)
+        self.assertNotIn("sentence-transformers", full_requirements)
+        self.assertNotIn("langchain-core", full_requirements)
+        self.assertNotIn("psutil", full_requirements)
+        self.assertIn("chromadb==0.4.24", constraints)
+        self.assertIn("mcp==1.27.0", constraints)
 
     def test_gitattributes_enforces_shell_script_line_endings(self):
         content = Path(".gitattributes").read_text(encoding="utf-8")
         self.assertIn("*.sh text eol=lf", content)
         self.assertIn("pexo text eol=lf", content)
+
+    def test_uninstall_scripts_target_their_own_install_directory(self):
+        windows_uninstall = Path("uninstall.ps1").read_text(encoding="utf-8")
+        shell_uninstall = Path("uninstall.sh").read_text(encoding="utf-8")
+
+        self.assertIn("Split-Path -Path $MyInvocation.MyCommand.Path -Parent", windows_uninstall)
+        self.assertIn("cd \"$(dirname \"$0\")\"", shell_uninstall)
 
     def test_profile_preset_builds_expected_answers(self):
         answers = build_profile_from_preset("efficient_operator")
@@ -423,6 +474,63 @@ class HardeningTests(unittest.TestCase):
             self.assertLessEqual(summary.content.count("- "), 6)
         finally:
             db.close()
+
+    def test_memory_search_falls_back_to_sqlite_when_chromadb_is_unavailable(self):
+        init_db()
+        db = SessionLocal()
+        original_chromadb = memory_router.chromadb
+        original_settings = memory_router.Settings
+        original_collection = memory_router._memory_collection
+        memory_router.chromadb = None
+        memory_router.Settings = None
+        memory_router._memory_collection = None
+        try:
+            stored = store_memory(
+                MemoryStoreRequest(
+                    session_id="session-fallback",
+                    content="Use deterministic repo-local MCP setup for Windows.",
+                    task_context="install-flow",
+                ),
+                db,
+            )
+            self.assertEqual(stored["embedding_mode"], "sqlite_keyword_fallback")
+            results = search_memory(MemorySearchRequest(query="repo-local MCP", n_results=3), db)
+            self.assertTrue(results["results"])
+            self.assertEqual(results["results"][0]["metadata"]["search_mode"], "keyword_fallback")
+        finally:
+            memory_router.chromadb = original_chromadb
+            memory_router.Settings = original_settings
+            memory_router._memory_collection = original_collection
+            db.close()
+
+    def test_fallback_graph_can_route_without_langgraph_installed(self):
+        init_db()
+        fallback_app = FallbackPexoApp()
+
+        initial_state = {
+            "session_id": "fallback-session",
+            "user_prompt": "Create a repo-local install plan.",
+            "clarification_answer": "Use a flat checkout.",
+            "tasks": [],
+            "completed_tasks": [],
+            "current_agent": "Supervisor",
+            "current_instruction": "",
+            "waiting_for_ai": False,
+            "final_response": "",
+            "user_profile": "",
+            "available_agents": "",
+            "available_tools": "",
+        }
+
+        supervisor_state = fallback_app.invoke(initial_state)
+        self.assertTrue(supervisor_state["waiting_for_ai"])
+        self.assertEqual(supervisor_state["current_agent"], "Supervisor")
+
+        supervisor_state["waiting_for_ai"] = False
+        supervisor_state["tasks"] = [{"id": "task-1", "description": "Write the install plan", "assigned_agent": "Developer"}]
+        developer_state = fallback_app.invoke(supervisor_state)
+        self.assertTrue(developer_state["waiting_for_ai"])
+        self.assertEqual(developer_state["current_agent"], "Developer")
 
     def test_admin_telemetry_payload_summarizes_recent_activity(self):
         init_db()

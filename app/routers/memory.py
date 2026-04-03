@@ -1,8 +1,6 @@
 from datetime import datetime
 import uuid
 
-import chromadb
-from chromadb.config import Settings
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -11,6 +9,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
+
+try:
+    import chromadb
+    from chromadb.config import Settings
+except ImportError:  # pragma: no cover - exercised by dependency-profile smoke paths
+    chromadb = None
+    Settings = None
 
 router = APIRouter()
 
@@ -23,8 +28,14 @@ SUMMARY_FRAGMENT_LENGTH = 240
 _memory_collection = None
 
 
+def memory_embeddings_enabled() -> bool:
+    return chromadb is not None and Settings is not None
+
+
 def get_memory_collection():
     global _memory_collection
+    if not memory_embeddings_enabled():
+        return None
     if _memory_collection is None:
         chroma_client = chromadb.PersistentClient(
             path=str(CHROMA_DB_DIR),
@@ -51,9 +62,13 @@ def serialize_memory(memory: Memory) -> dict:
 
 
 def _upsert_memory_embedding(memory: Memory) -> None:
+    collection = get_memory_collection()
+    if collection is None:
+        memory.chroma_id = None
+        return
     if not memory.chroma_id:
         memory.chroma_id = str(uuid.uuid4())
-    get_memory_collection().upsert(
+    collection.upsert(
         ids=[memory.chroma_id],
         documents=[memory.content],
         metadatas=[{"session_id": memory.session_id, "task_context": memory.task_context}],
@@ -62,8 +77,9 @@ def _upsert_memory_embedding(memory: Memory) -> None:
 
 def _delete_memory_embeddings(chroma_ids: list[str]) -> None:
     deletable_ids = [chroma_id for chroma_id in chroma_ids if chroma_id]
-    if deletable_ids:
-        get_memory_collection().delete(ids=deletable_ids)
+    collection = get_memory_collection()
+    if deletable_ids and collection is not None:
+        collection.delete(ids=deletable_ids)
 
 
 def _summarize_fragment(content: str) -> str:
@@ -101,6 +117,75 @@ def _build_compacted_summary(task_context: str, fragments: list[str]) -> str:
         return header
     bullet_block = "\n".join([f"- {fragment}" for fragment in unique_fragments])
     return f"{header}\n{bullet_block}"
+
+
+def _format_memory_search_results(memories: list[Memory], *, distance_by_id: dict[int, float | None] | None = None, metadata_by_id: dict[int, dict] | None = None) -> dict:
+    formatted_results = []
+    for memory in memories:
+        if memory.is_archived:
+            continue
+        formatted_results.append(
+            {
+                "memory_id": memory.id,
+                "content": memory.content,
+                "metadata": (metadata_by_id or {}).get(memory.id) or {
+                    "session_id": memory.session_id,
+                    "task_context": memory.task_context,
+                },
+                "distance": (distance_by_id or {}).get(memory.id),
+                "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                "is_compacted": bool(memory.is_compacted),
+                "is_pinned": bool(memory.is_pinned),
+                "is_archived": bool(memory.is_archived),
+            }
+        )
+    return {"results": formatted_results}
+
+
+def _search_memories_without_embeddings(request: "MemorySearchRequest", db: Session) -> dict:
+    query_text = (request.query or "").strip().lower()
+    if not query_text:
+        return {"results": []}
+
+    tokens = [token for token in query_text.split() if token]
+    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+    candidates = (
+        db.query(Memory)
+        .filter(Memory.is_archived.is_(False))
+        .order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc())
+        .limit(250)
+        .all()
+    )
+
+    scored_candidates: list[tuple[int, datetime | None, Memory]] = []
+    for memory in candidates:
+        haystack = " ".join(
+            [
+                memory.content or "",
+                memory.task_context or "",
+                memory.session_id or "",
+            ]
+        ).lower()
+        score = 0
+        if query_text in haystack:
+            score += 10
+        if tokens:
+            score += sum(1 for token in tokens if token in haystack)
+        if score <= 0:
+            continue
+        scored_candidates.append((score, memory.updated_at or memory.created_at, memory))
+
+    scored_candidates.sort(key=lambda item: (item[0], item[1] or datetime.min, item[2].id), reverse=True)
+    top_memories = [memory for _, _, memory in scored_candidates[: request.n_results]]
+    metadata_by_id = {
+        memory.id: {
+            "session_id": memory.session_id,
+            "task_context": memory.task_context,
+            "search_mode": "keyword_fallback",
+        }
+        for memory in top_memories
+    }
+    return _format_memory_search_results(top_memories, metadata_by_id=metadata_by_id)
 
 
 def compact_memories_for_context(db: Session, task_context: str | None) -> dict:
@@ -248,6 +333,7 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
         "status": "Memory permanently embedded into Pexo's global brain.",
         "memory_id": new_memory.id,
         "chroma_id": new_memory.chroma_id,
+        "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
         "maintenance": maintenance,
     }
 
@@ -258,10 +344,11 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     Allows the AI to perform a semantic vector search across Pexo's entire history
     to find relevant context, past bug fixes, or user patterns.
     """
-    results = get_memory_collection().query(
-        query_texts=[request.query],
-        n_results=request.n_results,
-    )
+    collection = get_memory_collection()
+    if collection is None:
+        return _search_memories_without_embeddings(request, db)
+
+    results = collection.query(query_texts=[request.query], n_results=request.n_results)
 
     documents = results.get("documents") or []
     ids = results.get("ids") or []
@@ -278,27 +365,24 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     )
     memory_map = {record.chroma_id: record for record in memory_records}
 
-    formatted_results = []
+    matched_records: list[Memory] = []
+    distance_by_id: dict[int, float | None] = {}
+    metadata_by_id: dict[int, dict] = {}
     for index, document in enumerate(documents[0]):
         chroma_id = chroma_ids[index] if index < len(chroma_ids) else None
         memory_record = memory_map.get(chroma_id)
-        if memory_record and memory_record.is_archived:
+        if memory_record is None:
             continue
-        metadata = metadatas[0][index] if metadatas and metadatas[0] else {}
-        formatted_results.append(
-            {
-                "memory_id": memory_record.id if memory_record else None,
-                "content": document,
-                "metadata": metadata,
-                "distance": distances[0][index] if distances and distances[0] else None,
-                "created_at": memory_record.created_at.isoformat() if memory_record and memory_record.created_at else None,
-                "is_compacted": bool(memory_record.is_compacted) if memory_record else False,
-                "is_pinned": bool(memory_record.is_pinned) if memory_record else False,
-                "is_archived": bool(memory_record.is_archived) if memory_record else False,
-            }
-        )
+        memory_record.content = document
+        matched_records.append(memory_record)
+        metadata_by_id[memory_record.id] = metadatas[0][index] if metadatas and metadatas[0] else {}
+        distance_by_id[memory_record.id] = distances[0][index] if distances and distances[0] else None
 
-    return {"results": formatted_results}
+    return _format_memory_search_results(
+        matched_records,
+        distance_by_id=distance_by_id,
+        metadata_by_id=metadata_by_id,
+    )
 
 
 @router.get("/recent")

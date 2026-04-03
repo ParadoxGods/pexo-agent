@@ -1,5 +1,11 @@
 from typing import TypedDict, List, Dict, Any, Optional
-from langgraph.graph import StateGraph, END
+
+try:
+    from langgraph.graph import StateGraph, END
+except ImportError:  # pragma: no cover - exercised by lightweight runtime paths
+    StateGraph = None
+    END = "__end__"
+
 from ..database import SessionLocal
 from ..models import Profile, AgentProfile, DynamicTool
 
@@ -174,8 +180,8 @@ def router(state: PexoState):
     
     if state.get("current_agent") == "Supervisor":
         return "developer"
-        
-    # If the current agent is anything OTHER than Supervisor or the final Manager, 
+
+    # If the current agent is anything OTHER than Supervisor or the final Manager,
     # it means a worker (Developer or Custom Agent) just finished.
     if state.get("current_agent") not in ["Supervisor", "Code Organization Manager"]:
         tasks = state.get("tasks", [])
@@ -183,20 +189,45 @@ def router(state: PexoState):
         if len(completed) < len(tasks):
             return "developer" # Loop back to assign the next task
         return "manager" # All tasks done, go to final review
-        
+
     if state.get("current_agent") == "Code Organization Manager":
         return END
-        
+
     return END
 
-workflow = StateGraph(PexoState)
-workflow.add_node("supervisor", supervisor_node)
-workflow.add_node("developer", developer_node)
-workflow.add_node("manager", manager_node)
 
-workflow.set_entry_point("supervisor")
-workflow.add_conditional_edges("supervisor", router, {END: END, "developer": "developer"})
-workflow.add_conditional_edges("developer", router, {END: END, "developer": "developer", "manager": "manager"})
-workflow.add_conditional_edges("manager", router, {END: END})
+class FallbackPexoApp:
+    def invoke(self, state: PexoState):
+        current_state = dict(state)
+        next_node = "supervisor"
 
-pexo_app = workflow.compile()
+        while True:
+            if next_node == "supervisor":
+                current_state.update(supervisor_node(current_state))
+            elif next_node == "developer":
+                current_state.update(developer_node(current_state))
+            elif next_node == "manager":
+                current_state.update(manager_node(current_state))
+            else:
+                return current_state
+
+            route = router(current_state)
+            if route == END:
+                return current_state
+            next_node = route
+
+
+if StateGraph is None:
+    pexo_app = FallbackPexoApp()
+else:
+    workflow = StateGraph(PexoState)
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("developer", developer_node)
+    workflow.add_node("manager", manager_node)
+
+    workflow.set_entry_point("supervisor")
+    workflow.add_conditional_edges("supervisor", router, {END: END, "developer": "developer"})
+    workflow.add_conditional_edges("developer", router, {END: END, "developer": "developer", "manager": "manager"})
+    workflow.add_conditional_edges("manager", router, {END: END})
+
+    pexo_app = workflow.compile()

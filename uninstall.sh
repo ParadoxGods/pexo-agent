@@ -1,5 +1,5 @@
 #!/bin/bash
-PEXO_DIR="$HOME/.pexo"
+PEXO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=================================================="
 echo "Uninstalling Pexo (Primary EXecution Operator)..."
