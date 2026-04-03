@@ -76,10 +76,13 @@ If you want another AI to perform the install for you, use:
 **"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the packaged GitHub install path, then run headless setup with the efficient_operator preset."**
 
 That instruction is now preferable to clone-first installation.
+If the assistant has to fall back to a checkout-based installer, tell it not to target the current repo unless you explicitly want a repo-local node.
 
 ### Repo-Local Checkout Install
 
 The checkout-based installers remain supported for contributors, custom install directories, deterministic repo-local MCP nodes, or environments without `uv`.
+
+Existing Git checkouts are protected by default. If you point the installer at a checkout without explicitly opting in, Pexo now leaves that checkout untouched and installs to the safe default location instead. Pass `-AllowRepoInstall` on Windows or `--allow-repo-install` on macOS/Linux only when you intentionally want a repo-local node.
 
 The install path is still staged for speed:
 
@@ -99,15 +102,15 @@ The installers also support custom or repo-local targets, so an existing checkou
 
 **Windows:**
 ```powershell
-.\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator
-.\install.ps1 -UseCurrentCheckout -HeadlessSetup -Preset efficient_operator
-.\install.ps1 -InstallDir C:\Tools\pexo -HeadlessSetup -Preset efficient_operator
+.\install.cmd -RepoPath C:\Users\<USER>\code\pexo-agent -AllowRepoInstall -HeadlessSetup -Preset efficient_operator
+.\install.cmd -UseCurrentCheckout -AllowRepoInstall -HeadlessSetup -Preset efficient_operator
+.\install.cmd -InstallDir C:\Tools\pexo -HeadlessSetup -Preset efficient_operator
 ```
 
 **macOS/Linux:**
 ```bash
-./install.sh --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator
-./install.sh --use-current-checkout --headless-setup --preset efficient_operator
+./install.sh --repo-path ~/code/pexo-agent --allow-repo-install --headless-setup --preset efficient_operator
+./install.sh --use-current-checkout --allow-repo-install --headless-setup --preset efficient_operator
 ./install.sh --install-dir ~/tools/pexo --headless-setup --preset efficient_operator
 ```
 
@@ -136,7 +139,7 @@ If you need a raw script-driven uninstall, execute the following command:
 
 **Windows:**
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
 **macOS/Linux:**
@@ -178,7 +181,7 @@ If you want MCP from an existing checkout instead of a packaged install, initial
 ```powershell
 gh repo clone ParadoxGods/pexo-agent C:\Users\<USER>\code\pexo-agent
 cd C:\Users\<USER>\code\pexo-agent
-.\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+.\install.cmd -UseCurrentCheckout -AllowRepoInstall -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
 ```
 
 ```json
@@ -256,7 +259,7 @@ The installation scripts also support an AI-friendly one-shot terminal setup pat
 
 **Windows:**
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -HeadlessSetup -Preset efficient_operator
 ```
 
 **macOS/Linux:**
@@ -268,19 +271,19 @@ To target an existing checkout instead of creating `~/.pexo`:
 
 **Windows:**
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -AllowRepoInstall -HeadlessSetup -Preset efficient_operator
 ```
 
 **macOS/Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --repo-path ~/code/pexo-agent --allow-repo-install --headless-setup --preset efficient_operator
 ```
 
 For deterministic installs that skip repository update checks:
 
 **Windows:**
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator -SkipUpdate
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -HeadlessSetup -Preset efficient_operator -SkipUpdate
 ```
 
 **macOS/Linux:**

@@ -13,13 +13,15 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   This creates the `pexo` and `pexo-mcp` commands without requiring a repo clone.
     *   Packaged installs keep mutable local state under `~/.pexo` by default (`pexo.db`, `chroma_db/`, `artifacts/`, and `dynamic_tools/`).
     *   If `uv` is unavailable or the user explicitly wants a checkout-local node, fall back to the platform install script:
-        *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
+        *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`
         *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
     *   The checkout-based installer updates an existing Pexo checkout in place and preserves the local brain.
     *   The checkout-based installer reports explicit progress percentages and heartbeat updates during long-running steps.
+    *   Existing Git checkouts are protected by default. Do **not** target the current repo unless the user explicitly asks for a repo-local node.
     *   If the user already has a checkout and wants to avoid a duplicate clone, use the repo-local options instead:
-        *   **Windows:** `.\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator`
-        *   **Mac/Linux:** `./install.sh --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator`
+        *   **Windows:** `.\install.cmd -RepoPath C:\Users\<USER>\code\pexo-agent -AllowRepoInstall -HeadlessSetup -Preset efficient_operator`
+        *   **Mac/Linux:** `./install.sh --repo-path ~/code/pexo-agent --allow-repo-install --headless-setup --preset efficient_operator`
+    *   Never write `.pexo-deps-profile` manually. That file is only a runtime marker and is not a substitute for dependency installation.
 3.  **Immediate Terminal-First Setup (Preferred):**
     *   Do **not** force the user into the browser during installation. Finish the initial profile setup directly in the same shell session.
     *   If the user wants to see the available presets first, run:
@@ -29,7 +31,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   After setup, validate the local install before launching the UI:
         *   `pexo doctor`
     *   If the user wants install and setup in one shot and you are using the checkout-based installer:
-        *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator`
+        *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -HeadlessSetup -Preset efficient_operator`
         *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator`
     *   If the user wants all dependencies installed immediately instead of staged promotion, run `pexo --promote full` and then `pexo --promote vector` after install.
     *   Only ask the user to restart the terminal after install if they need the `pexo` command by name in a brand new shell. Otherwise use the freshly installed command directly.
@@ -40,7 +42,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
         *   `uv tool uninstall pexo-agent`
         *   delete `~/.pexo` if they also want local state removed
     *   If the launcher is unavailable, execute this command in their terminal instead:
-    *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1`
+    *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.sh | bash`
 5.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal when the user actually wants the dashboard or API online.
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.

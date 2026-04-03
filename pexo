@@ -44,6 +44,13 @@ venv_python_usable() {
     return 1
 }
 
+venv_pip_usable() {
+    if ! venv_python_usable; then
+        return 1
+    fi
+    "$(venv_python)" -m pip --version >/dev/null 2>&1
+}
+
 python_command() {
     case "${OSTYPE:-}" in
         msys*|cygwin*|win32*)
@@ -91,6 +98,19 @@ requirements_file_for_profile() {
     esac
 }
 
+dependency_import_smoke() {
+    case "$1" in
+        core) echo "import fastapi, pydantic, sqlalchemy" ;;
+        mcp) echo "import fastapi, pydantic, sqlalchemy, mcp" ;;
+        full) echo "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph" ;;
+        vector) echo "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph, chromadb" ;;
+        *)
+            echo "Unsupported dependency profile: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
 current_profile() {
     if [ -f "$DEPENDENCY_MARKER" ]; then
         tr -d '[:space:]' < "$DEPENDENCY_MARKER"
@@ -101,14 +121,39 @@ set_current_profile() {
     printf '%s' "$1" > "$DEPENDENCY_MARKER"
 }
 
+profile_ready() {
+    local profile="$1"
+    if ! venv_pip_usable; then
+        return 1
+    fi
+    "$(venv_python)" -c "$(dependency_import_smoke "$profile")" >/dev/null 2>&1
+}
+
+ensure_venv_pip() {
+    if venv_pip_usable; then
+        return 0
+    fi
+    echo "pip is missing from the virtual environment. Repairing it..." >&2
+    "$(venv_python)" -m ensurepip --upgrade 1>&2
+    if ! venv_pip_usable; then
+        echo "Failed to repair pip in the local virtual environment." >&2
+        return 1
+    fi
+}
+
 install_profile() {
     local profile="$1"
     local requirements_file
     requirements_file=$(requirements_file_for_profile "$profile")
+    ensure_venv_pip
     if command -v uv >/dev/null 2>&1; then
         uv pip install --python "$(venv_python)" -r "$requirements_file" -c constraints.txt 1>&2
     else
         "$(venv_python)" -m pip install --disable-pip-version-check -r "$requirements_file" -c constraints.txt 1>&2
+    fi
+    if ! profile_ready "$profile"; then
+        echo "The '$profile' runtime marker could not be verified after dependency installation." >&2
+        return 1
     fi
     set_current_profile "$profile"
 }
@@ -122,6 +167,17 @@ ensure_venv() {
         echo "Virtual environment not found. Creating one..." >&2
         "$(python_command)" -m venv venv 1>&2
     fi
+    ensure_venv_pip
+}
+
+git_checkout_branch() {
+    git rev-parse --abbrev-ref HEAD 2>/dev/null | tr -d '[:space:]'
+}
+
+git_checkout_detached() {
+    local branch_name
+    branch_name=$(git_checkout_branch)
+    [ -z "$branch_name" ] || [ "$branch_name" = "HEAD" ]
 }
 
 ensure_runtime_profile() {
@@ -130,6 +186,15 @@ ensure_runtime_profile() {
 
     local active_profile
     active_profile=$(current_profile)
+    if [ -n "$active_profile" ] && [ "$(profile_rank "$active_profile")" -eq 0 ]; then
+        echo "Dependency marker '$active_profile' is invalid. Reinstalling runtime dependencies..." >&2
+        rm -f "$DEPENDENCY_MARKER"
+        active_profile=""
+    elif [ -n "$active_profile" ] && ! profile_ready "$active_profile"; then
+        echo "Dependency marker '$active_profile' is stale. Reinstalling runtime dependencies..." >&2
+        rm -f "$DEPENDENCY_MARKER"
+        active_profile=""
+    fi
     if [ "$(profile_rank "$active_profile")" -lt "$(profile_rank "$requested_profile")" ]; then
         echo "Preparing the $requested_profile runtime..." >&2
         install_profile "$requested_profile"
@@ -157,17 +222,27 @@ maybe_update() {
         return 0
     fi
 
+    if git_checkout_detached; then
+        echo "Update check skipped because this checkout is pinned to a detached git HEAD." >&2
+        printf '%s' "$now" > "$UPDATE_STAMP"
+        return 0
+    fi
+
     echo "Checking for updates..."
     if git pull --ff-only --quiet; then
         printf '%s' "$now" > "$UPDATE_STAMP"
     else
         echo "Update check failed. Continuing with the local version." >&2
-        echo "Run 'pexo update' for full git or auth output. If this repo is private, ensure git or gh authentication is configured." >&2
+        echo "Run 'pexo update' for full git or auth output. If this repo is private, detached, or access-controlled, verify authentication and branch state." >&2
     fi
 }
 
 run_update() {
     local now
+    if git_checkout_detached; then
+        echo "Update skipped because this checkout is pinned to a detached git HEAD. Checkout a branch before pulling updates."
+        return 0
+    fi
     echo "Checking for updates..."
     git pull --ff-only
     now=$(date +%s)

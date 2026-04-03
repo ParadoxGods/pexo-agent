@@ -74,14 +74,21 @@ exit /b %ERRORLEVEL%
 :ensure_venv
 if exist "venv\Scripts\python.exe" (
     venv\Scripts\python.exe -c "import sys" >nul 2>nul
-    if not errorlevel 1 exit /b 0
+    if not errorlevel 1 goto ensure_venv_has_pip
     echo Existing virtual environment is unusable. Recreating it...
     rmdir /s /q venv 2>nul
 )
 echo Virtual environment not found. Creating one...
 python -m venv venv
 if errorlevel 1 exit /b %ERRORLEVEL%
+:ensure_venv_has_pip
+call :ensure_venv_pip
+if errorlevel 1 exit /b %ERRORLEVEL%
 exit /b 0
+
+:venv_pip_usable
+venv\Scripts\python.exe -m pip --version >nul 2>nul
+exit /b %ERRORLEVEL%
 
 :get_profile_rank
 set "%~2=0"
@@ -111,8 +118,43 @@ if not defined %~2 (
 )
 exit /b 0
 
+:get_import_code
+set "%~2="
+if /I "%~1"=="core" set "%~2=import fastapi, pydantic, sqlalchemy"
+if /I "%~1"=="mcp" set "%~2=import fastapi, pydantic, sqlalchemy, mcp"
+if /I "%~1"=="full" set "%~2=import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph"
+if /I "%~1"=="vector" set "%~2=import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph, chromadb"
+if not defined %~2 (
+    echo Unsupported dependency profile: %~1
+    exit /b 1
+)
+exit /b 0
+
+:profile_ready
+call :venv_pip_usable
+if errorlevel 1 exit /b 1
+call :get_import_code "%~1" PROFILE_IMPORTS
+if errorlevel 1 exit /b %ERRORLEVEL%
+venv\Scripts\python.exe -c "!PROFILE_IMPORTS!" >nul 2>nul
+exit /b %ERRORLEVEL%
+
+:ensure_venv_pip
+call :venv_pip_usable
+if not errorlevel 1 exit /b 0
+echo pip is missing from the virtual environment. Repairing it...
+venv\Scripts\python.exe -m ensurepip --upgrade
+if errorlevel 1 exit /b %ERRORLEVEL%
+call :venv_pip_usable
+if errorlevel 1 (
+    echo Failed to repair pip in the local virtual environment.
+    exit /b 1
+)
+exit /b 0
+
 :install_profile
 call :get_requirements_file "%~1" REQUIREMENTS_FILE
+if errorlevel 1 exit /b %ERRORLEVEL%
+call :ensure_venv_pip
 if errorlevel 1 exit /b %ERRORLEVEL%
 where uv >nul 2>nul
 if errorlevel 1 (
@@ -122,6 +164,11 @@ if errorlevel 1 (
     uv pip install --python venv\Scripts\python.exe -r "!REQUIREMENTS_FILE!" -c constraints.txt
     if errorlevel 1 exit /b %ERRORLEVEL%
 )
+call :profile_ready "%~1"
+if errorlevel 1 (
+    echo The '%~1' runtime marker could not be verified after dependency installation.
+    exit /b 1
+)
 > "%DEPENDENCY_MARKER%" echo %~1
 exit /b 0
 
@@ -129,6 +176,21 @@ exit /b 0
 call :ensure_venv
 if errorlevel 1 exit /b %ERRORLEVEL%
 call :get_current_profile CURRENT_PROFILE
+if defined CURRENT_PROFILE (
+    call :get_profile_rank "!CURRENT_PROFILE!" CURRENT_RANK
+    if !CURRENT_RANK! equ 0 (
+        echo Dependency marker '!CURRENT_PROFILE!' is invalid. Reinstalling runtime dependencies...
+        del /f /q "%DEPENDENCY_MARKER%" >nul 2>nul
+        set "CURRENT_PROFILE="
+    ) else (
+        call :profile_ready "!CURRENT_PROFILE!"
+        if errorlevel 1 (
+            echo Dependency marker '!CURRENT_PROFILE!' is stale. Reinstalling runtime dependencies...
+            del /f /q "%DEPENDENCY_MARKER%" >nul 2>nul
+            set "CURRENT_PROFILE="
+        )
+    )
+)
 call :get_profile_rank "%~1" REQUESTED_RANK
 call :get_profile_rank "!CURRENT_PROFILE!" CURRENT_RANK
 if !CURRENT_RANK! lss !REQUESTED_RANK! (
@@ -182,6 +244,12 @@ echo   pexo --help    Displays this help menu
 exit /b 0
 
 :update
+call :checkout_detached DETACHED_HEAD
+if errorlevel 1 exit /b %ERRORLEVEL%
+if "!DETACHED_HEAD!"=="1" (
+    echo Update skipped because this checkout is pinned to a detached git HEAD. Checkout a branch before pulling updates.
+    exit /b 0
+)
 echo Checking for updates...
 git pull --ff-only
 if errorlevel 1 exit /b %ERRORLEVEL%
@@ -217,14 +285,32 @@ exit /b %ERRORLEVEL%
 if /I "%PEXO_SKIP_UPDATE%"=="1" exit /b 0
 powershell -NoProfile -Command "$stamp = '%UPDATE_STAMP%'; if (Test-Path $stamp) { $last = [Int64](Get-Content -LiteralPath $stamp -Raw); if (([DateTime]::UtcNow.Ticks - $last) -lt [TimeSpan]::FromHours(12).Ticks) { exit 10 } }; exit 0"
 if "%ERRORLEVEL%"=="10" exit /b 0
+call :checkout_detached DETACHED_HEAD
+if errorlevel 1 exit /b %ERRORLEVEL%
+if "!DETACHED_HEAD!"=="1" (
+    echo Update check skipped because this checkout is pinned to a detached git HEAD.
+    powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
+    exit /b 0
+)
 echo Checking for updates...
 git pull --ff-only --quiet >nul 2>nul
 if errorlevel 1 (
     echo Update check failed. Continuing with the local version.
-    echo Run 'pexo update' for full git or auth output. If this repo is private, ensure git or gh authentication is configured.
+    echo Run 'pexo update' for full git or auth output. If this repo is private, detached, or access-controlled, verify authentication and branch state.
 ) else (
     powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
 )
+exit /b 0
+
+:checkout_detached
+set "%~1=0"
+set "CURRENT_BRANCH="
+for /f "usebackq delims=" %%I in (`git rev-parse --abbrev-ref HEAD 2^>nul`) do set "CURRENT_BRANCH=%%I"
+if not defined CURRENT_BRANCH (
+    set "%~1=1"
+    exit /b 0
+)
+if /I "!CURRENT_BRANCH!"=="HEAD" set "%~1=1"
 exit /b 0
 
 :uninstall

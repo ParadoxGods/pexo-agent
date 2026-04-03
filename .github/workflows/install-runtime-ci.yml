@@ -35,7 +35,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          .\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+          .\install.cmd -UseCurrentCheckout -AllowRepoInstall -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
           .\pexo.bat --promote full
           .\venv\Scripts\python.exe -c "from app.mcp_server import mcp; print('mcp-import-ok')"
           cmd /c .\pexo.bat --help
@@ -45,7 +45,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          bash ./install.sh --use-current-checkout --install-profile mcp --headless-setup --preset efficient_operator --skip-update
+          bash ./install.sh --use-current-checkout --allow-repo-install --install-profile mcp --headless-setup --preset efficient_operator --skip-update
           bash ./pexo --promote full
           ./venv/bin/python -c "from app.mcp_server import mcp; print('mcp-import-ok')"
           bash ./pexo --help
@@ -59,7 +59,7 @@ jobs:
           if (Test-Path $disposable) { Remove-Item -Recurse -Force $disposable }
           git clone . $disposable
           Push-Location $disposable
-          .\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+          .\install.cmd -UseCurrentCheckout -AllowRepoInstall -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
           Pop-Location
           powershell -NoProfile -ExecutionPolicy Bypass -File "$disposable\uninstall.ps1"
           $renamed = Join-Path (Split-Path $disposable -Parent) ".pexo_deleted"
@@ -77,7 +77,7 @@ jobs:
           (
             cd "$disposable"
             chmod +x install.sh pexo uninstall.sh
-            bash ./install.sh --use-current-checkout --install-profile mcp --headless-setup --preset efficient_operator --skip-update
+            bash ./install.sh --use-current-checkout --allow-repo-install --install-profile mcp --headless-setup --preset efficient_operator --skip-update
             bash ./uninstall.sh
           )
           if [ -d "$disposable" ] && [ ! -d "$(dirname "$disposable")/.pexo_deleted" ]; then

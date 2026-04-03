@@ -12,6 +12,7 @@ REPOSITORY="ParadoxGods/pexo-agent"
 INSTALL_DIR=""
 REPO_PATH=""
 USE_CURRENT_CHECKOUT=0
+ALLOW_REPO_INSTALL=0
 INSTALL_PROFILE="auto"
 SKIP_UPDATE=0
 OFFLINE=0
@@ -48,6 +49,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --use-current-checkout)
             USE_CURRENT_CHECKOUT=1
+            shift
+            ;;
+        --allow-repo-install)
+            ALLOW_REPO_INSTALL=1
             shift
             ;;
         --install-profile)
@@ -319,6 +324,58 @@ venv_python_usable() {
     return 1
 }
 
+venv_pip_usable() {
+    if ! venv_python_usable; then
+        return 1
+    fi
+    "$(venv_python)" -m pip --version >/dev/null 2>&1
+}
+
+dependency_import_smoke() {
+    case "$1" in
+        core) echo "import fastapi, pydantic, sqlalchemy" ;;
+        mcp) echo "import fastapi, pydantic, sqlalchemy, mcp" ;;
+        full) echo "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph" ;;
+        vector) echo "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph, chromadb" ;;
+        *)
+            echo "Unsupported dependency profile: $1" >&2
+            return 1
+            ;;
+    esac
+}
+
+profile_ready() {
+    local profile="$1"
+    if ! venv_pip_usable; then
+        return 1
+    fi
+    "$(venv_python)" -c "$(dependency_import_smoke "$profile")" >/dev/null 2>&1
+}
+
+ensure_venv_pip() {
+    if venv_pip_usable; then
+        return 0
+    fi
+    echo "pip is missing from the virtual environment. Repairing it..." >&2
+    "$(venv_python)" -m ensurepip --upgrade 1>&2
+    if ! venv_pip_usable; then
+        echo "Failed to repair pip in the local virtual environment." >&2
+        return 1
+    fi
+}
+
+git_checkout_branch_at() {
+    local repo_dir="$1"
+    git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null | tr -d '[:space:]'
+}
+
+git_checkout_detached_at() {
+    local repo_dir="$1"
+    local branch_name
+    branch_name=$(git_checkout_branch_at "$repo_dir")
+    [ -z "$branch_name" ] || [ "$branch_name" = "HEAD" ]
+}
+
 install_dependency_profile() {
     local profile="$1"
     local start_message="$2"
@@ -327,11 +384,16 @@ install_dependency_profile() {
     requirements_file=$(requirements_file_for_profile "$profile")
     constraints_file="constraints.txt"
     python_path="$(venv_python)"
+    ensure_venv_pip
 
     if command -v uv >/dev/null 2>&1; then
         run_tracked 70 "$start_message" "$heartbeat_message" uv pip install --python "$python_path" -r "$requirements_file" -c "$constraints_file"
     else
         run_tracked 70 "$start_message" "$heartbeat_message" "$python_path" -m pip install --disable-pip-version-check -r "$requirements_file" -c "$constraints_file"
+    fi
+    if ! profile_ready "$profile"; then
+        echo "The '$profile' runtime marker could not be verified after dependency installation." >&2
+        exit 1
     fi
     set_current_profile "$profile"
 }
@@ -359,6 +421,7 @@ PYTHON_FOR_PATHS=$(resolve_python_command) || {
     echo "Python 3.11 or newer is required to install Pexo." >&2
     exit 1
 }
+DEFAULT_PEXO_DIR=$(resolve_full_path "$DEFAULT_PEXO_DIR" "$PYTHON_FOR_PATHS")
 
 if [ "$USE_CURRENT_CHECKOUT" -eq 1 ]; then
     PEXO_DIR="$SCRIPT_ROOT"
@@ -375,6 +438,13 @@ fi
 
 REQUESTED_PROFILE=$(requested_profile)
 CLONE_METHOD_SUMMARY="pending"
+PROTECTED_CHECKOUT_PATH=""
+
+if [ "$ALLOW_REPO_INSTALL" -ne 1 ] && [ -e "$PEXO_DIR/.git" ] && [ "$PEXO_DIR" != "$DEFAULT_PEXO_DIR" ]; then
+    PROTECTED_CHECKOUT_PATH="$PEXO_DIR"
+    PEXO_DIR="$DEFAULT_PEXO_DIR"
+    USING_EXISTING_CHECKOUT=0
+fi
 
 echo "=================================================="
 echo "Installing Pexo (The OpenClaw Killer) ..."
@@ -436,6 +506,9 @@ if should_use_packaged_install; then
     echo "Pexo installed successfully!"
     echo "Install mode: packaged GitHub tool via uv"
     echo "Package source: $PACKAGE_SOURCE"
+    if [ -n "$PROTECTED_CHECKOUT_PATH" ]; then
+        echo "Protected checkout left untouched: $PROTECTED_CHECKOUT_PATH"
+    fi
     echo "State directory: $STATE_ROOT"
     echo "Dependency profile ready now: $FINAL_PROFILE"
     echo "Profile initialized: $PROFILE_SUMMARY"
@@ -465,8 +538,11 @@ if should_use_packaged_install; then
 fi
 
 print_progress 5 "Validating install target at $PEXO_DIR"
+if [ -n "$PROTECTED_CHECKOUT_PATH" ]; then
+    echo "[SAFE] Existing checkout protection is enabled. Leaving $PROTECTED_CHECKOUT_PATH untouched and installing to $PEXO_DIR instead. Pass --allow-repo-install only when you intentionally want a repo-local install."
+fi
 if [ "$USING_EXISTING_CHECKOUT" -eq 1 ]; then
-    if [ ! -d "$PEXO_DIR/.git" ]; then
+    if [ ! -e "$PEXO_DIR/.git" ]; then
         echo "The checkout at $PEXO_DIR is missing a .git directory. Use --install-dir to clone a new copy or point --repo-path at an existing checkout." >&2
         exit 1
     fi
@@ -474,14 +550,20 @@ if [ "$USING_EXISTING_CHECKOUT" -eq 1 ]; then
     if [ "$SKIP_UPDATE" -eq 1 ] || [ "$OFFLINE" -eq 1 ]; then
         print_progress 20 "Using existing checkout. Skipping repository update."
         CLONE_METHOD_SUMMARY="existing checkout ($PEXO_DIR), update skipped"
+    elif git_checkout_detached_at "$PEXO_DIR"; then
+        print_progress 20 "Existing checkout is pinned to a detached git HEAD. Skipping repository update."
+        CLONE_METHOD_SUMMARY="existing checkout ($PEXO_DIR), update skipped (detached HEAD)"
     else
         run_tracked 20 "Using existing checkout. Updating repository in place..." "Updating repository... still working" git -C "$PEXO_DIR" pull --ff-only
         CLONE_METHOD_SUMMARY="existing checkout ($PEXO_DIR), updated via git pull"
     fi
-elif [ -d "$PEXO_DIR/.git" ]; then
+elif [ -e "$PEXO_DIR/.git" ]; then
     if [ "$SKIP_UPDATE" -eq 1 ] || [ "$OFFLINE" -eq 1 ]; then
         print_progress 20 "Existing installation found. Skipping repository update."
         CLONE_METHOD_SUMMARY="existing installation at $PEXO_DIR, update skipped"
+    elif git_checkout_detached_at "$PEXO_DIR"; then
+        print_progress 20 "Existing installation is pinned to a detached git HEAD. Skipping repository update."
+        CLONE_METHOD_SUMMARY="existing installation at $PEXO_DIR, update skipped (detached HEAD)"
     else
         run_tracked 20 "Existing installation found. Updating repository in place..." "Updating repository... still working" git -C "$PEXO_DIR" pull --ff-only
         CLONE_METHOD_SUMMARY="existing installation at $PEXO_DIR, updated via git pull"
@@ -506,8 +588,18 @@ if ! venv_python_usable; then
     CREATED_VENV=1
     run_tracked 45 "Creating Python virtual environment..." "Creating Python virtual environment... still working" "$PYTHON_CMD" -m venv venv
 fi
+ensure_venv_pip
 
 CURRENT_PROFILE=$(current_profile)
+if [ -n "$CURRENT_PROFILE" ] && [ "$(profile_rank "$CURRENT_PROFILE")" -eq 0 ]; then
+    print_progress 68 "Dependency marker '$CURRENT_PROFILE' is invalid. Reinstalling runtime dependencies."
+    rm -f "$(dependency_marker_path)"
+    CURRENT_PROFILE=""
+elif [ -n "$CURRENT_PROFILE" ] && ! profile_ready "$CURRENT_PROFILE"; then
+    print_progress 68 "Dependency marker '$CURRENT_PROFILE' is stale. Reinstalling runtime dependencies."
+    rm -f "$(dependency_marker_path)"
+    CURRENT_PROFILE=""
+fi
 if [ "$(profile_rank "$CURRENT_PROFILE")" -lt "$(profile_rank "$REQUESTED_PROFILE")" ]; then
     if [ "$CREATED_VENV" -eq 1 ] || [ -z "$CURRENT_PROFILE" ]; then
         DEPENDENCY_MESSAGE="Installing Python dependencies ($REQUESTED_PROFILE runtime)..."
@@ -563,6 +655,9 @@ if [ "$SKIP_UPDATE" -eq 1 ] || [ "$OFFLINE" -eq 1 ]; then
 fi
 echo "Clone method: $CLONE_METHOD_SUMMARY"
 echo "Install directory: $PEXO_DIR"
+if [ -n "$PROTECTED_CHECKOUT_PATH" ]; then
+    echo "Protected checkout left untouched: $PROTECTED_CHECKOUT_PATH"
+fi
 echo "Dependency profile ready now: $FINAL_PROFILE"
 echo "Profile initialized: $PROFILE_SUMMARY"
 echo "Backup path: $BACKUP_SUMMARY"

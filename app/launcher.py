@@ -61,10 +61,38 @@ def _write_update_stamp() -> None:
     UPDATE_STAMP_PATH.write_text(str(int(time.time())), encoding="utf-8")
 
 
+def _git_checkout_branch() -> str | None:
+    if not running_from_repo_checkout():
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if completed.returncode != 0:
+        return None
+    branch_name = completed.stdout.strip()
+    return branch_name or None
+
+
+def _checkout_is_detached() -> bool:
+    branch_name = _git_checkout_branch()
+    return branch_name in {None, "", "HEAD"}
+
+
 def maybe_update(skip_update: bool = False) -> None:
     if skip_update or not running_from_repo_checkout():
         return
     if _update_stamp_is_fresh():
+        return
+    if _checkout_is_detached():
+        print("Update check skipped because this checkout is pinned to a detached git HEAD.", file=sys.stderr)
+        _write_update_stamp()
         return
 
     completed = subprocess.run(
@@ -80,13 +108,16 @@ def maybe_update(skip_update: bool = False) -> None:
 
     print("Update check failed. Continuing with the local version.", file=sys.stderr)
     print(
-        "Run 'pexo update' for full git output. If this checkout is private or detached, verify authentication and branch state.",
+        "Run 'pexo update' for full git output. If this checkout is private, detached, or access-controlled, verify authentication and branch state.",
         file=sys.stderr,
     )
 
 
 def run_update() -> int:
     if running_from_repo_checkout():
+        if _checkout_is_detached():
+            print("Update skipped because this checkout is pinned to a detached git HEAD. Checkout a branch before pulling updates.")
+            return 0
         completed = subprocess.run(["git", "pull", "--ff-only"], cwd=str(PROJECT_ROOT), check=False)
         if completed.returncode == 0:
             _write_update_stamp()
@@ -280,7 +311,11 @@ def build_doctor_report() -> dict:
         "runtime": runtime_status,
         "database": sqlite_report,
         "guidance": {
-            "update": "git pull --ff-only" if install_mode == "checkout" else _package_update_guidance(),
+            "update": (
+                "Checkout a branch, then run git pull --ff-only"
+                if install_mode == "checkout" and _checkout_is_detached()
+                else ("git pull --ff-only" if install_mode == "checkout" else _package_update_guidance())
+            ),
             "uninstall": (
                 "pexo uninstall"
                 if install_mode == "checkout" else _package_uninstall_guidance()
@@ -306,6 +341,8 @@ def build_doctor_report() -> dict:
         issues.append("The packaged pexo command is not visible in PATH for this shell.")
     if install_mode == "checkout" and not report["commands"]["git"]:
         issues.append("Git is not available; checkout update commands will fail.")
+    if install_mode == "checkout" and _checkout_is_detached():
+        issues.append("Checkout is on detached git HEAD; automatic update checks are skipped.")
 
     return report
 

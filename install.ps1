@@ -7,6 +7,7 @@ param(
     [string]$InstallDir = "",
     [string]$RepoPath = "",
     [switch]$UseCurrentCheckout,
+    [switch]$AllowRepoInstall,
     [ValidateSet("auto", "core", "mcp", "full", "vector")]
     [string]$InstallProfile = "auto",
     [switch]$SkipUpdate,
@@ -42,6 +43,17 @@ function Test-UsableVenvPython {
     return $LASTEXITCODE -eq 0
 }
 
+function Test-UsableVenvPip {
+    param([string]$PythonPath)
+
+    if (-not (Test-UsableVenvPython $PythonPath)) {
+        return $false
+    }
+
+    & $PythonPath -m pip --version *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Resolve-FullPath {
     param([string]$PathValue)
 
@@ -54,6 +66,25 @@ function Resolve-FullPath {
     }
 
     return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $PathValue))
+}
+
+function Get-DefaultInstallDirectory {
+    return [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".pexo"))
+}
+
+function Test-SamePath {
+    param(
+        [string]$LeftPath,
+        [string]$RightPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LeftPath) -or [string]::IsNullOrWhiteSpace($RightPath)) {
+        return $false
+    }
+
+    $normalizedLeft = [System.IO.Path]::GetFullPath($LeftPath).TrimEnd('\', '/')
+    $normalizedRight = [System.IO.Path]::GetFullPath($RightPath).TrimEnd('\', '/')
+    return [string]::Equals($normalizedLeft, $normalizedRight, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-InstallDirectory {
@@ -73,7 +104,7 @@ function Get-InstallDirectory {
         return Resolve-FullPath -PathValue $InstallDir
     }
 
-    return [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".pexo"))
+    return Get-DefaultInstallDirectory
 }
 
 function Invoke-TrackedProcess {
@@ -124,9 +155,14 @@ function Invoke-TrackedProcess {
         }
         $stderrText = $stderrText.Trim()
 
-        if ($process.ExitCode -ne 0) {
+        $exitCode = $process.ExitCode
+        if ($null -eq $exitCode) {
+            $exitCode = 0
+        }
+
+        if ($exitCode -ne 0) {
             $errorText = if ($stderrText) { $stderrText } elseif ($stdoutText) { $stdoutText } else { "No process output was captured." }
-            throw "Command failed with exit code $($process.ExitCode): $FilePath $($ArgumentList -join ' ')`n$errorText"
+            throw "Command failed with exit code $exitCode: $FilePath $($ArgumentList -join ' ')`n$errorText"
         }
 
         if ($stdoutText) {
@@ -148,6 +184,23 @@ function Test-GhAuthentication {
 
     & gh auth status -h github.com *> $null
     return $LASTEXITCODE -eq 0
+}
+
+function Get-GitBranchName {
+    param([string]$RepositoryPath)
+
+    $branchText = [string](& git -C $RepositoryPath rev-parse --abbrev-ref HEAD 2>$null | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $null -eq $branchText) {
+        return ""
+    }
+    return $branchText.Trim()
+}
+
+function Test-GitDetachedHead {
+    param([string]$RepositoryPath)
+
+    $branchName = Get-GitBranchName -RepositoryPath $RepositoryPath
+    return [string]::IsNullOrWhiteSpace($branchName) -or $branchName -eq "HEAD"
 }
 
 function Resolve-PackageSource {
@@ -301,6 +354,32 @@ function Get-RequirementsFile {
     }
 }
 
+function Get-DependencyImportCommand {
+    param([string]$Profile)
+
+    switch ($Profile) {
+        "core" { return "import fastapi, pydantic, sqlalchemy" }
+        "mcp" { return "import fastapi, pydantic, sqlalchemy, mcp" }
+        "full" { return "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph" }
+        "vector" { return "import fastapi, pydantic, sqlalchemy, mcp, uvicorn, langgraph, chromadb" }
+        default { throw "Unsupported dependency profile '$Profile'." }
+    }
+}
+
+function Test-DependencyProfileReady {
+    param(
+        [string]$PythonPath,
+        [string]$Profile
+    )
+
+    if (-not (Test-UsableVenvPip $PythonPath)) {
+        return $false
+    }
+
+    & $PythonPath -c (Get-DependencyImportCommand -Profile $Profile) *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Get-DependencyMarkerPath {
     param([string]$ResolvedInstallDir)
     return Join-Path $ResolvedInstallDir ".pexo-deps-profile"
@@ -321,6 +400,13 @@ function Get-CurrentDependencyProfile {
     return $profileText.Trim().ToLowerInvariant()
 }
 
+function Clear-CurrentDependencyProfile {
+    param([string]$ResolvedInstallDir)
+
+    $markerPath = Get-DependencyMarkerPath -ResolvedInstallDir $ResolvedInstallDir
+    Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+}
+
 function Set-CurrentDependencyProfile {
     param(
         [string]$ResolvedInstallDir,
@@ -329,6 +415,26 @@ function Set-CurrentDependencyProfile {
 
     $markerPath = Get-DependencyMarkerPath -ResolvedInstallDir $ResolvedInstallDir
     Set-Content -LiteralPath $markerPath -Value $Profile -Encoding Ascii
+}
+
+function Ensure-VenvPip {
+    param(
+        [string]$ResolvedInstallDir,
+        [int]$Percent,
+        [string]$StartMessage,
+        [string]$HeartbeatMessage
+    )
+
+    $venvPython = Join-Path $ResolvedInstallDir "venv\Scripts\python.exe"
+    if (Test-UsableVenvPip $venvPython) {
+        return
+    }
+
+    Invoke-TrackedProcess -Percent $Percent -StartMessage $StartMessage -HeartbeatMessage $HeartbeatMessage -FilePath $venvPython -ArgumentList @("-m", "ensurepip", "--upgrade") -WorkingDirectory $ResolvedInstallDir
+
+    if (-not (Test-UsableVenvPip $venvPython)) {
+        throw "The Python virtual environment at '$ResolvedInstallDir' does not have a working pip module after ensurepip repair."
+    }
 }
 
 function Install-DependencyProfile {
@@ -344,11 +450,17 @@ function Install-DependencyProfile {
     $requirementsFile = Join-Path $ResolvedInstallDir (Get-RequirementsFile -Profile $Profile)
     $constraintsFile = Join-Path $ResolvedInstallDir "constraints.txt"
 
+    Ensure-VenvPip -ResolvedInstallDir $ResolvedInstallDir -Percent ([Math]::Max($Percent - 5, 50)) -StartMessage "Ensuring pip is available in the virtual environment..." -HeartbeatMessage "Repairing pip in the virtual environment... still working"
+
     if (Test-CommandAvailable "uv") {
         Invoke-TrackedProcess -Percent $Percent -StartMessage $StartMessage -HeartbeatMessage $HeartbeatMessage -FilePath "uv" -ArgumentList @("pip", "install", "--python", $venvPython, "-r", $requirementsFile, "-c", $constraintsFile) -WorkingDirectory $ResolvedInstallDir
     }
     else {
         Invoke-TrackedProcess -Percent $Percent -StartMessage $StartMessage -HeartbeatMessage $HeartbeatMessage -FilePath $venvPython -ArgumentList @("-m", "pip", "install", "--disable-pip-version-check", "-r", $requirementsFile, "-c", $constraintsFile) -WorkingDirectory $ResolvedInstallDir
+    }
+
+    if (-not (Test-DependencyProfileReady -PythonPath $venvPython -Profile $Profile)) {
+        throw "The '$Profile' runtime marker could not be verified after dependency installation."
     }
 
     Set-CurrentDependencyProfile -ResolvedInstallDir $ResolvedInstallDir -Profile $Profile
@@ -371,9 +483,17 @@ function Format-WindowsMcpSnippet {
 }
 
 $PexoDir = Get-InstallDirectory
+$DefaultPexoDir = Get-DefaultInstallDirectory
 $UsingExistingCheckout = $UseCurrentCheckout -or -not [string]::IsNullOrWhiteSpace($RepoPath)
 $RequestedProfile = Get-RequestedDependencyProfile
 $CloneMethodSummary = "pending"
+$ProtectedCheckoutPath = ""
+
+if (-not $AllowRepoInstall -and (Test-Path (Join-Path $PexoDir ".git")) -and -not (Test-SamePath -LeftPath $PexoDir -RightPath $DefaultPexoDir)) {
+    $ProtectedCheckoutPath = $PexoDir
+    $PexoDir = $DefaultPexoDir
+    $UsingExistingCheckout = $false
+}
 
 Write-Host "=================================================="
 Write-Host "Installing Pexo (The OpenClaw Killer) ..."
@@ -440,6 +560,9 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     Write-Host "Pexo installed successfully!"
     Write-Host "Install mode: packaged GitHub tool via uv"
     Write-Host "Package source: $packageSource"
+    if (-not [string]::IsNullOrWhiteSpace($ProtectedCheckoutPath)) {
+        Write-Host "Protected checkout left untouched: $ProtectedCheckoutPath"
+    }
     Write-Host "State directory: $stateRoot"
     Write-Host "Dependency profile ready now: $finalProfile"
     Write-Host "Profile initialized: $profileSummary"
@@ -470,6 +593,9 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
 }
 
 Show-InstallProgress -Percent 5 -Status "Validating install target at $PexoDir"
+if (-not [string]::IsNullOrWhiteSpace($ProtectedCheckoutPath)) {
+    Write-Host "[SAFE] Existing checkout protection is enabled. Leaving '$ProtectedCheckoutPath' untouched and installing to '$PexoDir' instead. Pass -AllowRepoInstall only when you intentionally want a repo-local install."
+}
 if ($UsingExistingCheckout) {
     if (-not (Test-Path (Join-Path $PexoDir ".git"))) {
         throw "The checkout at '$PexoDir' is missing a .git directory. Use -InstallDir to clone a new copy or point -RepoPath at an existing checkout."
@@ -478,6 +604,10 @@ if ($UsingExistingCheckout) {
     if ($SkipUpdate -or $Offline) {
         Show-InstallProgress -Percent 20 -Status "Using existing checkout. Skipping repository update."
         $CloneMethodSummary = "existing checkout ($PexoDir), update skipped"
+    }
+    elseif (Test-GitDetachedHead -RepositoryPath $PexoDir) {
+        Show-InstallProgress -Percent 20 -Status "Existing checkout is pinned to a detached git HEAD. Skipping repository update."
+        $CloneMethodSummary = "existing checkout ($PexoDir), update skipped (detached HEAD)"
     }
     else {
         Invoke-TrackedProcess -Percent 20 -StartMessage "Using existing checkout. Updating repository in place..." -HeartbeatMessage "Updating repository... still working" -FilePath "git" -ArgumentList @("-C", $PexoDir, "pull", "--ff-only")
@@ -488,6 +618,10 @@ elseif (Test-Path (Join-Path $PexoDir ".git")) {
     if ($SkipUpdate -or $Offline) {
         Show-InstallProgress -Percent 20 -Status "Existing installation found. Skipping repository update."
         $CloneMethodSummary = "existing installation at $PexoDir, update skipped"
+    }
+    elseif (Test-GitDetachedHead -RepositoryPath $PexoDir) {
+        Show-InstallProgress -Percent 20 -Status "Existing installation is pinned to a detached git HEAD. Skipping repository update."
+        $CloneMethodSummary = "existing installation at $PexoDir, update skipped (detached HEAD)"
     }
     else {
         Invoke-TrackedProcess -Percent 20 -StartMessage "Existing installation found. Updating repository in place..." -HeartbeatMessage "Updating repository... still working" -FilePath "git" -ArgumentList @("-C", $PexoDir, "pull", "--ff-only")
@@ -518,6 +652,16 @@ if (-not (Test-UsableVenvPython $venvPythonPath)) {
 }
 
 $currentProfile = Get-CurrentDependencyProfile -ResolvedInstallDir $PexoDir
+if (-not [string]::IsNullOrWhiteSpace($currentProfile) -and (Get-DependencyRank -Profile $currentProfile) -eq 0) {
+    Show-InstallProgress -Percent 68 -Status "Dependency marker '$currentProfile' is invalid. Reinstalling runtime dependencies."
+    Clear-CurrentDependencyProfile -ResolvedInstallDir $PexoDir
+    $currentProfile = ""
+}
+elseif (-not [string]::IsNullOrWhiteSpace($currentProfile) -and -not (Test-DependencyProfileReady -PythonPath $venvPythonPath -Profile $currentProfile)) {
+    Show-InstallProgress -Percent 68 -Status "Dependency marker '$currentProfile' is stale. Reinstalling runtime dependencies."
+    Clear-CurrentDependencyProfile -ResolvedInstallDir $PexoDir
+    $currentProfile = ""
+}
 if ((Get-DependencyRank -Profile $currentProfile) -lt (Get-DependencyRank -Profile $RequestedProfile)) {
     $dependencyMessage = if ($createdVenv -or [string]::IsNullOrWhiteSpace($currentProfile)) {
         "Installing Python dependencies ($RequestedProfile runtime)..."
@@ -581,6 +725,9 @@ if ($SkipUpdate -or $Offline) {
 }
 Write-Host "Clone method: $CloneMethodSummary"
 Write-Host "Install directory: $PexoDir"
+if (-not [string]::IsNullOrWhiteSpace($ProtectedCheckoutPath)) {
+    Write-Host "Protected checkout left untouched: $ProtectedCheckoutPath"
+}
 Write-Host "Dependency profile ready now: $finalProfile"
 Write-Host "Profile initialized: $profileSummary"
 Write-Host "Backup path: $effectiveBackupPath"
