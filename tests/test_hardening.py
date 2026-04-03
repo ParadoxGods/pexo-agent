@@ -537,6 +537,24 @@ class HardeningTests(unittest.TestCase):
         mock_prepare.assert_called_once_with(mock_build_plan.return_value)
         mock_exec.assert_called_once()
 
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
+    @patch("uvicorn.run")
+    def test_run_server_prints_pexo_banner(self, mock_uvicorn_run, _mock_status):
+        original_no_browser = os.environ.get("PEXO_NO_BROWSER")
+        try:
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(launcher_module.run_server(no_browser=True), 0)
+            rendered = output.getvalue()
+            self.assertIn("PEXO", rendered)
+            self.assertIn("Primary EXecution Operator", rendered)
+            mock_uvicorn_run.assert_called_once()
+        finally:
+            if original_no_browser is None:
+                os.environ.pop("PEXO_NO_BROWSER", None)
+            else:
+                os.environ["PEXO_NO_BROWSER"] = original_no_browser
+
     @patch("app.client_connect.running_from_repo_checkout", return_value=False)
     @patch("app.client_connect.which")
     def test_client_connect_builds_packaged_plans_for_supported_clients(self, mock_which, _mock_checkout):

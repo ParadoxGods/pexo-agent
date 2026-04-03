@@ -35,6 +35,14 @@ RELEASE_WHEEL_PREFIX = "pexo_agent-"
 RELEASE_WHEEL_SUFFIX = "-py3-none-any.whl"
 RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
 PACKAGE_UPDATE_COMMAND = "pexo --update"
+PEXO_ASCII_BANNER = r"""
+______  ________  _______
+| ___ \ |  ___\ \/ /  _  \
+| |_/ / | |__  \  /| | | |
+|  __/  |  __| /  \| | | |
+| |     | |___/ /\ \ |/ /
+\_|     \____/\/  \/___/
+"""
 PACKAGED_UPDATE_HELPER = r"""
 from __future__ import annotations
 
@@ -175,6 +183,19 @@ def _package_uninstall_guidance() -> str:
     if shutil_which("pipx"):
         return "pipx uninstall pexo-agent"
     return "Uninstall the packaged tool with your Python tool manager"
+
+
+def _print_start_banner() -> None:
+    banner = PEXO_ASCII_BANNER.strip("\n")
+    if sys.stdout.isatty():
+        cyan = "\033[96m"
+        green = "\033[92m"
+        reset = "\033[0m"
+        print(f"{cyan}{banner}{reset}")
+        print(f"{green}PEXO | Primary EXecution Operator | local-first control plane{reset}")
+    else:
+        print(banner)
+        print("PEXO | Primary EXecution Operator | local-first control plane")
 
 
 def _github_api_request(url: str) -> urllib.request.Request:
@@ -348,6 +369,7 @@ def run_server(no_browser: bool = False) -> int:
 
     if no_browser:
         os.environ["PEXO_NO_BROWSER"] = "1"
+    _print_start_banner()
     uvicorn.run("app.main:app", host="127.0.0.1", port=9999, workers=1)
     return 0
 
