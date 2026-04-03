@@ -32,7 +32,7 @@ def _read_install_metadata() -> dict | None:
     if not INSTALL_METADATA_PATH.exists():
         return None
     try:
-        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8"))
+        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
 

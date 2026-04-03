@@ -109,7 +109,9 @@ function Write-InstallMetadata {
             update = $UpdateCommand
         }
     }
-    $payload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $InstallMetadataPath -Encoding UTF8
+    $json = $payload | ConvertTo-Json -Depth 6
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($InstallMetadataPath, $json, $utf8NoBom)
 }
 
 function Write-Summary {

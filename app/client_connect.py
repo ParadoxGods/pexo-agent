@@ -22,9 +22,13 @@ def _read_install_metadata() -> dict | None:
     if not INSTALL_METADATA_PATH.exists():
         return None
     try:
-        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8"))
+        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
+
+
+def _client_invoker(client_name: str, resolved_binary: str | None) -> str:
+    return resolved_binary or client_name
 
 
 def build_mcp_stdio_target() -> dict:
@@ -60,18 +64,19 @@ def build_client_connection_plan(client: str, scope: str = "user") -> dict:
 
     target = build_mcp_stdio_target()
     binary = which(normalized_client)
+    invoker = _client_invoker(normalized_client, binary)
 
     if normalized_client == "codex":
-        add_command = ["codex", "mcp", "add", "pexo", "--", target["command"], *target["args"]]
-        remove_command = ["codex", "mcp", "remove", "pexo"]
-        verify_command = ["codex", "mcp", "get", "pexo"]
+        add_command = [invoker, "mcp", "add", "pexo", "--", target["command"], *target["args"]]
+        remove_command = [invoker, "mcp", "remove", "pexo"]
+        verify_command = [invoker, "mcp", "get", "pexo"]
     elif normalized_client == "claude":
-        add_command = ["claude", "mcp", "add", "pexo", "--scope", normalized_scope, "--", target["command"], *target["args"]]
-        remove_command = ["claude", "mcp", "remove", "pexo"]
-        verify_command = ["claude", "mcp", "get", "pexo"]
+        add_command = [invoker, "mcp", "add", "pexo", "--scope", normalized_scope, "--", target["command"], *target["args"]]
+        remove_command = [invoker, "mcp", "remove", "pexo"]
+        verify_command = [invoker, "mcp", "get", "pexo"]
     else:
         add_command = [
-            "gemini",
+            invoker,
             "mcp",
             "add",
             "--scope",
@@ -82,14 +87,15 @@ def build_client_connection_plan(client: str, scope: str = "user") -> dict:
             target["command"],
             *target["args"],
         ]
-        remove_command = ["gemini", "mcp", "remove", "pexo"]
-        verify_command = ["gemini", "mcp", "list"]
+        remove_command = [invoker, "mcp", "remove", "pexo"]
+        verify_command = [invoker, "mcp", "list"]
 
     return {
         "client": normalized_client,
         "scope": normalized_scope,
         "available": binary is not None,
         "binary": binary,
+        "invoker": invoker,
         "target": target,
         "remove_command": remove_command,
         "add_command": add_command,
