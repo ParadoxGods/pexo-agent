@@ -1,43 +1,42 @@
-# Pexo - Primary EXecution Officer (The OpenClaw Killer)
+# Pexo: Primary EXecution Officer
 
-```text
-  ____  _____ __  __ ___  
- |  _ \| ____|\ \/ // _ \ 
- | |_) |  _|   \  /| | | |
- |  __/| |___  /  \| |_| |
- |_|   |_____|/_/\_\\___/ 
-```
+Pexo is a lightweight, strictly local multi-agent orchestration framework designed to serve as a persistent execution environment and memory layer for Large Language Models (LLMs).
 
-Pexo is a hyper-lightweight, purely local multi-agent orchestration primer. It lives entirely within the folder you drop it into.
+Operating entirely within the directory it is deployed, Pexo provides an autonomous execution engine, a vector-based memory system, and a dynamic tool-generation API without requiring background daemons, external database services, or complex containerization.
 
-**Why Pexo over OpenClaw?**
-OpenClaw is viral, but it's a massive, bloated "always-on" Node.js daemon that requires heavy system access, raising severe privacy and security concerns. 
+## Core Architecture
 
-Pexo takes a different approach:
-- **Zero Daemons:** It only runs when you ask your AI to use it.
-- **Zero External Dependencies:** No Docker. No heavy Node environments. Pexo runs on a lightweight Python script using a local SQLite file (`pexo.db`) and ChromaDB.
-- **Total Local Privacy:** Your memory, user profiles, and workspaces stay right here in the folder.
-- **"Bring Your Own AI":** Just plug your favorite AI model (Gemini, Claude Code, Codex) into this directory.
+Pexo is built on three foundational pillars that separate it from traditional agent frameworks:
 
-## 🚀 The Epiphany Features (What makes Pexo next-level)
+1.  **Reinforcement Learning from AI Feedback (RLAIF):** Pexo supports persistent agent mutation. When an AI agent encounters an error or receives behavioral correction from a user, the "lesson learned" is permanently integrated into the agent's base system prompt within the local database. This ensures agents adapt to project-specific constraints and coding standards over time.
+2.  **Global Vector Brain:** Utilizing a local ChromaDB instance, Pexo vectorizes implemented solutions, architectural decisions, and bug fixes. Before executing new tasks, agents query this historical context via semantic search, maintaining an unbroken chain of project memory across discrete sessions.
+3.  **The Genesis Engine (Dynamic Tool Creation):** If an agent lacks the capability to fulfill a specific request (e.g., parsing proprietary file formats or interfacing with undocumented APIs), it is authorized to author the required Python tool. The Genesis Engine dynamically ingests, registers, and exposes these generated scripts to the swarm for immediate and future execution.
 
-1. **Native MCP Server Integration:** Pexo completely obsoletes clunky REST API polling. It acts as a native **Model Context Protocol (MCP)** server. You can plug it directly into Claude Desktop, Cursor, or Zed, and its memory tools, evolution tools, and Genesis Engine tools will physically appear as clickable, native tools in your AI's UI.
-2. **Self-Evolving Agents (RLAIF):** Pexo gets smarter every time you use it. When your AI makes a mistake or learns a user preference during a task, it posts a "Lesson Learned" to Pexo. Pexo *permanently mutates* the base system prompt of that agent in the database. The same mistake will never be made twice. Your swarm literally evolves to fit your exact coding style.
-3. **The Global Vector Brain:** Pexo uses ChromaDB to vectorize every bug fix, architecture decision, and code snippet you complete. Before an agent writes a line of code, it semantically searches Pexo's brain for past solutions, creating an unbroken chain of persistent memory across your entire project lifecycle.
-4. **The Genesis Engine (Dynamic Tool Creation):** If the AI encounters a task it can't perform (like parsing a weird file type or hitting a proprietary API), it is explicitly instructed to *write a Python tool for itself*. It POSTs the code to Pexo's Genesis Engine, which dynamically loads the script and exposes it. Pexo literally writes its own API extensions on the fly to expand its physical capabilities.
-5. **Private Local UI Control Panel:** Once running, Pexo hosts a sleek, local-only web portal at `http://127.0.0.1:9999`. You can manually add custom agents, trigger brain backups, search vector memory, and view dynamically generated tools without ever exposing your data to the internet.
+## Key Features
 
-## How to Use (For Users)
+*   **Zero-Daemon Execution:** Pexo processes are invoked only when required by the user or the connecting AI model. It does not run persistent background services, mitigating local resource consumption and privacy concerns.
+*   **Native MCP Server Integration:** Pexo implements the Model Context Protocol (MCP) natively. This allows seamless integration with MCP-compliant interfaces (such as Claude Desktop and Cursor), surfacing Pexo's memory operations, agent evolution, and dynamic tools directly within the AI's native interface.
+*   **Local Administration Interface:** Pexo hosts a secure, localhost-bound administrative terminal (accessible via `127.0.0.1:9999`). This interface provides manual oversight of the agent registry, vector database queries, and automated backup configurations, protected by a user-defined cryptographic master password.
+*   **Automated State Backup:** The framework supports automated, timestamped archiving of the SQLite state database, vector embeddings, and dynamically generated tools to a designated local directory or network share.
 
-### The 1-Liner AI Installation (Easiest)
-1. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
-2. Tell the AI: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
+## Installation and Deployment
 
-The AI will automatically run the global installer, set up your Python environment, and add Pexo to your system PATH. Then, simply type `pexo` in any terminal to boot the server. The AI will then tell you to open `http://127.0.0.1:9999` in your web browser to access your private Control Panel.
+Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone the repository manually.
 
-### Option 1: Native MCP Integration (Recommended)
-You can connect Pexo directly to **Claude Desktop** or **Cursor** so the AI natively understands its tools.
-Add this to your `claude_desktop_config.json` or Cursor MCP settings:
+### Automated Initialization
+
+1.  Open an interactive session with an LLM (e.g., Claude, Codex, Gemini).
+2.  Provide the following instruction: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
+
+The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. 
+
+Upon completion, executing `pexo` in the terminal will initialize the local server and automatically launch the administrative interface in the default web browser for initial configuration.
+
+### Native MCP Configuration (Recommended)
+
+To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings:
+
+**Windows Configuration:**
 ```json
 {
   "mcpServers": {
@@ -48,8 +47,25 @@ Add this to your `claude_desktop_config.json` or Cursor MCP settings:
   }
 }
 ```
-*(On Mac/Linux, set command to `bash` and args to `["pexo", "--mcp"]`)*.
 
-**Note for Windows Users:** Pexo uses ChromaDB for its Global Vector Brain. During the `pip install` phase, if you get an error regarding `hnswlib` or missing C++ Build Tools, you will need to install the [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). 
+**macOS/Linux Configuration:**
+```json
+{
+  "mcpServers": {
+    "pexo": {
+      "command": "bash",
+      "args": ["-c", "pexo --mcp"]
+    }
+  }
+}
+```
 
-The AI will automatically read the `PEXO_AI_PRIMER.md` protocol, set up the lightweight local Python environment, and assimilate itself under Pexo's orchestration. From that point on, Pexo acts as the primary "brain."
+## System Requirements
+
+*   Python 3.11 or higher
+*   Git
+*   *Windows Environments:* Microsoft C++ Build Tools (required for local ChromaDB compilation)
+
+## Architecture Integrity
+
+Pexo ensures absolute data sovereignty. All configuration parameters, memory embeddings, and agent prompts are stored locally in the deployment directory (`pexo.db` and `chroma_db/`). No telemetry or state data is transmitted externally.
