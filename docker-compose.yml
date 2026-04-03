@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pexo
+      POSTGRES_PASSWORD: pexopassword
+      POSTGRES_DB: pexo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pexo_data:/var/lib/postgresql/data
+
+  # The main application would be defined here once the tech stack is finalized.
+  # app:
+  #   build: .
+  #   depends_on:
+  #     - db
+
+volumes:
+  pexo_data:
