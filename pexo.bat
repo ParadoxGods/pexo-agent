@@ -3,6 +3,24 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 set "UPDATE_STAMP=%CD%\.pexo-update-check"
+set "NO_BROWSER=0"
+
+:parseflags
+if "%~1"=="--no-browser" (
+    set "NO_BROWSER=1"
+    shift
+    goto parseflags
+)
+if "%~1"=="--offline" (
+    set "PEXO_SKIP_UPDATE=1"
+    shift
+    goto parseflags
+)
+if "%~1"=="--skip-update" (
+    set "PEXO_SKIP_UPDATE=1"
+    shift
+    goto parseflags
+)
 
 if "%~1"=="--version" goto version
 if "%~1"=="--help" goto help
@@ -15,11 +33,6 @@ if "%~1"=="--headless-setup" goto headlesssetup
 if /I "%~1"=="headless-setup" goto headlesssetup
 if "%~1"=="--uninstall" goto uninstall
 if /I "%~1"=="uninstall" goto uninstall
-set "NO_BROWSER=0"
-if "%~1"=="--no-browser" (
-    set "NO_BROWSER=1"
-    shift
-)
 call :maybeupdate
 
 echo   ____  _____ __  __ ___  
@@ -38,6 +51,7 @@ if !errorlevel! neq 0 (
     set /p add_path="Pexo is not in your system PATH. Would you like to add it now? (Y/N): "
     if /i "!add_path!"=="Y" (
         setx PATH "%PATH%;%CD%"
+        set "PATH=%PATH%;%CD%"
         echo Added %CD% to PATH. Please restart your terminal after this session for it to take effect globally.
     )
 )
@@ -46,7 +60,7 @@ IF NOT EXIST "venv\Scripts\python.exe" (
     echo Virtual environment not found. Creating one...
     python -m venv venv
     echo Installing dependencies...
-    venv\Scripts\python.exe -m pip install -r requirements.txt
+    venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt
 )
 
 echo Starting Pexo API...
@@ -57,7 +71,7 @@ exit /b %ERRORLEVEL%
 :mcp
 IF NOT EXIST "venv\Scripts\python.exe" (
     python -m venv venv 1>&2
-    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
+    venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt 1>&2
 )
 venv\Scripts\python.exe -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
 exit /b %ERRORLEVEL%
@@ -79,6 +93,8 @@ echo   pexo --update ^| pexo update
 echo                  Pulls the latest repository changes immediately
 echo   pexo --no-browser
 echo                  Starts the API without opening the dashboard automatically
+echo   pexo --offline ^| pexo --skip-update
+echo                  Starts Pexo without attempting an update check
 echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
 echo   pexo --uninstall ^| pexo uninstall
 echo                  Removes the local Pexo installation and saved state
@@ -97,7 +113,7 @@ exit /b 0
 :listpresets
 IF NOT EXIST "venv\Scripts\python.exe" (
     python -m venv venv 1>&2
-    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
+    venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt 1>&2
 )
 venv\Scripts\python.exe -m app.cli list-presets %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %ERRORLEVEL%
@@ -105,7 +121,7 @@ exit /b %ERRORLEVEL%
 :headlesssetup
 IF NOT EXIST "venv\Scripts\python.exe" (
     python -m venv venv 1>&2
-    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
+    venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt 1>&2
 )
 venv\Scripts\python.exe -m app.cli headless-setup %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %ERRORLEVEL%
@@ -118,6 +134,7 @@ echo Checking for updates...
 git pull --ff-only --quiet >nul 2>nul
 if errorlevel 1 (
     echo Update check failed. Continuing with the local version.
+    echo Run 'pexo update' for full git or auth output. If this repo is private, ensure git or gh authentication is configured.
 ) else (
     powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
 )
