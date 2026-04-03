@@ -1,7 +1,46 @@
 #!/bin/bash
 
+set -e
 cd "$(dirname "$0")"
 PEXO_DIR=$(pwd)
+
+venv_python() {
+    if [ -x "venv/bin/python3" ]; then
+        echo "venv/bin/python3"
+    else
+        echo "venv/bin/python"
+    fi
+}
+
+ensure_venv() {
+    if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
+        echo "Virtual environment not found. Creating one..." >&2
+        python3 -m venv venv 1>&2
+        "$(venv_python)" -m pip install -r requirements.txt 1>&2
+    fi
+}
+
+if [ "$1" = "--version" ]; then
+    echo "Pexo v1.0.0-stable"
+    exit 0
+fi
+
+if [ "$1" = "--help" ]; then
+    echo "Pexo: Primary EXecution Operator"
+    echo ""
+    echo "Usage:"
+    echo "  pexo           Starts the Pexo API and Control Panel"
+    echo "  pexo --mcp     Starts Pexo as a native MCP server (stdio)"
+    echo "  pexo --version Displays the current version"
+    echo "  pexo --help    Displays this help menu"
+    exit 0
+fi
+
+if [ "$1" = "--mcp" ]; then
+    ensure_venv
+    "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
+    exit $?
+fi
 
 # Auto-Update: Pull latest changes from GitHub silently
 echo "Checking for updates..."
@@ -28,36 +67,12 @@ if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then
     fi
 fi
 
-if [ ! -d "venv" ]; then
+if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
     echo "Virtual environment not found. Creating one..."
     python3 -m venv venv
-    source venv/bin/activate
     echo "Installing dependencies..."
-    pip install -r requirements.txt
-else
-    source venv/bin/activate
+    "$(venv_python)" -m pip install -r requirements.txt
 fi
 
-if [ "$1" = "--version" ]; then
-    echo "Pexo v1.0.0-stable"
-    exit 0
-fi
-
-if [ "$1" = "--help" ]; then
-    echo "Pexo: Primary EXecution Operator"
-    echo ""
-    echo "Usage:"
-    echo "  pexo           Starts the Pexo API and Control Panel"
-    echo "  pexo --mcp     Starts Pexo as a native MCP server (stdio)"
-    echo "  pexo --version Displays the current version"
-    echo "  pexo --help    Displays this help menu"
-    exit 0
-fi
-
-if [ "$1" = "--mcp" ]; then
-    # Run the FastMCP server over stdio
-    python3 -c "from app.database import init_db; init_db(); from app.mcp_server import start_mcp_server; start_mcp_server()"
-else
-    echo "Starting Pexo API..."
-    python3 -m uvicorn app.main:app --host 127.0.0.1 --port 9999 --workers 1
-fi
+echo "Starting Pexo API..."
+"$(venv_python)" -m uvicorn app.main:app --host 127.0.0.1 --port 9999 --workers 1

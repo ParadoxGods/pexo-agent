@@ -2,10 +2,12 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
+import os
 import webbrowser
 import threading
 import time
 from .database import init_db
+from .paths import STATIC_DIR
 from .routers import agents, profile, orchestrator, memory, evolve, tools, backup
 
 def open_browser():
@@ -14,16 +16,16 @@ def open_browser():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize the database and pgvector extension on startup
+    # Initialize local persistence before serving requests.
     init_db()
-    # Auto-launch the Control Panel in the default browser
-    threading.Thread(target=open_browser, daemon=True).start()
+    if os.environ.get("PEXO_NO_BROWSER") != "1":
+        threading.Thread(target=open_browser, daemon=True).start()
     yield
 
 app = FastAPI(title="Pexo - Primary EXecution Operator", lifespan=lifespan)
 
-# Mount static files for the local web UI
-app.mount("/ui", StaticFiles(directory="app/static", html=True), name="static")
+# Mount static files for the local web UI.
+app.mount("/ui", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
 @app.get("/")
 def redirect_to_ui():

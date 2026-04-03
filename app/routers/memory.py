@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import chromadb
@@ -7,11 +7,15 @@ import uuid
 
 from ..database import get_db
 from ..models import Memory
+from ..paths import CHROMA_DB_DIR
 
 router = APIRouter()
 
-# Initialize local ChromaDB client (stores vectors purely locally in ./chroma_db)
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+# Initialize local ChromaDB client with telemetry disabled.
+chroma_client = chromadb.PersistentClient(
+    path=str(CHROMA_DB_DIR),
+    settings=Settings(anonymized_telemetry=False),
+)
 collection = chroma_client.get_or_create_collection(name="pexo_global_memory")
 
 class MemoryStoreRequest(BaseModel):

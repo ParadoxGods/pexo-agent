@@ -3,6 +3,10 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
+if "%~1"=="--version" goto version
+if "%~1"=="--help" goto help
+if "%~1"=="--mcp" goto mcp
+
 :: Auto-Update: Pull latest changes from GitHub silently
 echo Checking for updates...
 git pull --quiet
@@ -27,37 +31,36 @@ if !errorlevel! neq 0 (
     )
 )
 
-IF NOT EXIST "venv" (
+IF NOT EXIST "venv\Scripts\python.exe" (
     echo Virtual environment not found. Creating one...
     python -m venv venv
-    call venv\Scripts\activate.bat
     echo Installing dependencies...
-    pip install -r requirements.txt
-) ELSE (
-    call venv\Scripts\activate.bat
+    venv\Scripts\python.exe -m pip install -r requirements.txt
 )
 
-if "%~1"=="--version" (
-    echo Pexo v1.0.0-stable
-    exit /b
-)
+echo Starting Pexo API...
+venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 9999 --workers 1
+pause
+exit /b %ERRORLEVEL%
 
-if "%~1"=="--help" (
-    echo Pexo: Primary EXecution Operator
-    echo.
-    echo Usage:
-    echo   pexo           Starts the Pexo API and Control Panel
-    echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
-    echo   pexo --version Displays the current version
-    echo   pexo --help    Displays this help menu
-    exit /b
+:mcp
+IF NOT EXIST "venv\Scripts\python.exe" (
+    python -m venv venv 1>&2
+    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
 )
+venv\Scripts\python.exe -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
+exit /b %ERRORLEVEL%
 
-if "%~1"=="--mcp" (
-    :: Run the FastMCP server over stdio (Silent stdout, only MCP protocol output allowed)
-    python -c "from app.database import init_db; init_db(); from app.mcp_server import start_mcp_server; start_mcp_server()"
-) else (
-    echo Starting Pexo API...
-    python -m uvicorn app.main:app --host 127.0.0.1 --port 9999 --workers 1
-    pause
-)
+:version
+echo Pexo v1.0.0-stable
+exit /b 0
+
+:help
+echo Pexo: Primary EXecution Operator
+echo.
+echo Usage:
+echo   pexo           Starts the Pexo API and Control Panel
+echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
+echo   pexo --version Displays the current version
+echo   pexo --help    Displays this help menu
+exit /b 0

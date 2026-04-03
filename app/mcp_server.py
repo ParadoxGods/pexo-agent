@@ -1,7 +1,8 @@
 from mcp.server.fastmcp import FastMCP
-from .database import SessionLocal
-from .models import Profile, AgentProfile, DynamicTool
-from .routers.memory import collection, MemoryStoreRequest, MemorySearchRequest, store_memory, search_memory
+from .database import SessionLocal, init_db
+from .models import Profile, AgentProfile
+from .routers.backup import run_backup_for_profile
+from .routers.memory import MemoryStoreRequest, MemorySearchRequest, store_memory, search_memory
 from .routers.evolve import EvolutionRequest, evolve_agent
 from .routers.tools import ToolRegistrationRequest, ToolExecutionRequest, execute_tool, register_tool
 
@@ -103,7 +104,7 @@ def pexo_run_backup() -> str:
     """
     db = SessionLocal()
     try:
-        res = run_backup(db)
+        res = run_backup_for_profile(db)
         return str(res)
     except Exception as e:
         return f"Backup Failed: {str(e)}"
@@ -112,4 +113,5 @@ def pexo_run_backup() -> str:
 
 def start_mcp_server():
     """Starts the Pexo MCP server over stdio for native AI integration."""
+    init_db()
     mcp.run(transport="stdio")

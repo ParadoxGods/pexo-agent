@@ -10,6 +10,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
 2.  **Global Installation (Phase 0):** If the user asks you to "install pexo", immediately execute this command in their terminal to install Pexo globally:
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
+    *   The installer updates an existing Pexo checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
     *   Once installed, ask the user to restart their terminal, run `pexo`, and open `http://127.0.0.1:9999` in their browser to view the Pexo Control Panel.
 3.  **Uninstallation:** If the user asks you to "uninstall pexo", immediately execute this command in their terminal:
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1`
@@ -45,4 +46,4 @@ From this point forward, Pexo's LangGraph State Machine manages the overarching 
 4. Once completed, post your structured findings or results back to `POST http://localhost:9999/orchestrator/submit`.
 5. Repeat Step 1 until Pexo responds with `{"status": "complete"}`.
 
-**Your First Action:** Acknowledge to the user that you have read this primer, confirm Pexo is being installed locally via pip, start the uvicorn server, and then immediately check if the user needs Onboarding (Step 3).
+**Your First Action:** Acknowledge to the user that you have read this primer, confirm Pexo is being installed locally via the platform install script, start the local server, and then immediately check if the user needs Onboarding (Step 3).

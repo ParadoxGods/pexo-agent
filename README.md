@@ -28,7 +28,7 @@ Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone 
 1.  Open an interactive session with an LLM (e.g., Claude, Codex, Gemini).
 2.  Provide the following instruction: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
 
-The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. 
+The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
 
 Upon completion, executing `pexo` in the terminal will initialize the local server and automatically launch the administrative interface in the default web browser for initial configuration.
 
@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/unins
 
 ### Native MCP Configuration (Recommended)
 
-To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings:
+To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings. `pexo --mcp` starts in a quiet stdio mode and skips the interactive browser-launch workflow.
 
 **Windows Configuration:**
 ```json
