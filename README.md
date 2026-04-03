@@ -33,11 +33,11 @@ tar -xzf pexo-install-unix.tar.gz
 If `gh` is unavailable, use a direct packaged install from a pinned tag:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.9"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1"
 ```
 
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.9"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1"
 ```
 
 ## Quick Start
