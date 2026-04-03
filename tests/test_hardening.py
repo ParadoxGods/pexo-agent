@@ -539,17 +539,20 @@ class HardeningTests(unittest.TestCase):
     @patch("app.client_connect.which")
     def test_connect_clients_dry_run_and_execution_reporting(self, mock_which, _mock_checkout, mock_run):
         mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
-
-        dry_run_report = connect_clients(target="all", scope="user", dry_run=True)
-        self.assertEqual(dry_run_report["status"], "success")
-        self.assertTrue(all(item["status"] == "planned" for item in dry_run_report["results"]))
-        mock_run.assert_not_called()
-
         mock_run.side_effect = [
+            subprocess.CompletedProcess(args=["codex", "mcp", "get", "pexo"], returncode=0, stdout="enabled", stderr=""),
+            subprocess.CompletedProcess(args=["claude", "mcp", "get", "pexo"], returncode=0, stdout="enabled", stderr=""),
+            subprocess.CompletedProcess(args=["gemini", "mcp", "list"], returncode=0, stdout="pexo", stderr=""),
             subprocess.CompletedProcess(args=["codex", "mcp", "remove", "pexo"], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(args=["codex", "mcp", "add", "pexo"], returncode=0, stdout="added", stderr=""),
             subprocess.CompletedProcess(args=["codex", "mcp", "get", "pexo"], returncode=0, stdout="enabled", stderr=""),
         ]
+
+        dry_run_report = connect_clients(target="all", scope="user", dry_run=True)
+        self.assertEqual(dry_run_report["status"], "success")
+        self.assertTrue(all(item["status"] == "connected" for item in dry_run_report["results"]))
+        self.assertTrue(all(item["configured"] is True for item in dry_run_report["results"]))
+
         execution_report = connect_clients(target="codex", scope="user", dry_run=False)
         self.assertEqual(execution_report["status"], "success")
         self.assertEqual(execution_report["results"][0]["status"], "connected")
@@ -1004,6 +1007,7 @@ class HardeningTests(unittest.TestCase):
                     )
                     snapshot = get_admin_snapshot(memory_limit=5, db=db)
                     self.assertIn("runtime", snapshot)
+                    self.assertIn("clients", snapshot)
                     self.assertEqual(snapshot["stats"]["artifact_count"], 1)
                     self.assertEqual(len(snapshot["recent_artifacts"]), 1)
         finally:

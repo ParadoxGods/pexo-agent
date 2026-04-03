@@ -31,6 +31,18 @@ def _client_invoker(client_name: str, resolved_binary: str | None) -> str:
     return resolved_binary or client_name
 
 
+def _verify_existing_connection(plan: dict) -> tuple[bool, str]:
+    completed = subprocess.run(plan["verify_command"], capture_output=True, text=True, check=False)
+    output = ((completed.stdout or "") + (completed.stderr or "")).strip()
+    client = plan["client"]
+
+    if client in {"codex", "claude"}:
+        return completed.returncode == 0, output
+    if client == "gemini":
+        return completed.returncode == 0 and "pexo" in output.lower(), output
+    return False, output
+
+
 def build_mcp_stdio_target() -> dict:
     if running_from_repo_checkout():
         if os.name == "nt":
@@ -133,8 +145,15 @@ def connect_clients(target: str = "all", scope: str = "user", dry_run: bool = Fa
             continue
 
         if dry_run:
-            result["status"] = "planned"
-            result["message"] = "Dry run only. No client configuration was changed."
+            configured, verify_output = _verify_existing_connection(plan)
+            result["configured"] = configured
+            result["verify_output"] = verify_output
+            result["status"] = "connected" if configured else "available"
+            result["message"] = (
+                "Client already points at the Pexo MCP server."
+                if configured
+                else "Client is installed and ready to be connected."
+            )
             results.append(result)
             continue
 

@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..client_connect import connect_clients
 from ..database import get_db
 from ..models import AgentProfile, AgentState, Artifact, DynamicTool, Memory, Profile
 from ..runtime import build_runtime_status
@@ -12,6 +13,10 @@ from .memory import serialize_memory
 from .profile import derive_profile_answers
 
 router = APIRouter()
+
+
+def build_client_surface(scope: str = "user") -> dict:
+    return connect_clients(target="all", scope=scope, dry_run=True)
 
 
 def serialize_profile(profile: Profile | None) -> dict | None:
@@ -155,5 +160,14 @@ def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
             "compacted_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_compacted.is_(True)).scalar() or 0,
         },
         "runtime": build_runtime_status(db),
+        "clients": build_client_surface(),
         "telemetry": build_telemetry_payload(db),
     }
+
+
+@router.post("/connect/{target}")
+def connect_ai_clients(target: str, scope: str = "user"):
+    try:
+        return connect_clients(target=target, scope=scope, dry_run=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
