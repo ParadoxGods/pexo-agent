@@ -77,6 +77,7 @@ If you want another AI to perform the install for you, use:
 
 That instruction is now preferable to clone-first installation.
 If the assistant has to fall back to a checkout-based installer, tell it not to target the current repo unless you explicitly want a repo-local node.
+Repository-level AI operating instructions live in `AGENTS.md`.
 
 ### Repo-Local Checkout Install
 

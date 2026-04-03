@@ -1,4 +1,5 @@
 include README.md
+include AGENTS.md
 include pyproject.toml
 include install.cmd
 include install.ps1

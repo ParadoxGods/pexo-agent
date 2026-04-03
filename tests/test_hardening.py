@@ -374,12 +374,14 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("-AllowRepoInstall", readme)
         self.assertIn("ExecutionPolicy Bypass", readme)
 
-    def test_ai_primer_documents_safe_windows_install_path(self):
-        primer = Path("PEXO_AI_PRIMER.md").read_text(encoding="utf-8")
-        self.assertIn("Existing Git checkouts are protected by default", primer)
-        self.assertIn(".\\install.cmd", primer)
-        self.assertIn("-AllowRepoInstall", primer)
-        self.assertIn("ExecutionPolicy Bypass", primer)
+    def test_agents_file_documents_safe_windows_install_path(self):
+        agents_doc = Path("AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("## Default behavior", agents_doc)
+        self.assertIn("Existing Git checkouts are protected by default", agents_doc)
+        self.assertIn(".\\install.cmd", agents_doc)
+        self.assertIn("-AllowRepoInstall", agents_doc)
+        self.assertIn("ExecutionPolicy Bypass", agents_doc)
+        self.assertIn("Do not touch the current repo", agents_doc)
 
     def test_doctor_report_surfaces_guidance_and_install_health(self):
         report = build_doctor_report()
