@@ -9,7 +9,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
     *   Pexo's MCP surface is now a broad control plane, not a thin shim. Prefer structured MCP tools for profile, agent, memory, telemetry, orchestration, and Genesis operations whenever they are available in the connected client.
 2.  **Installation (Phase 0):** If the user asks you to "install pexo", prefer the packaged GitHub install path first:
-    *   **Preferred:** `uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"`
+    *   **Preferred:** `uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"`
     *   This creates the `pexo` and `pexo-mcp` commands without requiring a repo clone.
     *   Packaged installs keep mutable local state under `~/.pexo` by default (`pexo.db`, `chroma_db/`, `artifacts/`, and `dynamic_tools/`).
     *   If `uv` is unavailable or the user explicitly wants a checkout-local node, fall back to the platform install script:
@@ -26,6 +26,8 @@ If a human user has instructed you to "install pexo and use it" within this dire
         *   `pexo list-presets`
     *   For the fast default path, run:
         *   `pexo headless-setup --preset efficient_operator`
+    *   After setup, validate the local install before launching the UI:
+        *   `pexo doctor`
     *   If the user wants install and setup in one shot and you are using the checkout-based installer:
         *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator`
         *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator`
@@ -44,6 +46,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
     *   Use `pexo --no-browser` when the user wants the API or MCP-adjacent local server without automatically opening the dashboard.
     *   Use `pexo update` when the user explicitly wants an immediate repository refresh; routine boots now throttle update checks for efficiency.
+    *   Use `pexo doctor` when the user wants to verify install mode, runtime profile, state location, MCP command, or uninstall guidance.
 6.  **The Web UI is Optional (CRITICAL):**
     *   Treat the browser UI as an inspection and configuration surface, not a dependency for first-run setup.
     *   Use it later when the user wants to inspect the database-backed state, browse memory, pin or archive memories, edit core or custom agent definitions, correct stored memories, adjust profile and backup settings manually, or review execution telemetry.

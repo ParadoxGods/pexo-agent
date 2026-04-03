@@ -39,7 +39,10 @@ def set_runtime_marker_profile(profile: str) -> None:
 
 
 def _module_available(module_name: str) -> bool:
-    return find_spec(module_name) is not None
+    try:
+        return find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
 
 def detect_runtime_profile() -> str:

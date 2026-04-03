@@ -15,10 +15,19 @@ __pycache__/
 pexo.db
 chroma_db/
 AI_NOTES.md
+.pexo-deps-profile
+.pexo-update-check
+artifacts/
+dynamic_tools/
 
 # Dynamic Tools (Keep the folder and init, ignore generated scripts)
 app/dynamic_tools/*.py
 !app/dynamic_tools/__init__.py
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
 
 # OS generated files
 .DS_Store
