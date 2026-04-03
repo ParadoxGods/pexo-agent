@@ -16,7 +16,7 @@ cat << "EOF"
 EOF
 echo ""
 echo "=================================================="
-echo "Starting Pexo (Primary EXecution Officer)"
+echo "Starting Pexo (Primary EXecution Operator)"
 echo "=================================================="
 
 if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then

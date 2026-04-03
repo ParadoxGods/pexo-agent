@@ -1,4 +1,4 @@
-# Pexo: Primary EXecution Officer
+# Pexo: Primary EXecution Operator
 
 Pexo is a lightweight, strictly local multi-agent orchestration framework designed to serve as a persistent execution environment and memory layer for Large Language Models (LLMs).
 

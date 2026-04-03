@@ -14,7 +14,7 @@ echo  ^|  __/^| ^|___  /  ^\^| ^|_^| ^|
 echo  ^|_^|   ^|_____^|/_/^\_\\___/ 
 echo.
 echo ==================================================
-echo Starting Pexo (Primary EXecution Officer)
+echo Starting Pexo (Primary EXecution Operator)
 echo ==================================================
 
 :: Check if current directory is in PATH

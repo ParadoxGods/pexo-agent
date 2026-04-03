@@ -1,4 +1,4 @@
-# PEXO (Primary EXecution Officer) - AI Ingestion & Initialization Protocol
+# PEXO (Primary EXecution Operator) - AI Ingestion & Initialization Protocol
 
 ## ATTENTION TO ALL CONNECTED AI AGENTS (Gemini, Claude, Codex, etc.)
 

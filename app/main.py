@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=open_browser, daemon=True).start()
     yield
 
-app = FastAPI(title="Pexo - Primary EXecution Officer", lifespan=lifespan)
+app = FastAPI(title="Pexo - Primary EXecution Operator", lifespan=lifespan)
 
 # Mount static files for the local web UI
 app.mount("/ui", StaticFiles(directory="app/static", html=True), name="static")
