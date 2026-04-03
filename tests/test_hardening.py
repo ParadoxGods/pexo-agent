@@ -81,6 +81,15 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("fonts.googleapis.com", html)
         self.assertNotIn("fonts.gstatic.com", html)
 
+    def test_install_scripts_report_progress_percentages(self):
+        powershell_installer = Path("install.ps1").read_text(encoding="utf-8")
+        shell_installer = Path("install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("Show-InstallProgress", powershell_installer)
+        self.assertIn("Installing Python dependencies... still working", powershell_installer)
+        self.assertIn("print_progress 100", shell_installer)
+        self.assertIn("Installing Python dependencies... still working", shell_installer)
+
     def test_profile_preset_builds_expected_answers(self):
         answers = build_profile_from_preset("efficient_operator")
 
