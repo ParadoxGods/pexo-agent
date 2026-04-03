@@ -13,17 +13,19 @@ from sqlalchemy import inspect
 
 from app.cli import headless_setup, list_presets
 from app.database import SessionLocal, engine, init_db
-from app.models import AgentProfile, Memory, Profile
+from app.models import AgentProfile, AgentState, Memory, Profile
 from app.paths import CHROMA_DB_DIR, PEXO_DB_PATH
+from app.routers.admin import build_telemetry_payload
 from app.routers.backup import create_backup_archive
 from app.routers.memory import (
     MemoryStoreRequest,
     MemoryUpdateRequest,
     delete_memory,
+    maintain_memory_health,
     store_memory,
     update_memory,
 )
-from app.routers.profile import ProfileAnswers, build_profile_from_preset, upsert_profile
+from app.routers.profile import ProfileAnswers, build_profile_from_preset, derive_profile_answers, upsert_profile
 from app.routers.tools import resolve_tool_path
 
 
@@ -38,6 +40,20 @@ class FakeCollection:
     def delete(self, *, ids):
         for chroma_id in ids:
             self.records.pop(chroma_id, None)
+
+    def query(self, *, query_texts, n_results):
+        query = query_texts[0].lower()
+        matches = []
+        for chroma_id, record in self.records.items():
+            if query in record["document"].lower():
+                matches.append((chroma_id, record))
+        matches = matches[:n_results]
+        return {
+            "documents": [[record["document"] for _, record in matches]],
+            "ids": [[chroma_id for chroma_id, _ in matches]],
+            "metadatas": [[record["metadata"] for _, record in matches]],
+            "distances": [[0.0 for _ in matches]],
+        }
 
 
 class HardeningTests(unittest.TestCase):
@@ -76,6 +92,12 @@ class HardeningTests(unittest.TestCase):
             )
         finally:
             db.close()
+
+    def test_init_db_adds_memory_lifecycle_columns(self):
+        init_db()
+        inspector = inspect(engine)
+        columns = {column["name"] for column in inspector.get_columns("memories")}
+        self.assertTrue({"is_pinned", "is_archived", "compacted_into_id", "updated_at"}.issubset(columns))
 
     def test_resolve_tool_path_rejects_path_traversal(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -134,6 +156,9 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("editAgent(", html)
         self.assertIn("saveMemory()", html)
         self.assertIn("deleteMemory(", html)
+        self.assertIn("saveProfileSettings()", html)
+        self.assertIn("runMemoryMaintenance()", html)
+        self.assertIn("telemetry-summary", html)
         self.assertIn("/admin/snapshot", html)
 
     def test_install_scripts_report_progress_percentages(self):
@@ -204,6 +229,17 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_profile_answers_can_be_derived_for_dashboard_editor(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            profile = upsert_profile(build_profile_from_preset("balanced_builder"), db)
+            answers = derive_profile_answers(profile)
+            self.assertEqual(answers["personality_answers"]["p1"], "2")
+            self.assertEqual(answers["scripting_answers"]["s8"], "2")
+        finally:
+            db.close()
+
     def test_list_presets_json_contains_efficient_operator(self):
         output = StringIO()
         with redirect_stdout(output):
@@ -263,6 +299,110 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(delete_result["status"], "success")
             self.assertIsNone(db.query(Memory).filter(Memory.id == memory_id).first())
             self.assertNotIn(chroma_id, mock_get_memory_collection.return_value.records)
+        finally:
+            db.close()
+
+    @patch("app.routers.memory.get_memory_collection")
+    def test_memory_maintenance_compacts_old_context_and_archives_sources(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+        db = SessionLocal()
+        try:
+            for index in range(7):
+                store_memory(
+                    MemoryStoreRequest(
+                        session_id="session-compact",
+                        content=f"memory payload {index}",
+                        task_context="task-alpha",
+                    ),
+                    db,
+                )
+
+            result = maintain_memory_health(db, task_context="task-alpha")
+            active_raw = db.query(Memory).filter(
+                Memory.task_context == "task-alpha",
+                Memory.is_archived.is_(False),
+                Memory.is_compacted.is_(False),
+            ).count()
+            archived = db.query(Memory).filter(
+                Memory.task_context == "task-alpha",
+                Memory.is_archived.is_(True),
+            ).count()
+            summary = db.query(Memory).filter(
+                Memory.task_context == "task-alpha",
+                Memory.is_compacted.is_(True),
+                Memory.is_archived.is_(False),
+            ).first()
+
+            self.assertGreaterEqual(result["compacted_count"], 0)
+            self.assertLessEqual(active_raw, 2)
+            self.assertGreaterEqual(archived, 1)
+            self.assertIsNotNone(summary)
+        finally:
+            db.close()
+
+    @patch("app.routers.memory.get_memory_collection")
+    def test_memory_compaction_reuses_summary_without_recursive_bloat(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+        db = SessionLocal()
+        try:
+            for index in range(10):
+                store_memory(
+                    MemoryStoreRequest(
+                        session_id="session-compact-2",
+                        content=f"memory payload {index}",
+                        task_context="task-beta",
+                    ),
+                    db,
+                )
+
+            summary = db.query(Memory).filter(
+                Memory.task_context == "task-beta",
+                Memory.is_compacted.is_(True),
+                Memory.is_archived.is_(False),
+            ).first()
+
+            self.assertIsNotNone(summary)
+            self.assertEqual(summary.content.count("Compacted memory summary for task-beta."), 1)
+            self.assertLessEqual(summary.content.count("- "), 6)
+        finally:
+            db.close()
+
+    def test_admin_telemetry_payload_summarizes_recent_activity(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            db.add(
+                AgentState(
+                    session_id="session-telemetry",
+                    agent_name="Developer",
+                    status="completed",
+                    context_size_tokens=42,
+                    data={
+                        "task_id": "task-1",
+                        "task_description": "Implement feature",
+                        "output_preview": "done",
+                        "result_type": "dict",
+                    },
+                )
+            )
+            db.add(
+                AgentState(
+                    session_id="session-telemetry",
+                    agent_name="orchestrator",
+                    status="session_complete",
+                    context_size_tokens=11,
+                    data={"completed_task_count": 1},
+                )
+            )
+            db.commit()
+
+            telemetry = build_telemetry_payload(db)
+            self.assertEqual(telemetry["summary"]["session_count"], 1)
+            self.assertEqual(telemetry["summary"]["action_count"], 2)
+            self.assertTrue(any(session["session_id"] == "session-telemetry" for session in telemetry["recent_sessions"]))
+            self.assertTrue(any(activity["agent_name"] == "Developer" for activity in telemetry["recent_activity"]))
         finally:
             db.close()
 

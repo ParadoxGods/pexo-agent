@@ -165,6 +165,46 @@ def build_profile_from_preset(
     )
 
 
+def _default_question_answers(questions: list[dict]) -> Dict[str, str]:
+    return {question["id"]: next(iter(question["options"].keys())) for question in questions}
+
+
+def derive_profile_answers(profile: Profile | None) -> dict:
+    personality_answers = _default_question_answers(PERSONALITY_QUESTIONS)
+    scripting_answers = _default_question_answers(SCRIPTING_QUESTIONS)
+
+    if profile and profile.personality_prompt:
+        prompt_map = {}
+        for line in profile.personality_prompt.splitlines():
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                prompt_map[key.strip()] = value.strip()
+
+        for question in PERSONALITY_QUESTIONS:
+            selected_value = prompt_map.get(question["text"])
+            if selected_value:
+                for option_key, option_value in question["options"].items():
+                    if option_value == selected_value:
+                        personality_answers[question["id"]] = option_key
+                        break
+
+    if profile and profile.scripting_preferences:
+        for question in SCRIPTING_QUESTIONS:
+            selected_value = profile.scripting_preferences.get(question["text"])
+            if selected_value:
+                for option_key, option_value in question["options"].items():
+                    if option_value == selected_value:
+                        scripting_answers[question["id"]] = option_key
+                        break
+
+    return {
+        "name": profile.name if profile else "default_user",
+        "backup_path": profile.backup_path if profile else None,
+        "personality_answers": personality_answers,
+        "scripting_answers": scripting_answers,
+    }
+
+
 def map_profile_answers(answers: ProfileAnswers) -> tuple[str, dict, Optional[str]]:
     normalized_backup_path = normalize_user_path(answers.backup_path)
     if normalized_backup_path:
@@ -245,6 +285,14 @@ def get_profile(name: str, db: Session = Depends(get_db)):
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found. Onboarding required.")
     return profile
+
+
+@router.get("/{name}/answers")
+def get_profile_answers(name: str, db: Session = Depends(get_db)):
+    profile = db.query(Profile).filter(Profile.name == name).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found. Onboarding required.")
+    return derive_profile_answers(profile)
 
 @router.post("/quick-setup/{preset_name}")
 def quick_setup_profile(preset_name: str, request: QuickSetupRequest, db: Session = Depends(get_db)):

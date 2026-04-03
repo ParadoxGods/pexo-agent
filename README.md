@@ -17,7 +17,9 @@ Pexo is built on three foundational pillars that separate it from traditional ag
 *   **Zero-Daemon Execution:** Pexo processes are invoked only when required by the user or the connecting AI model. It does not run persistent background services, mitigating local resource consumption and privacy concerns.
 *   **Native MCP Server Integration:** Pexo implements the Model Context Protocol (MCP) natively. This allows seamless integration with MCP-compliant interfaces (such as Claude Desktop and Cursor), surfacing Pexo's memory operations, agent evolution, and dynamic tools directly within the AI's native interface.
 *   **Local Administration Interface:** Pexo hosts a secure, localhost-bound administrative terminal (accessible via `127.0.0.1:9999`). This interface provides manual oversight of the agent registry, vector database queries, and automated backup configurations.
-*   **Editable Local Brain:** The dashboard can inspect and edit both core and custom agents, browse recent memories, update memory records, and delete stale memory entries without leaving the local machine.
+*   **Editable Local Brain:** The dashboard can inspect and edit both core and custom agents, browse recent memories, update memory records, pin high-value memories, archive stale memories, and delete bad entries without leaving the local machine.
+*   **Memory Lifecycle Controls:** Memory maintenance now compacts older context into short summaries, archives excess raw entries, preserves pinned records, and keeps vector search noise under control as the local brain grows.
+*   **Execution Telemetry:** The dashboard exposes recent sessions, agent activity, action counts, and observed context volume so users can inspect how the swarm is behaving over time.
 *   **Efficient Boot Path:** Normal launcher boots now throttle update checks instead of pulling on every single start. Use `pexo update` when you want an immediate repository refresh, or `pexo --no-browser` when you want the API without opening the dashboard.
 *   **Automated State Backup:** The framework supports automated, timestamped archiving of the SQLite state database, vector embeddings, and dynamically generated tools to a designated local directory or network share.
 
@@ -51,7 +53,7 @@ If the terminal has not been restarted yet and the refreshed PATH is not visible
 "$HOME/.pexo/pexo" --headless-setup --preset efficient_operator
 ```
 
-The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, editing agents, correcting stored memories, adjusting profile settings, or managing additional backups.
+The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, editing agents, correcting stored memories, adjusting profile settings, reviewing execution telemetry, or managing additional backups.
 
 ### Uninstallation
 

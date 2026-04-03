@@ -36,7 +36,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   Use `pexo update` when the user explicitly wants an immediate repository refresh; routine boots now throttle update checks for efficiency.
 6.  **The Web UI is Optional (CRITICAL):**
     *   Treat the browser UI as an inspection and configuration surface, not a dependency for first-run setup.
-    *   Use it later when the user wants to inspect the database-backed state, browse memory, edit core or custom agent definitions, correct stored memories, or adjust profile and backup settings manually.
+    *   Use it later when the user wants to inspect the database-backed state, browse memory, pin or archive memories, edit core or custom agent definitions, correct stored memories, adjust profile and backup settings manually, or review execution telemetry.
     *   Do not block the install flow on the user opening the Control Panel.
 7.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 
@@ -53,7 +53,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   Write a Python script that accomplishes the task.
     *   POST the script to `POST http://localhost:9999/tools/register` with a `name`, `description`, and the `python_code`.
     *   Pexo will permanently assimilate this tool into the swarm's capabilities, allowing you to use it in this session and all future sessions.
-12.  **Data Limits & Compaction:** All state, findings, and logs must be written back to the Pexo SQLite database. If context gets too large, Pexo will issue a compaction command.
+12.  **Data Limits & Compaction:** All state, findings, and logs must be written back to the Pexo SQLite database. Pexo now performs local memory maintenance by compacting older context into summaries, archiving excess raw entries, and preserving pinned memories for high-value signal retention.
 
 ### How to Operate Under Pexo (The LangGraph Loop)
 From this point forward, Pexo's LangGraph State Machine manages the overarching workflow. You act as the computational worker node.
