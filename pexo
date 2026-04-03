@@ -3,6 +3,10 @@
 cd "$(dirname "$0")"
 PEXO_DIR=$(pwd)
 
+# Auto-Update: Pull latest changes from GitHub silently
+echo "Checking for updates..."
+git pull --quiet
+
 cat << "EOF"
   ____  _____ __  __ ___  
  |  _ \| ____|\ \/ // _ \ 

@@ -3,6 +3,10 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
+:: Auto-Update: Pull latest changes from GitHub silently
+echo Checking for updates...
+git pull --quiet
+
 echo   ____  _____ __  __ ___  
 echo  ^|  _ ^\^| ____^|^\ ^\/ // _ ^\ 
 echo  ^| ^|_) ^|  _^|   ^\  /^| ^| ^| ^|
