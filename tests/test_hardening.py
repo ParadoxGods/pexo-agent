@@ -1,27 +1,50 @@
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import inspect
 
 from app.cli import headless_setup, list_presets
 from app.database import SessionLocal, engine, init_db
-from app.models import Profile
-from app.paths import PEXO_DB_PATH
+from app.models import AgentProfile, Memory, Profile
+from app.paths import CHROMA_DB_DIR, PEXO_DB_PATH
 from app.routers.backup import create_backup_archive
+from app.routers.memory import (
+    MemoryStoreRequest,
+    MemoryUpdateRequest,
+    delete_memory,
+    store_memory,
+    update_memory,
+)
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, upsert_profile
 from app.routers.tools import resolve_tool_path
+
+
+class FakeCollection:
+    def __init__(self):
+        self.records = {}
+
+    def upsert(self, *, ids, documents, metadatas):
+        for chroma_id, document, metadata in zip(ids, documents, metadatas):
+            self.records[chroma_id] = {"document": document, "metadata": metadata}
+
+    def delete(self, *, ids):
+        for chroma_id in ids:
+            self.records.pop(chroma_id, None)
 
 
 class HardeningTests(unittest.TestCase):
     def tearDown(self):
         engine.dispose()
         PEXO_DB_PATH.unlink(missing_ok=True)
+        shutil.rmtree(CHROMA_DB_DIR, ignore_errors=True)
 
     def test_init_db_creates_all_tables_without_preimporting_models(self):
         engine.dispose()
@@ -34,6 +57,25 @@ class HardeningTests(unittest.TestCase):
         self.assertTrue(
             {"profiles", "agent_profiles", "memories", "dynamic_tools", "agent_states", "workspaces"}.issubset(table_names)
         )
+
+    def test_init_db_seeds_core_agents(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            agents = db.query(AgentProfile).filter(AgentProfile.is_core.is_(True)).all()
+            agent_names = {agent.name for agent in agents}
+            self.assertTrue(
+                {
+                    "Supervisor",
+                    "Developer",
+                    "Time Manager",
+                    "Context Cost Manager",
+                    "Resource Manager",
+                    "Code Organization Manager",
+                }.issubset(agent_names)
+            )
+        finally:
+            db.close()
 
     def test_resolve_tool_path_rejects_path_traversal(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -86,6 +128,14 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("fonts.googleapis.com", html)
         self.assertNotIn("fonts.gstatic.com", html)
 
+    def test_admin_ui_supports_agent_editing_and_memory_admin(self):
+        html = Path("app/static/index.html").read_text(encoding="utf-8")
+        self.assertIn("saveAgent()", html)
+        self.assertIn("editAgent(", html)
+        self.assertIn("saveMemory()", html)
+        self.assertIn("deleteMemory(", html)
+        self.assertIn("/admin/snapshot", html)
+
     def test_install_scripts_report_progress_percentages(self):
         powershell_installer = Path("install.ps1").read_text(encoding="utf-8")
         shell_installer = Path("install.sh").read_text(encoding="utf-8")
@@ -103,8 +153,19 @@ class HardeningTests(unittest.TestCase):
 
         self.assertIn("--list-presets", shell_launcher)
         self.assertIn("--headless-setup", shell_launcher)
+        self.assertIn("--update", shell_launcher)
+        self.assertIn("--no-browser", shell_launcher)
+        self.assertIn(".pexo-update-check", shell_launcher)
         self.assertIn("--list-presets", batch_launcher)
         self.assertIn("--headless-setup", batch_launcher)
+        self.assertIn("--update", batch_launcher)
+        self.assertIn("--no-browser", batch_launcher)
+        self.assertIn(".pexo-update-check", batch_launcher)
+
+    def test_gitattributes_enforces_shell_script_line_endings(self):
+        content = Path(".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("*.sh text eol=lf", content)
+        self.assertIn("pexo text eol=lf", content)
 
     def test_profile_preset_builds_expected_answers(self):
         answers = build_profile_from_preset("efficient_operator")
@@ -166,6 +227,42 @@ class HardeningTests(unittest.TestCase):
             profile = db.query(Profile).filter(Profile.name == "cli_user").first()
             self.assertIsNotNone(profile)
             self.assertIn("Communication Style: Direct & Concise", profile.personality_prompt)
+        finally:
+            db.close()
+
+    @patch("app.routers.memory.get_memory_collection")
+    def test_memory_update_and_delete_keep_sql_and_vector_state_in_sync(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+        db = SessionLocal()
+        try:
+            store_result = store_memory(
+                MemoryStoreRequest(
+                    session_id="session-1",
+                    content="Original memory",
+                    task_context="initial context",
+                ),
+                db,
+            )
+            memory_id = store_result["memory_id"]
+            chroma_id = store_result["chroma_id"]
+
+            update_result = update_memory(
+                memory_id,
+                MemoryUpdateRequest(
+                    content="Updated memory",
+                    task_context="refined context",
+                    is_compacted=True,
+                ),
+                db,
+            )
+            self.assertEqual(update_result["memory"]["content"], "Updated memory")
+            self.assertTrue(update_result["memory"]["is_compacted"])
+
+            delete_result = delete_memory(memory_id, db)
+            self.assertEqual(delete_result["status"], "success")
+            self.assertIsNone(db.query(Memory).filter(Memory.id == memory_id).first())
+            self.assertNotIn(chroma_id, mock_get_memory_collection.return_value.records)
         finally:
             db.close()
 

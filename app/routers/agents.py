@@ -35,7 +35,7 @@ def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=List[AgentResponse])
 def list_agents(db: Session = Depends(get_db)):
     """Lists all agents available in Pexo, both core and dynamically created."""
-    return db.query(AgentProfile).all()
+    return db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 def get_agent(agent_id: int, db: Session = Depends(get_db)):
@@ -50,6 +50,9 @@ def update_agent(agent_id: int, agent: AgentCreate, db: Session = Depends(get_db
     db_agent = db.query(AgentProfile).filter(AgentProfile.id == agent_id).first()
     if not db_agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    duplicate = db.query(AgentProfile).filter(AgentProfile.name == agent.name, AgentProfile.id != agent_id).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="Agent name already registered")
     
     for key, value in agent.model_dump().items():
         setattr(db_agent, key, value)

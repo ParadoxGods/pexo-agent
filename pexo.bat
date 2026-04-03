@@ -2,20 +2,25 @@
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
+set "UPDATE_STAMP=%CD%\.pexo-update-check"
 
 if "%~1"=="--version" goto version
 if "%~1"=="--help" goto help
 if "%~1"=="--mcp" goto mcp
+if "%~1"=="--update" goto update
+if /I "%~1"=="update" goto update
 if "%~1"=="--list-presets" goto listpresets
 if /I "%~1"=="list-presets" goto listpresets
 if "%~1"=="--headless-setup" goto headlesssetup
 if /I "%~1"=="headless-setup" goto headlesssetup
 if "%~1"=="--uninstall" goto uninstall
 if /I "%~1"=="uninstall" goto uninstall
-
-:: Auto-Update: Pull latest changes from GitHub silently
-echo Checking for updates...
-git pull --quiet
+set "NO_BROWSER=0"
+if "%~1"=="--no-browser" (
+    set "NO_BROWSER=1"
+    shift
+)
+call :maybeupdate
 
 echo   ____  _____ __  __ ___  
 echo  ^|  _ ^\^| ____^|^\ ^\/ // _ ^\ 
@@ -70,11 +75,23 @@ echo   pexo --list-presets ^| pexo list-presets
 echo                  Lists available profile presets for terminal-first setup
 echo   pexo --headless-setup ^| pexo headless-setup [--preset PRESET] [--name NAME] [--backup-path PATH]
 echo                  Initializes the local profile without opening the web UI
+echo   pexo --update ^| pexo update
+echo                  Pulls the latest repository changes immediately
+echo   pexo --no-browser
+echo                  Starts the API without opening the dashboard automatically
 echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
 echo   pexo --uninstall ^| pexo uninstall
 echo                  Removes the local Pexo installation and saved state
 echo   pexo --version Displays the current version
 echo   pexo --help    Displays this help menu
+exit /b 0
+
+:update
+echo Checking for updates...
+git pull --ff-only
+if errorlevel 1 exit /b %ERRORLEVEL%
+powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
+echo Pexo is up to date.
 exit /b 0
 
 :listpresets
@@ -92,6 +109,19 @@ IF NOT EXIST "venv\Scripts\python.exe" (
 )
 venv\Scripts\python.exe -m app.cli headless-setup %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %ERRORLEVEL%
+
+:maybeupdate
+if /I "%PEXO_SKIP_UPDATE%"=="1" exit /b 0
+powershell -NoProfile -Command "$stamp = '%UPDATE_STAMP%'; if (Test-Path $stamp) { $last = [Int64](Get-Content -LiteralPath $stamp -Raw); if (([DateTime]::UtcNow.Ticks - $last) -lt [TimeSpan]::FromHours(12).Ticks) { exit 10 } }; exit 0"
+if "%ERRORLEVEL%"=="10" exit /b 0
+echo Checking for updates...
+git pull --ff-only --quiet >nul 2>nul
+if errorlevel 1 (
+    echo Update check failed. Continuing with the local version.
+) else (
+    powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
+)
+exit /b 0
 
 :uninstall
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"

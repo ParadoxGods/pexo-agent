@@ -14,17 +14,20 @@ def pexo_read_profile() -> str:
     db = SessionLocal()
     try:
         profile = db.query(Profile).filter(Profile.name == "default_user").first()
-        agents = db.query(AgentProfile).all()
+        agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
         
         prof_text = "No profile set."
         if profile:
             prof_text = f"Personality: {profile.personality_prompt}\nScripting: {profile.scripting_preferences}"
-            
-        agent_text = ", ".join([f"{a.name} (Role: {a.role})" for a in agents])
-        if not agent_text:
-            agent_text = "No custom agents registered."
-            
-        return f"--- USER PROFILE ---\n{prof_text}\n\n--- AVAILABLE CUSTOM AGENTS ---\n{agent_text}"
+
+        core_agents = ", ".join([f"{a.name} (Role: {a.role})" for a in agents if a.is_core]) or "No core agents registered."
+        custom_agents = ", ".join([f"{a.name} (Role: {a.role})" for a in agents if not a.is_core]) or "No custom agents registered."
+
+        return (
+            f"--- USER PROFILE ---\n{prof_text}\n\n"
+            f"--- AVAILABLE CORE AGENTS ---\n{core_agents}\n\n"
+            f"--- AVAILABLE CUSTOM AGENTS ---\n{custom_agents}"
+        )
     finally:
         db.close()
 
@@ -34,9 +37,13 @@ def pexo_search_memory(query: str, n_results: int = 3) -> str:
     Searches Pexo's Global Vector Brain for past bug fixes, architectural decisions, and code snippets.
     ALWAYS use this before writing new logic.
     """
-    req = MemorySearchRequest(query=query, n_results=n_results)
-    res = search_memory(req)
-    return str(res)
+    db = SessionLocal()
+    try:
+        req = MemorySearchRequest(query=query, n_results=n_results)
+        res = search_memory(req, db)
+        return str(res)
+    finally:
+        db.close()
 
 @mcp.tool()
 def pexo_store_memory(content: str, task_context: str) -> str:

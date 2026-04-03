@@ -32,9 +32,11 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.sh | bash`
 5.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal when the user actually wants the dashboard or API online.
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
+    *   Use `pexo --no-browser` when the user wants the API or MCP-adjacent local server without automatically opening the dashboard.
+    *   Use `pexo update` when the user explicitly wants an immediate repository refresh; routine boots now throttle update checks for efficiency.
 6.  **The Web UI is Optional (CRITICAL):**
     *   Treat the browser UI as an inspection and configuration surface, not a dependency for first-run setup.
-    *   Use it later when the user wants to inspect the database-backed state, browse memory, edit agent definitions, or adjust profile and backup settings manually.
+    *   Use it later when the user wants to inspect the database-backed state, browse memory, edit core or custom agent definitions, correct stored memories, or adjust profile and backup settings manually.
     *   Do not block the install flow on the user opening the Control Panel.
 7.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 

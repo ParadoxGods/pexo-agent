@@ -13,8 +13,14 @@ Base = declarative_base()
 def init_db():
     """Initializes the local SQLite database."""
     from . import models  # Ensure SQLAlchemy metadata is registered before create_all.
+    from .core_agents import ensure_core_agent_profiles
 
     Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        ensure_core_agent_profiles(db)
+    finally:
+        db.close()
 
 def get_db():
     db = SessionLocal()

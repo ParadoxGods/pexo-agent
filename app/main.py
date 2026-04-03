@@ -8,7 +8,7 @@ import threading
 import time
 from .database import init_db
 from .paths import STATIC_DIR
-from .routers import agents, profile, orchestrator, memory, evolve, tools, backup
+from .routers import admin, agents, profile, orchestrator, memory, evolve, tools, backup
 
 def open_browser():
     time.sleep(1.5)
@@ -45,3 +45,5 @@ app.include_router(evolve.router, prefix="/evolve", tags=["Evolution"])
 app.include_router(tools.router, prefix="/tools", tags=["Genesis Engine"])
 # Include Automated Backup API
 app.include_router(backup.router, prefix="/backup", tags=["System Backup"])
+# Include admin dashboard snapshot API
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
