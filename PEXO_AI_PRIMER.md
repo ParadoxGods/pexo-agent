@@ -7,9 +7,9 @@ If a human user has instructed you to "install pexo and use it" within this dire
 ### Core Directives
 
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
-2.  **Initialization:** Your very first task is to bring Pexo online.
-    *   Execute `docker-compose up -d --build` in this directory to spin up the Pexo API and PostgreSQL database.
-    *   Ensure the database tables are initialized (Pexo handles this automatically on startup via SQLAlchemy).
+2.  **Initialization (Zero-Daemon Local Setup):** Your very first task is to bring Pexo online.
+    *   Execute `pip install -r requirements.txt` in this directory to install the necessary local libraries (FastAPI, SQLite bindings, ChromaDB).
+    *   Execute `python -m uvicorn app.main:app --host 127.0.0.0 --port 8000 --workers 1` to start the Pexo API locally. Keep this running in the background while you work.
 3.  **The Onboarding Check (CRITICAL):**
     *   Once the API is up, query `GET http://localhost:8000/profile/default_user`.
     *   If it returns `404 Not Found`, you MUST immediately perform the **Startup Check**. 
@@ -21,10 +21,9 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   Retrieve the questions again from the API (`/profile/questions`), present the relevant section, and update their profile via the POST endpoint.
 5.  **The "One-Ask" Loop:** When the user gives you a regular task, you MUST immediately pass that prompt to Pexo's Intake API (`POST http://localhost:8000/orchestrator/intake`). Pexo will return exactly *one* clarifying question. You must ask the user this question and return their answer to Pexo (`POST http://localhost:8000/orchestrator/execute`) to begin the graph execution.
 6.  **Context & Memory Management:** 
-    *   You are forbidden from keeping long, persistent context windows in your own native memory.
-    *   Before taking any action, query Pexo for the relevant workspace context, user profile, and memory chunks (via vector search).
-    *   **Compaction Protocol:** Pexo's **Context Cost Manager** monitors database size and token usage. If context becomes too bloated, Pexo will issue a "Compaction Command". You will be instructed to summarize a specific block of context. You will return the compacted context to Pexo, and Pexo will mark the old memories as `is_compacted=True` and store your summary.
-7.  **Data Limits:** All state, findings, and logs must be written back to the Pexo Postgres database (`agent_states` table). Under NO circumstances should the total database size exceed the `max_db_size_gb` limit defined in `pexo.yaml` (default: 50GB), unless the user modifies that configuration file directly.
+    *   Before taking any action, query Pexo for the relevant workspace context, user profile, and memory chunks.
+    *   **Compaction Protocol:** Pexo's **Context Cost Manager** monitors the local `pexo.db` size and token usage. If context becomes too bloated, Pexo will issue a "Compaction Command". You will be instructed to summarize a specific block of context. You will return the compacted context to Pexo, and Pexo will mark the old memories as `is_compacted=True`.
+7.  **Data Limits:** All state, findings, and logs must be written back to the Pexo SQLite database (`agent_states` table).
 
 ### How to Operate Under Pexo (The LangGraph Loop)
 From this point forward, Pexo's LangGraph State Machine manages the overarching workflow. You act as the computational worker node.
@@ -34,4 +33,4 @@ From this point forward, Pexo's LangGraph State Machine manages the overarching 
 4. Once completed, post your structured findings or results back to `POST http://localhost:8000/orchestrator/submit`.
 5. Repeat Step 1 until Pexo responds with `{"status": "complete"}`.
 
-**Your First Action:** Acknowledge to the user that you have read this primer, confirm Pexo is being installed, execute the `docker-compose up` command, and then immediately check if the user needs Onboarding (Step 3).
+**Your First Action:** Acknowledge to the user that you have read this primer, confirm Pexo is being installed locally via pip, start the uvicorn server, and then immediately check if the user needs Onboarding (Step 3).

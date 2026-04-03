@@ -1,6 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean
 from sqlalchemy.sql import func
-from pgvector.sqlalchemy import Vector
 from .database import Base
 
 class AgentProfile(Base):
@@ -41,8 +40,9 @@ class Memory(Base):
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, index=True)
     content = Column(Text, nullable=False)
-    # Using 1536 dimensions as standard for common embeddings (e.g., OpenAI text-embedding-ada-002)
-    embedding = Column(Vector(1536))
+    # We remove pgvector here. Embeddings will be handled entirely via the local ChromaDB instance.
+    # This table now acts as the relational metadata map for the vector store.
+    chroma_id = Column(String, index=True) 
     task_context = Column(String, index=True) # Tracks which task/agent created this memory
     is_compacted = Column(Boolean, default=False) # True if this memory is a high-level summary/compaction
     created_at = Column(DateTime(timezone=True), server_default=func.now())
