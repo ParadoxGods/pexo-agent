@@ -89,6 +89,22 @@ Useful commands:
 - `pexo update`
 - `pexo uninstall`
 
+## Simple Task Flow
+
+When using Pexo from Codex, Claude, or Gemini, prefer the simplified task tools over the raw orchestration tools:
+
+- `pexo_start_task`
+- `pexo_continue_task`
+- `pexo_get_task_status`
+
+Behavior rules:
+
+1. Keep user-facing replies short and plain.
+2. Use the returned `user_message` for the reply whenever available.
+3. Keep `instruction` or `agent_instruction` internal unless the user explicitly asks for orchestration details.
+4. Ask only the single clarification question returned by Pexo when one is required.
+5. Continue the task through Pexo instead of making the user drive each internal step manually.
+
 ## Uninstall
 
 Checkout install:

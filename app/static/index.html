@@ -476,6 +476,25 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="card" style="grid-column: 1 / -1;">
+                            <h2>Simple Task Flow</h2>
+                            <div class="stack">
+                                <textarea id="task-prompt" placeholder="Ask Pexo to coordinate a task. Keep it plain and direct."></textarea>
+                                <div class="action-row">
+                                    <button onclick="startSimpleTask()">Start Task</button>
+                                    <button class="secondary" onclick="refreshSimpleTask()">Refresh Status</button>
+                                </div>
+                                <input type="hidden" id="task-session-id">
+                                <div id="task-followup" class="hidden">
+                                    <textarea id="task-clarification-answer" placeholder="If Pexo asks one clarification question, answer it here."></textarea>
+                                    <div class="action-row" style="margin-top: 0.75rem;">
+                                        <button class="secondary" onclick="continueSimpleTask()">Continue Task</button>
+                                    </div>
+                                </div>
+                                <p id="task-status" class="status"></p>
+                                <div id="task-response" class="preview">Start a task here if you want the simplest possible Pexo flow.</div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -640,6 +659,7 @@ Use the browser for normal Pexo operation.
         let manualSetupEnabled = false;
         let profileEditorVisible = false;
         let activeTab = "overview";
+        let simpleTaskState = null;
         let dashboardData = {
             profile: null,
             profile_answers: null,
@@ -967,6 +987,34 @@ Use the browser for normal Pexo operation.
             `).join("") : '<div class="list-row">No Genesis tools registered yet.</div>';
         }
 
+        function renderSimpleTaskState(payload = null) {
+            simpleTaskState = payload;
+            $("task-session-id").value = payload?.session_id || "";
+            $("task-response").innerText = payload?.user_message || payload?.response || "Start a task here if you want the simplest possible Pexo flow.";
+            $("task-followup").classList.toggle("hidden", payload?.status !== "clarification_required");
+            if (!payload || payload?.status !== "clarification_required") {
+                $("task-clarification-answer").value = "";
+            }
+            if (payload?.status === "clarification_required") {
+                $("task-clarification-answer").focus();
+            }
+            if (!payload) {
+                setStatus("task-status", "");
+                return;
+            }
+            const tone = payload.status === "complete"
+                ? "success"
+                : payload.status === "clarification_required"
+                    ? "warn"
+                    : payload.status === "agent_action_required"
+                        ? "success"
+                        : "warn";
+            const details = [];
+            if (payload.session_id) details.push(`Session: ${payload.session_id}`);
+            if (payload.role) details.push(`Role: ${payload.role}`);
+            setStatus("task-status", details.join(" | ") || payload.status, tone);
+        }
+
         function applyDashboardSnapshot(snapshot) {
             dashboardData = snapshot;
             renderProfile(snapshot.profile, snapshot.stats || {}, snapshot.profile_answers || {});
@@ -978,6 +1026,7 @@ Use the browser for normal Pexo operation.
             renderArtifacts(snapshot.recent_artifacts || []);
             renderTelemetry(snapshot.telemetry || {});
             renderTools(snapshot.tools || []);
+            renderSimpleTaskState(simpleTaskState);
             updateTabMetrics();
             syncPanelStageHeight();
         }
@@ -1135,6 +1184,64 @@ Use the browser for normal Pexo operation.
             setStatus("client-status", parts.join(" | ") || "Client connection run completed.", data.status === "failed" ? "danger" : data.status === "partial" ? "warn" : "success");
             await refreshDashboard();
         }
+
+        async function startSimpleTask() {
+            const prompt = $("task-prompt").value.trim();
+            if (!prompt) {
+                setStatus("task-status", "Enter a task prompt first.", "danger");
+                return;
+            }
+            setStatus("task-status", "Starting task...", "warn");
+            const res = await fetch("/orchestrator/simple/start", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({user_id: "default_user", prompt}),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setStatus("task-status", data.detail || "Task start failed.", "danger");
+                return;
+            }
+            renderSimpleTaskState(data);
+            setActiveTab("overview");
+        }
+
+        async function continueSimpleTask() {
+            const sessionId = $("task-session-id").value.trim();
+            const clarificationAnswer = $("task-clarification-answer").value.trim();
+            if (!sessionId || !clarificationAnswer) {
+                setStatus("task-status", "Provide the clarification answer first.", "danger");
+                return;
+            }
+            setStatus("task-status", "Continuing task...", "warn");
+            const res = await fetch("/orchestrator/simple/continue", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({session_id: sessionId, clarification_answer: clarificationAnswer}),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setStatus("task-status", data.detail || "Task continue failed.", "danger");
+                return;
+            }
+            renderSimpleTaskState(data);
+        }
+
+        async function refreshSimpleTask() {
+            const sessionId = $("task-session-id").value.trim();
+            if (!sessionId) {
+                setStatus("task-status", "No active simple task session yet.", "warn");
+                return;
+            }
+            const res = await fetch(`/orchestrator/simple/status?session_id=${encodeURIComponent(sessionId)}`);
+            const data = await res.json();
+            if (!res.ok) {
+                setStatus("task-status", data.detail || "Task status lookup failed.", "danger");
+                return;
+            }
+            renderSimpleTaskState(data);
+        }
+
         function getArtifactContextPayload() {
             return {
                 session_id: $("artifact-session-id").value.trim() || "artifact_session",

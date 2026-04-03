@@ -95,6 +95,14 @@ Packaged installs expose a direct MCP entrypoint:
 
 Repository-level AI install and usage rules live in `AGENTS.md`.
 
+For AI-driven task work, prefer the simplified MCP flow:
+
+- `pexo_start_task`
+- `pexo_continue_task`
+- `pexo_get_task_status`
+
+Clients should use `user_message` for user-facing replies and keep raw orchestration instructions internal unless the user explicitly asks for them.
+
 ## Commands
 
 - `pexo`: start the local API and dashboard

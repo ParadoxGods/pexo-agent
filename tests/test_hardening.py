@@ -36,6 +36,7 @@ from app.mcp_server import (
     pexo_get_profile,
     pexo_get_profile_questions,
     pexo_get_runtime_status,
+    pexo_get_task_status,
     pexo_get_session_activity,
     pexo_get_telemetry,
     pexo_get_tool,
@@ -53,8 +54,10 @@ from app.mcp_server import (
     pexo_register_tool,
     pexo_promote_runtime,
     pexo_run_memory_maintenance,
+    pexo_start_task,
     pexo_store_memory,
     pexo_submit_task_result,
+    pexo_continue_task,
     pexo_update_agent,
     pexo_update_memory,
     pexo_update_profile,
@@ -416,6 +419,10 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
+        self.assertIn("pexo_start_task", readme)
+        self.assertIn("pexo_continue_task", readme)
+        self.assertIn("pexo_get_task_status", readme)
+        self.assertIn("user_message", readme)
         self.assertIn("Existing Git checkouts are protected by default", readme)
         self.assertIn(".\\install.cmd", readme)
         self.assertIn("-AllowRepoInstall", readme)
@@ -438,6 +445,11 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("-AllowRepoInstall", agents_doc)
         self.assertIn("Do not touch the current repo", agents_doc)
         self.assertIn("Do not execute raw remote scripts", agents_doc)
+        self.assertIn("## Simple Task Flow", agents_doc)
+        self.assertIn("pexo_start_task", agents_doc)
+        self.assertIn("pexo_continue_task", agents_doc)
+        self.assertIn("pexo_get_task_status", agents_doc)
+        self.assertIn("user_message", agents_doc)
 
     def test_release_bundle_installers_exist_and_emit_summary(self):
         install_ps = Path("release_bundle/install.ps1").read_text(encoding="utf-8")
@@ -1204,6 +1216,29 @@ class HardeningTests(unittest.TestCase):
         snapshot = pexo_get_admin_snapshot(memory_limit=5)
         self.assertIn("telemetry", snapshot)
         self.assertIn("recent_memories", snapshot)
+
+        simple_start = pexo_start_task("Create a simple plan for local execution.")
+        self.assertEqual(simple_start["status"], "clarification_required")
+        self.assertIn("user_message", simple_start)
+
+        simple_continue = pexo_continue_task(
+            simple_start["session_id"],
+            clarification_answer="Keep it lightweight and local-first.",
+        )
+        self.assertEqual(simple_continue["status"], "agent_action_required")
+        self.assertEqual(simple_continue["role"], "Supervisor")
+        self.assertIn("user_message", simple_continue)
+        self.assertIn("agent_instruction", simple_continue)
+
+        simple_status = pexo_get_task_status(simple_start["session_id"])
+        self.assertEqual(simple_status["status"], "agent_action_required")
+        self.assertIn("user_message", simple_status)
+
+        simple_submit = pexo_continue_task(
+            simple_start["session_id"],
+            result_data=[{"id": "task-1", "description": "Write the plan", "assigned_agent": "Developer"}],
+        )
+        self.assertIn(simple_submit["status"], {"agent_action_required", "complete"})
 
         deleted = pexo_delete_memory(memory_id)
         self.assertEqual(deleted["status"], "success")

@@ -38,7 +38,19 @@ from .routers.memory import (
     store_memory,
     update_memory,
 )
-from .routers.orchestrator import ExecuteRequest, PromptRequest, TaskResult, execute_plan, get_next_task, intake_prompt, submit_task_result
+from .routers.orchestrator import (
+    ExecuteRequest,
+    PromptRequest,
+    SimpleContinueRequest,
+    TaskResult,
+    continue_simple_task,
+    execute_plan,
+    get_next_task,
+    get_simple_task_status,
+    intake_prompt,
+    start_simple_task,
+    submit_task_result,
+)
 from .routers.profile import (
     ProfileAnswers,
     QuickSetupRequest,
@@ -513,15 +525,46 @@ def pexo_intake_prompt(prompt: str, user_id: str = "default_user", session_id: s
 
 
 @mcp.tool()
+def pexo_start_task(prompt: str, user_id: str = "default_user", session_id: str | None = None) -> dict:
+    """Starts the preferred simplified task flow. Use `user_message` for user-facing output and keep internal orchestration details hidden unless asked."""
+    return _with_db(lambda db: start_simple_task(PromptRequest(user_id=user_id, prompt=prompt, session_id=session_id), db))
+
+
+@mcp.tool()
 def pexo_execute_plan(session_id: str, clarification_answer: str) -> dict:
     """Applies the clarification answer and starts graph execution."""
     return _with_db(lambda db: execute_plan(ExecuteRequest(session_id=session_id, clarification_answer=clarification_answer), db))
 
 
 @mcp.tool()
+def pexo_continue_task(
+    session_id: str,
+    clarification_answer: str | None = None,
+    result_data: Any | None = None,
+) -> dict:
+    """Continues the preferred simplified task flow. Show `user_message` to the user; use `instruction` or `agent_instruction` internally when Pexo requests agent work."""
+    return _with_db(
+        lambda db: continue_simple_task(
+            SimpleContinueRequest(
+                session_id=session_id,
+                clarification_answer=clarification_answer,
+                result_data=result_data,
+            ),
+            db,
+        )
+    )
+
+
+@mcp.tool()
 def pexo_get_next_task(session_id: str) -> dict:
     """Returns the next pending orchestration instruction or session completion state."""
     return _with_db(lambda db: get_next_task(session_id=session_id, db=db))
+
+
+@mcp.tool()
+def pexo_get_task_status(session_id: str) -> dict:
+    """Returns the current simplified task state for a session. Prefer `user_message` for user-facing replies."""
+    return _with_db(lambda db: get_simple_task_status(session_id=session_id, db=db))
 
 
 @mcp.tool()
