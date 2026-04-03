@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 
+from .client_connect import SUPPORTED_CLIENTS, SUPPORTED_SCOPES, connect_clients
 from .cli import build_parser as build_cli_parser
 from .paths import (
     ARTIFACTS_DIR,
@@ -178,6 +179,30 @@ def run_promote(profile: str) -> int:
     return 1
 
 
+def run_connect(target: str = "all", scope: str = "user", dry_run: bool = False, as_json: bool = False) -> int:
+    report = connect_clients(target=target, scope=scope, dry_run=dry_run)
+
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        print("Pexo Client Connect")
+        print(f"MCP target: {report['mcp_server']['display']}")
+        print(f"Scope: {report['scope']}")
+        for result in report["results"]:
+            print(f"{result['client']}: {result['status']}")
+            print(f"  manual command: {result['manual_command']}")
+            if result.get("message"):
+                print(f"  message: {result['message']}")
+            if result.get("verify_output"):
+                print(f"  verify: {result['verify_output']}")
+
+    if report["status"] == "failed":
+        return 1
+    if report["status"] == "partial" and report["target"] != "all":
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pexo", description="Pexo command launcher.")
     parser.add_argument("--version", action="store_true", help="Display the current Pexo version.")
@@ -207,6 +232,11 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--json", action="store_true")
     doctor_parser = subparsers.add_parser("doctor", help="Run local diagnostics for the current Pexo installation.")
     doctor_parser.add_argument("--json", action="store_true", help="Emit diagnostic data as JSON.")
+    connect_parser = subparsers.add_parser("connect", help="Configure Codex, Claude, or Gemini to use Pexo as an MCP server.")
+    connect_parser.add_argument("client", nargs="?", default="all", choices=["all", *SUPPORTED_CLIENTS])
+    connect_parser.add_argument("--scope", default="user", choices=list(SUPPORTED_SCOPES))
+    connect_parser.add_argument("--dry-run", action="store_true", help="Print the connection plan without changing client configuration.")
+    connect_parser.add_argument("--json", action="store_true", help="Emit connection results as JSON.")
     subparsers.add_parser("uninstall", help="Show uninstall guidance for the current delivery mode.")
     return parser
 
@@ -221,6 +251,7 @@ def print_help() -> None:
     print("  pexo promote [full]  Installs or upgrades the local runtime dependency profile")
     print("  pexo update          Pulls the latest repository changes or prints package upgrade guidance")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
+    print("  pexo connect all     Connects Codex, Claude, and Gemini to pexo-mcp when installed")
     print("  pexo --mcp           Starts Pexo as a native MCP server (stdio)")
     print("  pexo-mcp             Starts Pexo as a native MCP server (stdio)")
     print("  pexo --version       Displays the current version")
@@ -327,6 +358,9 @@ def build_doctor_report() -> dict:
             "gh": shutil_which("gh"),
             "uv": shutil_which("uv"),
             "pipx": shutil_which("pipx"),
+            "codex": shutil_which("codex"),
+            "claude": shutil_which("claude"),
+            "gemini": shutil_which("gemini"),
         },
         "runtime": runtime_status,
         "database": sqlite_report,
@@ -341,6 +375,7 @@ def build_doctor_report() -> dict:
                 if install_mode == "checkout" else _package_uninstall_guidance()
             ),
             "mcp": str(CODE_ROOT / "pexo") + " --mcp" if install_mode == "checkout" else "pexo-mcp",
+            "connect": "pexo connect all --scope user",
             "vector": "pexo promote vector",
         },
         "issues": [],
@@ -385,9 +420,16 @@ def run_doctor(as_json: bool = False) -> int:
     print(f"Artifacts: {report['paths']['artifacts']} ({'present' if report['path_health']['artifacts_exists'] else 'missing'})")
     print(f"Dynamic tools: {report['paths']['dynamic_tools']} ({'present' if report['path_health']['dynamic_tools_exists'] else 'missing'})")
     print(f"Commands: pexo={report['commands']['pexo'] or 'not found'} | pexo-mcp={report['commands']['pexo_mcp'] or 'not found'}")
+    print(
+        "Client CLIs: "
+        f"codex={report['commands']['codex'] or 'not found'} | "
+        f"claude={report['commands']['claude'] or 'not found'} | "
+        f"gemini={report['commands']['gemini'] or 'not found'}"
+    )
     print(f"Update command: {report['guidance']['update']}")
     print(f"Uninstall command: {report['guidance']['uninstall']}")
     print(f"MCP command: {report['guidance']['mcp']}")
+    print(f"Fleet connect command: {report['guidance']['connect']}")
     print(f"Vector promote command: {report['guidance']['vector']}")
     if report["issues"]:
         print("Issues:")
@@ -418,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
         return print_uninstall_guidance()
     if raw_args and raw_args[0] == "--doctor":
         return run_doctor(as_json="--json" in raw_args[1:])
+    if raw_args and raw_args[0] == "--connect":
+        raw_args = ["connect", *raw_args[1:]]
 
     parser = build_parser()
     args, extras = parser.parse_known_args(raw_args)
@@ -452,6 +496,8 @@ def main(argv: list[str] | None = None) -> int:
         return dispatch_cli_subcommand(cli_args)
     if args.command == "doctor":
         return run_doctor(as_json=args.json)
+    if args.command == "connect":
+        return run_connect(target=args.client, scope=args.scope, dry_run=args.dry_run, as_json=args.json)
     if args.command == "uninstall":
         return print_uninstall_guidance()
 

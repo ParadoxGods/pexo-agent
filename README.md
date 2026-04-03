@@ -39,6 +39,7 @@ If the goal is to tell an AI agent to "install Pexo" and have it succeed with mi
 *   it tries `uv` first, then `pipx`
 *   it falls back to a safe checkout install only when needed
 *   it completes `headless-setup --preset efficient_operator`
+*   it connects supported AI clients automatically when they are installed locally
 *   it runs `pexo doctor`
 *   it emits a machine-readable `PEXO_INSTALL_SUMMARY_JSON=...` line at the end
 
@@ -46,12 +47,12 @@ This is the shortest path to a sub-minute install on a normal machine because it
 
 **Windows AI-safe bootstrap:**
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.ps1 -OutFile bootstrap.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.2/bootstrap.ps1 -OutFile bootstrap.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 **macOS/Linux AI-safe bootstrap:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.2/bootstrap.sh | bash
 ```
 
 The bootstrap path installs into the safe user-local state root by default and does not touch the current repository checkout unless you explicitly use a repo-local install command from a checkout.
@@ -62,12 +63,12 @@ If you want the packaged route without the bootstrap wrapper, use one of the fol
 
 **Recommended with `uv`:**
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"
 ```
 
 **Fallback with `pipx`:**
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"
 ```
 
 Then initialize the local profile entirely from the terminal:
@@ -75,6 +76,7 @@ Then initialize the local profile entirely from the terminal:
 ```bash
 pexo list-presets
 pexo headless-setup --preset efficient_operator
+pexo connect all --scope user
 pexo doctor
 ```
 
@@ -95,11 +97,30 @@ The packaged install keeps all mutable local state under `~/.pexo` by default:
 
 You can override the state directory with `PEXO_HOME`.
 
+### Fleet Quickstart
+
+If the goal is to get Pexo working with Codex, Claude, and Gemini with the fewest decisions possible, use this 3-step path:
+
+1. **Install**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.2/bootstrap.ps1 -OutFile bootstrap.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+```
+2. **Setup and connect**
+```powershell
+pexo connect all --scope user
+pexo doctor
+```
+3. **Test**
+Ask one connected AI:
+```text
+Use the Pexo MCP server. Search Pexo memory for anything about setup or runtime profiles. If nothing useful exists, store a memory that says "Pexo smoke test succeeded on this machine", then report the current core agents and summarize the runtime status.
+```
+
 ### AI-Driven Install Prompt
 
 If you want another AI to perform the install for you, use:
 
-**"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the standalone bootstrap path. Do not install into the current repo unless I explicitly ask for a repo-local node. Complete headless setup with the efficient_operator preset, run pexo doctor, and do not open the web UI unless I ask."**
+**"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the standalone bootstrap path. Do not install into the current repo unless I explicitly ask for a repo-local node. Complete headless setup with the efficient_operator preset, connect Codex, Claude, and Gemini to Pexo if those clients are installed, run pexo doctor, and do not open the web UI unless I ask."**
 
 That instruction is now preferable to clone-first installation.
 If the assistant has to fall back to a checkout-based installer, tell it not to target the current repo unless you explicitly want a repo-local node.
@@ -144,6 +165,8 @@ The installers also support custom or repo-local targets, so an existing checkou
 The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, editing agents, correcting stored memories, adjusting profile settings, reviewing execution telemetry, or managing additional backups.
 
 Use `pexo doctor` any time you want to confirm the current install mode, state directory, runtime profile, MCP command, and upgrade or uninstall path.
+
+Use `pexo connect all --scope user` when you want Pexo to register itself with supported local AI clients without editing MCP configs by hand.
 
 ### Uninstallation
 
@@ -200,6 +223,15 @@ If you are using the packaged install, the simplest configuration is to call `pe
     }
   }
 }
+```
+
+You can also let Pexo configure supported AI clients directly:
+
+```bash
+pexo connect all --scope user
+pexo connect codex --scope user
+pexo connect claude --scope user
+pexo connect gemini --scope user
 ```
 
 If you want MCP from an existing checkout instead of a packaged install, initialize that checkout in place and point the client at the repo-local launcher:
@@ -276,13 +308,14 @@ The launcher exposes the following setup and administration commands:
 For GitHub-native tool installs, the preferred commands are now:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"
 pexo headless-setup --preset efficient_operator
+pexo connect all --scope user
 pexo doctor
 pexo
 ```
 
-The installation scripts also support an AI-friendly one-shot terminal setup path:
+The installation scripts also support an AI-friendly one-shot terminal setup path, but the standalone bootstrap is now the preferred route:
 
 **Windows:**
 ```powershell

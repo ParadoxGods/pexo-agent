@@ -23,20 +23,21 @@ Use the standalone bootstrap path first. It is the default install path because 
 - tries `uv` first, then `pipx`
 - falls back to a safe checkout install only when needed
 - completes headless setup automatically
+- connects supported AI clients automatically when they are installed locally
 - runs `pexo doctor`
 - emits `PEXO_INSTALL_SUMMARY_JSON=...` for machine-readable confirmation
 
 Windows:
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.ps1 -OutFile bootstrap.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.2/bootstrap.ps1 -OutFile bootstrap.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 macOS/Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.2/bootstrap.sh | bash
 ```
 
 ### Direct packaged install
@@ -46,16 +47,18 @@ If the bootstrap path is unavailable but a packaged tool manager is present, use
 With `uv`:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"
 pexo headless-setup --preset efficient_operator
+pexo connect all --scope user
 pexo doctor
 ```
 
 With `pipx`:
 
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"
 pexo headless-setup --preset efficient_operator
+pexo connect all --scope user
 pexo doctor
 ```
 
@@ -118,6 +121,7 @@ Never write `.pexo-deps-profile` manually. It is only a runtime marker and is no
 1. Prefer terminal-first setup:
    - `pexo list-presets`
    - `pexo headless-setup --preset efficient_operator`
+   - `pexo connect all --scope user`
    - `pexo doctor`
 2. If the user wants all optional runtime pieces installed immediately:
    - `pexo promote full`
@@ -133,6 +137,11 @@ Never write `.pexo-deps-profile` manually. It is only a runtime marker and is no
 6. To start MCP:
    - `pexo --mcp`
    - or `pexo-mcp` for packaged installs
+7. To connect supported AI clients:
+   - `pexo connect all --scope user`
+   - `pexo connect codex --scope user`
+   - `pexo connect claude --scope user`
+   - `pexo connect gemini --scope user`
 
 ## Update and uninstall rules
 
@@ -187,5 +196,6 @@ If the user says to install Pexo, do this:
 3. Fall back to the platform installer only if needed.
 4. Do not touch the current repo unless the user explicitly asked for a repo-local node.
 5. Complete `headless-setup --preset efficient_operator`.
-6. Run `pexo doctor`.
-7. Do not launch the browser UI unless the user asks for it.
+6. Run `pexo connect all --scope user`.
+7. Run `pexo doctor`.
+8. Do not launch the browser UI unless the user asks for it.

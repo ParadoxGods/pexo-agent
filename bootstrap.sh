@@ -6,12 +6,13 @@ PRESET="efficient_operator"
 PROFILE_NAME="default_user"
 BACKUP_PATH=""
 REPOSITORY="ParadoxGods/pexo-agent"
-REF="v1.0.1"
+REF="v1.0.2"
 INSTALL_DIR=""
 REPO_PATH=""
 USE_CURRENT_CHECKOUT=0
 ALLOW_REPO_INSTALL=0
 INSTALL_PROFILE="auto"
+CONNECT_CLIENTS="all"
 SKIP_UPDATE=0
 OFFLINE=0
 
@@ -55,6 +56,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --install-profile)
             INSTALL_PROFILE="$2"
+            shift 2
+            ;;
+        --connect-clients)
+            CONNECT_CLIENTS="$2"
             shift 2
             ;;
         --skip-update)
@@ -245,12 +250,23 @@ run_doctor() {
     run_checked "$percent" "Running Pexo doctor" "$@" doctor
 }
 
+run_connect() {
+    local percent="$1"
+    local target="$2"
+    shift 2
+    if [ "$target" = "none" ]; then
+        return
+    fi
+    run_checked "$percent" "Connecting AI clients to Pexo MCP" "$@" connect "$target" --scope user
+}
+
 PYTHON_BOOTSTRAP_BIN="$(resolve_python_command || true)"
 
 if [ -f "$SCRIPT_ROOT/install.sh" ] && [ -d "$SCRIPT_ROOT/app" ]; then
     invoke_local_install "$SCRIPT_ROOT/install.sh"
     if [ -x "$SCRIPT_ROOT/pexo" ]; then
-        run_doctor 95 "$SCRIPT_ROOT/pexo"
+        run_doctor 92 "$SCRIPT_ROOT/pexo"
+        run_connect 97 "$CONNECT_CLIENTS" "$SCRIPT_ROOT/pexo"
     fi
     print_progress 100 "Bootstrap complete"
     exit 0
@@ -295,7 +311,8 @@ if [ -n "$PACKAGED_TOOL" ]; then
         HEADLESS_ARGS+=(--backup-path "$BACKUP_PATH")
     fi
     run_checked 80 "Applying headless setup" pexo "${HEADLESS_ARGS[@]}"
-    run_doctor 95 pexo
+    run_doctor 92 pexo
+    run_connect 97 "$CONNECT_CLIENTS" pexo
     print_progress 100 "Bootstrap complete"
     emit_install_summary_json \
       "status=success" \
@@ -307,10 +324,11 @@ if [ -n "$PACKAGED_TOOL" ]; then
       "active_profile=$( [ "$REQUESTED_PROFILE" = "full" ] || [ "$REQUESTED_PROFILE" = "vector" ] && printf '%s' "$REQUESTED_PROFILE" || printf 'mcp' )" \
       "profile_initialized=$PROFILE_NAME" \
       "backup_path=$( [ -n "$BACKUP_PATH" ] && printf '%s' "$BACKUP_PATH" || printf 'not set' )" \
+      "connected_clients=$CONNECT_CLIENTS" \
       "launcher_command=pexo" \
       "mcp_command=pexo-mcp" \
       "uninstall_command=$( [ "$PACKAGED_TOOL" = "uv" ] && printf 'uv tool uninstall pexo-agent' || printf 'pipx uninstall pexo-agent' )" \
-      "next=[pexo||pexo --mcp]"
+      "next=[pexo connect all --scope user||pexo||pexo --mcp]"
     exit 0
 fi
 
@@ -349,5 +367,6 @@ ALLOW_REPO_INSTALL=1
 USE_CURRENT_CHECKOUT=0
 SKIP_UPDATE=1
 invoke_local_install "$TARGET_DIR/install.sh"
-run_doctor 95 "$TARGET_DIR/pexo"
+run_doctor 92 "$TARGET_DIR/pexo"
+run_connect 97 "$CONNECT_CLIENTS" "$TARGET_DIR/pexo"
 print_progress 100 "Bootstrap complete"

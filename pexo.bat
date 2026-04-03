@@ -28,6 +28,8 @@ if "%~1"=="--help" goto help
 if "%~1"=="--mcp" goto mcp
 if "%~1"=="--doctor" goto doctor
 if /I "%~1"=="doctor" goto doctor
+if "%~1"=="--connect" goto connect
+if /I "%~1"=="connect" goto connect
 if "%~1"=="--update" goto update
 if /I "%~1"=="update" goto update
 if "%~1"=="--promote" goto promote
@@ -213,8 +215,15 @@ if errorlevel 1 exit /b %ERRORLEVEL%
 venv\Scripts\python.exe -m app.launcher doctor %1 %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %ERRORLEVEL%
 
+:connect
+if "%~1"=="--connect" shift
+call :ensure_runtime_profile core
+if errorlevel 1 exit /b %ERRORLEVEL%
+venv\Scripts\python.exe -m app.launcher connect %1 %2 %3 %4 %5 %6 %7 %8 %9
+exit /b %ERRORLEVEL%
+
 :version
-echo Pexo v1.0.1
+echo Pexo v1.0.2
 exit /b 0
 
 :help
@@ -232,6 +241,8 @@ echo   pexo --update ^| pexo update
 echo                  Pulls the latest repository changes immediately
 echo   pexo --doctor ^| pexo doctor [--json]
 echo                  Prints local installation and runtime diagnostics
+echo   pexo --connect ^| pexo connect [all^|codex^|claude^|gemini] [--scope user^|project]
+echo                  Connects supported AI clients to Pexo MCP
 echo   pexo --no-browser
 echo                  Starts the API without opening the dashboard automatically
 echo   pexo --offline ^| pexo --skip-update

@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -15,6 +16,7 @@ from sqlalchemy import inspect
 
 import app.routers.memory as memory_router
 import app.runtime as runtime_module
+from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
 from app.main import app
@@ -288,6 +290,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--promote", shell_launcher)
         self.assertIn("--update", shell_launcher)
         self.assertIn("--doctor", shell_launcher)
+        self.assertIn("--connect", shell_launcher)
         self.assertIn("--no-browser", shell_launcher)
         self.assertIn("--offline", shell_launcher)
         self.assertIn("--skip-update", shell_launcher)
@@ -304,6 +307,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--promote", batch_launcher)
         self.assertIn("--update", batch_launcher)
         self.assertIn("--doctor", batch_launcher)
+        self.assertIn("--connect", batch_launcher)
         self.assertIn("--no-browser", batch_launcher)
         self.assertIn("--offline", batch_launcher)
         self.assertIn("--skip-update", batch_launcher)
@@ -333,17 +337,21 @@ class HardeningTests(unittest.TestCase):
         bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
         bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
 
-        self.assertIn('[string]$Ref = "v1.0.1"', bootstrap_ps)
+        self.assertIn('[string]$Ref = "v1.0.2"', bootstrap_ps)
+        self.assertIn('[string]$ConnectClients = "all"', bootstrap_ps)
         self.assertIn('Invoke-External -Percent 20 -Message "Installing packaged Pexo tool" -FilePath "uv"', bootstrap_ps)
         self.assertIn('Invoke-External -Percent 20 -Message "Installing packaged Pexo tool" -FilePath "pipx"', bootstrap_ps)
         self.assertIn('Standalone bootstrap does not support repo-local install', bootstrap_ps)
-        self.assertIn('Invoke-DoctorCommand -Percent 95 -CommandPath "pexo"', bootstrap_ps)
+        self.assertIn('Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"', bootstrap_ps)
+        self.assertIn('Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients', bootstrap_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
-        self.assertIn('REF="v1.0.1"', bootstrap_sh)
+        self.assertIn('REF="v1.0.2"', bootstrap_sh)
+        self.assertIn('CONNECT_CLIENTS="all"', bootstrap_sh)
         self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn("Standalone bootstrap does not support repo-local install", bootstrap_sh)
-        self.assertIn('run_doctor 95 pexo', bootstrap_sh)
+        self.assertIn('run_doctor 92 pexo', bootstrap_sh)
+        self.assertIn('run_connect 97 "$CONNECT_CLIENTS" pexo', bootstrap_sh)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_sh)
 
     def test_dependency_profiles_split_core_mcp_and_full_runtime(self):
@@ -394,11 +402,12 @@ class HardeningTests(unittest.TestCase):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("bootstrap.ps1", readme)
         self.assertIn("bootstrap.sh", readme)
-        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', readme)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', readme)
+        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"', readme)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
+        self.assertIn("pexo connect all --scope user", readme)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", readme)
         self.assertIn("Existing Git checkouts are protected by default", readme)
         self.assertIn(".\\install.cmd", readme)
@@ -410,7 +419,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("## Default behavior", agents_doc)
         self.assertIn("bootstrap.ps1", agents_doc)
         self.assertIn("bootstrap.sh", agents_doc)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.2"', agents_doc)
+        self.assertIn("pexo connect all --scope user", agents_doc)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
         self.assertIn(".\\install.cmd", agents_doc)
@@ -425,9 +435,59 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("update", report["guidance"])
         self.assertIn("uninstall", report["guidance"])
         self.assertIn("mcp", report["guidance"])
+        self.assertIn("connect", report["guidance"])
         self.assertIn("vector", report["guidance"])
         self.assertIn("python", report["commands"])
+        self.assertIn("codex", report["commands"])
+        self.assertIn("claude", report["commands"])
+        self.assertIn("gemini", report["commands"])
         self.assertIsInstance(report["issues"], list)
+
+    @patch("app.client_connect.running_from_repo_checkout", return_value=False)
+    @patch("app.client_connect.which")
+    def test_client_connect_builds_packaged_plans_for_supported_clients(self, mock_which, _mock_checkout):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
+
+        codex_plan = build_client_connection_plan("codex", scope="user")
+        claude_plan = build_client_connection_plan("claude", scope="user")
+        gemini_plan = build_client_connection_plan("gemini", scope="user")
+
+        self.assertEqual(codex_plan["target"]["display"], "pexo-mcp")
+        self.assertIn("codex mcp add pexo -- pexo-mcp", codex_plan["manual_command"])
+        self.assertIn("claude mcp add pexo --scope user -- pexo-mcp", claude_plan["manual_command"])
+        self.assertIn("gemini mcp add --scope user --transport stdio pexo pexo-mcp", gemini_plan["manual_command"])
+
+    @patch("app.client_connect.running_from_repo_checkout", return_value=True)
+    @patch("app.client_connect.which")
+    def test_client_connect_uses_repo_launcher_when_running_from_checkout(self, mock_which, _mock_checkout):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
+
+        plan = build_client_connection_plan("codex", scope="user")
+
+        self.assertEqual(plan["target"]["command"], "cmd.exe")
+        self.assertIn("pexo.bat", plan["manual_command"])
+        self.assertIn("--mcp", plan["manual_command"])
+
+    @patch("app.client_connect.subprocess.run")
+    @patch("app.client_connect.running_from_repo_checkout", return_value=False)
+    @patch("app.client_connect.which")
+    def test_connect_clients_dry_run_and_execution_reporting(self, mock_which, _mock_checkout, mock_run):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
+
+        dry_run_report = connect_clients(target="all", scope="user", dry_run=True)
+        self.assertEqual(dry_run_report["status"], "success")
+        self.assertTrue(all(item["status"] == "planned" for item in dry_run_report["results"]))
+        mock_run.assert_not_called()
+
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=["codex", "mcp", "remove", "pexo"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["codex", "mcp", "add", "pexo"], returncode=0, stdout="added", stderr=""),
+            subprocess.CompletedProcess(args=["codex", "mcp", "get", "pexo"], returncode=0, stdout="enabled", stderr=""),
+        ]
+        execution_report = connect_clients(target="codex", scope="user", dry_run=False)
+        self.assertEqual(execution_report["status"], "success")
+        self.assertEqual(execution_report["results"][0]["status"], "connected")
+        self.assertIn("enabled", execution_report["results"][0]["verify_output"])
 
     def test_paths_use_repo_checkout_locally_and_home_for_packaged_mode(self):
         self.assertTrue(looks_like_repo_checkout(CODE_ROOT))

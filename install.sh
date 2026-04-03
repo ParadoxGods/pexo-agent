@@ -584,6 +584,8 @@ if should_use_packaged_install; then
     echo "  pexo --version"
     echo "Ready-to-paste MCP config:"
     print_packaged_mcp_snippet
+    echo "To connect supported AI clients automatically:"
+    echo "  pexo connect all --scope user"
     echo "To uninstall the packaged tool later:"
     echo "  $UNINSTALL_COMMAND"
     echo "To remove local state as well:"
@@ -609,7 +611,7 @@ if should_use_packaged_install; then
       "launcher_command=pexo" \
       "mcp_command=pexo-mcp" \
       "uninstall_command=$UNINSTALL_COMMAND" \
-      "next=[pexo doctor||pexo]"
+      "next=[pexo connect all --scope user||pexo doctor||pexo]"
     echo "=================================================="
     exit 0
 fi
@@ -760,6 +762,8 @@ echo "If you want native Chroma vector embeddings installed as well:"
 echo "  \"$PEXO_DIR/pexo\" --promote vector"
 echo "Ready-to-paste MCP config:"
 print_mcp_snippet "$PEXO_DIR/pexo"
+echo "To connect supported AI clients automatically:"
+echo "  \"$PEXO_DIR/pexo\" connect all --scope user"
 emit_install_summary_json \
   "status=ok" \
   "install_mode=checkout" \
@@ -773,5 +777,5 @@ emit_install_summary_json \
   "launcher_command=$PEXO_DIR/pexo" \
   "mcp_command=$PEXO_DIR/pexo --mcp" \
   "uninstall_command=pexo uninstall" \
-  "next=[\"$PEXO_DIR/pexo\" --version||\"$PEXO_DIR/pexo\" doctor]"
+  "next=[\"$PEXO_DIR/pexo\" connect all --scope user||\"$PEXO_DIR/pexo\" --version||\"$PEXO_DIR/pexo\" doctor]"
 echo "=================================================="

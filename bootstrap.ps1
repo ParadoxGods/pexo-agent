@@ -3,13 +3,15 @@ param(
     [string]$ProfileName = "default_user",
     [string]$BackupPath = "",
     [string]$Repository = "ParadoxGods/pexo-agent",
-    [string]$Ref = "v1.0.1",
+    [string]$Ref = "v1.0.2",
     [string]$InstallDir = "",
     [string]$RepoPath = "",
     [switch]$UseCurrentCheckout,
     [switch]$AllowRepoInstall,
     [ValidateSet("auto", "core", "mcp", "full", "vector")]
     [string]$InstallProfile = "auto",
+    [ValidateSet("all", "codex", "claude", "gemini", "none")]
+    [string]$ConnectClients = "all",
     [switch]$SkipUpdate,
     [switch]$Offline
 )
@@ -245,13 +247,29 @@ function Invoke-DoctorCommand {
     Invoke-External -Percent $Percent -Message "Running Pexo doctor" -FilePath $CommandPath -ArgumentList @("doctor") -WorkingDirectory $WorkingDirectory
 }
 
+function Invoke-ConnectCommand {
+    param(
+        [int]$Percent,
+        [string]$CommandPath,
+        [string]$ClientTarget,
+        [string]$WorkingDirectory = ""
+    )
+
+    if ($ClientTarget -eq "none") {
+        return
+    }
+
+    Invoke-External -Percent $Percent -Message "Connecting AI clients to Pexo MCP" -FilePath $CommandPath -ArgumentList @("connect", $ClientTarget, "--scope", "user") -WorkingDirectory $WorkingDirectory
+}
+
 $localInstaller = Join-Path $scriptRoot "install.ps1"
 $localAppDir = Join-Path $scriptRoot "app"
 if ((Test-Path $localInstaller) -and (Test-Path $localAppDir)) {
     Invoke-LocalInstaller -InstallerPath $localInstaller
     $localLauncher = Join-Path $scriptRoot "pexo.bat"
     if (Test-Path $localLauncher) {
-        Invoke-DoctorCommand -Percent 95 -CommandPath $localLauncher
+        Invoke-DoctorCommand -Percent 92 -CommandPath $localLauncher
+        Invoke-ConnectCommand -Percent 97 -CommandPath $localLauncher -ClientTarget $ConnectClients
     }
     Write-BootstrapProgress -Percent 100 -Status "Bootstrap complete"
     exit 0
@@ -292,7 +310,8 @@ if (-not [string]::IsNullOrWhiteSpace($packagedTool)) {
         $headlessArgs += @("--backup-path", $BackupPath)
     }
     Invoke-External -Percent 80 -Message "Applying headless setup" -FilePath "pexo" -ArgumentList $headlessArgs
-    Invoke-DoctorCommand -Percent 95 -CommandPath "pexo"
+    Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"
+    Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients
     Write-BootstrapProgress -Percent 100 -Status "Bootstrap complete"
     Write-InstallSummaryJson -Summary @{
         status = "success"
@@ -304,10 +323,11 @@ if (-not [string]::IsNullOrWhiteSpace($packagedTool)) {
         active_profile = if ($requestedProfile -eq "full" -or $requestedProfile -eq "vector") { $requestedProfile } else { "mcp" }
         profile_initialized = $ProfileName
         backup_path = if ([string]::IsNullOrWhiteSpace($BackupPath)) { "not set" } else { $BackupPath }
+        connected_clients = $ConnectClients
         launcher_command = "pexo"
         mcp_command = "pexo-mcp"
         uninstall_command = if ($packagedTool -eq "uv") { "uv tool uninstall pexo-agent" } else { "pipx uninstall pexo-agent" }
-        next = @("pexo", "pexo --mcp")
+        next = @("pexo connect all --scope user", "pexo", "pexo --mcp")
     }
     exit 0
 }
@@ -349,5 +369,6 @@ $RepoPath = $previousRepoPath
 $AllowRepoInstall = $previousAllowRepoInstall
 
 $launcherPath = Join-Path $targetDir "pexo.bat"
-Invoke-DoctorCommand -Percent 95 -CommandPath $launcherPath
+Invoke-DoctorCommand -Percent 92 -CommandPath $launcherPath
+Invoke-ConnectCommand -Percent 97 -CommandPath $launcherPath -ClientTarget $ConnectClients
 Write-BootstrapProgress -Percent 100 -Status "Bootstrap complete"

@@ -637,6 +637,8 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     Write-Host "  pexo --version"
     Write-Host "Ready-to-paste Windows MCP config:"
     Write-Host (Format-PackagedWindowsMcpSnippet)
+    Write-Host "To connect supported AI clients automatically:"
+    Write-Host "  pexo connect all --scope user"
     Write-Host "To uninstall the packaged tool later:"
     Write-Host "  $uninstallCommand"
     Write-Host "To remove local state as well:"
@@ -663,7 +665,7 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
         launcher_command = "pexo"
         mcp_command = "pexo-mcp"
         uninstall_command = $uninstallCommand
-        next = @("pexo doctor", "pexo")
+        next = @("pexo connect all --scope user", "pexo doctor", "pexo")
     }
     Write-Host "=================================================="
     return
@@ -826,6 +828,8 @@ Write-Host "If you want native Chroma vector embeddings installed as well:"
 Write-Host "  & `"$launcherPath`" --promote vector"
 Write-Host "Ready-to-paste Windows MCP config:"
 Write-Host (Format-WindowsMcpSnippet -LauncherPath $launcherPath)
+Write-Host "To connect supported AI clients automatically:"
+Write-Host "  & `"$launcherPath`" connect all --scope user"
 if ($HeadlessSetup) {
     Write-Host "Headless profile setup completed during install."
     Write-Host "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
@@ -846,6 +850,6 @@ Write-InstallSummaryJson -Summary @{
     launcher_command = $launcherPath
     mcp_command = "$launcherPath --mcp"
     uninstall_command = "pexo uninstall"
-    next = @("& `"$launcherPath`" --version", "& `"$launcherPath`" doctor")
+    next = @("& `"$launcherPath`" connect all --scope user", "& `"$launcherPath`" --version", "& `"$launcherPath`" doctor")
 }
 Write-Host "=================================================="

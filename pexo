@@ -256,7 +256,7 @@ promote_runtime() {
 }
 
 if [ "${1:-}" = "--version" ]; then
-    echo "Pexo v1.0.1"
+    echo "Pexo v1.0.2"
     exit 0
 fi
 
@@ -275,6 +275,8 @@ if [ "${1:-}" = "--help" ]; then
     echo "                 Pulls the latest repository changes immediately"
     echo "  pexo --doctor | pexo doctor [--json]"
     echo "                 Prints local installation and runtime diagnostics"
+    echo "  pexo --connect | pexo connect [all|codex|claude|gemini] [--scope user|project]"
+    echo "                 Connects supported AI clients to Pexo MCP"
     echo "  pexo --no-browser"
     echo "                 Starts the API without opening the dashboard automatically"
     echo "  pexo --offline | pexo --skip-update"
@@ -297,6 +299,15 @@ if [ "${1:-}" = "--doctor" ] || [ "${1:-}" = "doctor" ]; then
     shift
     ensure_runtime_profile core
     "$(venv_python)" -m app.launcher doctor "$@"
+    exit $?
+fi
+
+if [ "${1:-}" = "--connect" ] || [ "${1:-}" = "connect" ]; then
+    if [ "${1:-}" = "--connect" ]; then
+        shift
+    fi
+    ensure_runtime_profile core
+    "$(venv_python)" -m app.launcher connect "$@"
     exit $?
 fi
 
