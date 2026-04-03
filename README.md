@@ -33,7 +33,37 @@ Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone 
 1.  Open an interactive session with an LLM (e.g., Claude, Codex, Gemini).
 2.  Provide the following instruction: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
 
-The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly, runs preflight validation before cloning, updates the current shell PATH as well as the persistent PATH, and prefers `gh repo clone` when GitHub CLI authentication is already available. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
+The AI will execute the installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly, runs preflight validation before cloning, updates the current shell PATH as well as the persistent PATH, and prefers `gh repo clone` when GitHub CLI authentication is already available. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
+
+The install path is now staged for speed:
+
+*   the first AI-driven install defaults to the `core` runtime so `list-presets` and `headless-setup` are fast
+*   `pexo --mcp` promotes the environment to the `mcp` runtime if needed
+*   `pexo` promotes the environment to the `full` runtime if needed, enabling the browser UI and LangGraph-backed orchestration
+*   `pexo --promote vector` adds native Chroma vector embeddings when the user wants semantic memory enabled locally
+
+If you want every dependency installed ahead of time, run:
+
+```bash
+pexo --promote full
+pexo --promote vector
+```
+
+The installers also support custom or repo-local targets, so an existing checkout does not need to be cloned twice:
+
+**Windows:**
+```powershell
+.\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator
+.\install.ps1 -UseCurrentCheckout -HeadlessSetup -Preset efficient_operator
+.\install.ps1 -InstallDir C:\Tools\pexo -HeadlessSetup -Preset efficient_operator
+```
+
+**macOS/Linux:**
+```bash
+./install.sh --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator
+./install.sh --use-current-checkout --headless-setup --preset efficient_operator
+./install.sh --install-dir ~/tools/pexo --headless-setup --preset efficient_operator
+```
 
 For AI-driven installs, the preferred path is now fully terminal-first:
 
@@ -92,6 +122,26 @@ Once connected, the MCP server can drive:
 *   Genesis tool register/read/update/execute/delete
 *   backup execution
 
+If you want MCP from an existing checkout instead of a global `~/.pexo` install, initialize that checkout in place and point the client at the repo-local launcher:
+
+**Windows repo-local MCP setup:**
+```powershell
+gh repo clone ParadoxGods/pexo-agent C:\Users\<USER>\code\pexo-agent
+cd C:\Users\<USER>\code\pexo-agent
+.\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+```
+
+```json
+{
+  "mcpServers": {
+    "pexo": {
+      "command": "cmd.exe",
+      "args": ["/c", "C:\\Users\\<USER>\\code\\pexo-agent\\pexo.bat", "--mcp"]
+    }
+  }
+}
+```
+
 **Windows Configuration:**
 ```json
 {
@@ -132,6 +182,8 @@ The launcher exposes the following setup and administration commands:
 
 *   `pexo --list-presets` or `pexo list-presets`
 *   `pexo --headless-setup --preset efficient_operator`
+*   `pexo --promote full`
+*   `pexo --promote vector`
 *   `pexo --update` or `pexo update`
 *   `pexo --no-browser`
 *   `pexo --offline` or `pexo --skip-update`
@@ -149,6 +201,18 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/
 **macOS/Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator
+```
+
+To target an existing checkout instead of creating `~/.pexo`:
+
+**Windows:**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator
+```
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator
 ```
 
 For deterministic installs that skip repository update checks:

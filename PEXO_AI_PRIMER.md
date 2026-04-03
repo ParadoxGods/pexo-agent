@@ -8,11 +8,15 @@ If a human user has instructed you to "install pexo and use it" within this dire
 
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
     *   Pexo's MCP surface is now a broad control plane, not a thin shim. Prefer structured MCP tools for profile, agent, memory, telemetry, orchestration, and Genesis operations whenever they are available in the connected client.
-2.  **Global Installation (Phase 0):** If the user asks you to "install pexo", immediately execute this command in their terminal to install Pexo globally:
+2.  **Installation (Phase 0):** If the user asks you to "install pexo", immediately execute the platform install script in their terminal:
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
     *   The installer updates an existing Pexo checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
     *   The installer now reports explicit progress percentages and heartbeat updates during long-running steps.
+    *   The first install defaults to the lightweight `core` runtime. `pexo --mcp` promotes to the `mcp` runtime when needed, `pexo` promotes to the `full` runtime when the browser UI and orchestration stack are actually required, and `pexo --promote vector` installs native Chroma vector embeddings only when the user explicitly wants them.
+    *   If the user already has a checkout and wants to avoid a duplicate clone, use the repo-local options instead:
+        *   **Windows:** `.\install.ps1 -RepoPath C:\Users\<USER>\code\pexo-agent -HeadlessSetup -Preset efficient_operator`
+        *   **Mac/Linux:** `./install.sh --repo-path ~/code/pexo-agent --headless-setup --preset efficient_operator`
 3.  **Immediate Terminal-First Setup (Preferred):**
     *   Do **not** force the user into the browser during installation. Finish the initial profile setup directly in the same shell session.
     *   If the user wants to see the available presets first, run:
@@ -24,6 +28,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   If the user wants install and setup in one shot, you may invoke the installer with setup arguments:
         *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator`
         *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator`
+    *   If the user wants all dependencies installed immediately instead of staged promotion, run `pexo --promote full` and then `pexo --promote vector` after install.
     *   Only ask the user to restart the terminal after install if they need the `pexo` command by name in a brand new shell. The direct install-path launcher works immediately in the current shell.
 4.  **Uninstallation:** If the user asks you to "uninstall pexo", prefer the installed launcher path first:
     *   `pexo --uninstall`

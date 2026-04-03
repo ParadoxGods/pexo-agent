@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 PEXO_DIR=$(pwd)
 UPDATE_STAMP="$PEXO_DIR/.pexo-update-check"
 UPDATE_INTERVAL_SECONDS=$((12 * 60 * 60))
+DEPENDENCY_MARKER="$PEXO_DIR/.pexo-deps-profile"
 NO_BROWSER=0
 
 while [ "$#" -gt 0 ]; do
@@ -32,6 +33,22 @@ venv_python() {
 }
 
 python_command() {
+    case "${OSTYPE:-}" in
+        msys*|cygwin*|win32*)
+            if command -v python >/dev/null 2>&1; then
+                echo "python"
+                return
+            fi
+            ;;
+    esac
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            if command -v python >/dev/null 2>&1; then
+                echo "python"
+                return
+            fi
+            ;;
+    esac
     if command -v python3 >/dev/null 2>&1; then
         echo "python3"
     else
@@ -39,16 +56,72 @@ python_command() {
     fi
 }
 
+profile_rank() {
+    case "$1" in
+        core) echo 1 ;;
+        mcp) echo 2 ;;
+        full) echo 3 ;;
+        vector) echo 4 ;;
+        *) echo 0 ;;
+    esac
+}
+
+requirements_file_for_profile() {
+    case "$1" in
+        core) echo "requirements-core.txt" ;;
+        mcp) echo "requirements-mcp.txt" ;;
+        full) echo "requirements-full.txt" ;;
+        vector) echo "requirements-vector.txt" ;;
+        *)
+            echo "Unsupported dependency profile: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
+current_profile() {
+    if [ -f "$DEPENDENCY_MARKER" ]; then
+        tr -d '[:space:]' < "$DEPENDENCY_MARKER"
+    fi
+}
+
+set_current_profile() {
+    printf '%s' "$1" > "$DEPENDENCY_MARKER"
+}
+
+install_profile() {
+    local profile="$1"
+    local requirements_file
+    requirements_file=$(requirements_file_for_profile "$profile")
+    if command -v uv >/dev/null 2>&1; then
+        uv pip install --python "$(venv_python)" -r "$requirements_file" -c constraints.txt 1>&2
+    else
+        "$(venv_python)" -m pip install --disable-pip-version-check -r "$requirements_file" -c constraints.txt 1>&2
+    fi
+    set_current_profile "$profile"
+}
+
 ensure_venv() {
     if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
         echo "Virtual environment not found. Creating one..." >&2
         "$(python_command)" -m venv venv 1>&2
-        "$(venv_python)" -m pip install --disable-pip-version-check -r requirements.txt 1>&2
+    fi
+}
+
+ensure_runtime_profile() {
+    local requested_profile="$1"
+    ensure_venv
+
+    local active_profile
+    active_profile=$(current_profile)
+    if [ "$(profile_rank "$active_profile")" -lt "$(profile_rank "$requested_profile")" ]; then
+        echo "Preparing the $requested_profile runtime..." >&2
+        install_profile "$requested_profile"
     fi
 }
 
 run_cli() {
-    ensure_venv
+    ensure_runtime_profile core
     "$(venv_python)" -m app.cli "$@"
 }
 
@@ -85,6 +158,12 @@ run_update() {
     printf '%s' "$now" > "$UPDATE_STAMP"
 }
 
+promote_runtime() {
+    local requested_profile="${1:-full}"
+    ensure_runtime_profile "$requested_profile"
+    echo "Pexo runtime is ready at profile '$requested_profile'."
+}
+
 if [ "${1:-}" = "--version" ]; then
     echo "Pexo v1.0.0-stable"
     exit 0
@@ -99,6 +178,8 @@ if [ "${1:-}" = "--help" ]; then
     echo "                 Lists available profile presets for terminal-first setup"
     echo "  pexo --headless-setup | pexo headless-setup [--preset PRESET] [--name NAME] [--backup-path PATH]"
     echo "                 Initializes the local profile without opening the web UI"
+    echo "  pexo --promote | pexo promote [core|mcp|full|vector]"
+    echo "                 Installs or upgrades the local runtime dependency profile"
     echo "  pexo --update | pexo update"
     echo "                 Pulls the latest repository changes immediately"
     echo "  pexo --no-browser"
@@ -114,13 +195,19 @@ if [ "${1:-}" = "--help" ]; then
 fi
 
 if [ "${1:-}" = "--mcp" ]; then
-    ensure_venv
+    ensure_runtime_profile mcp
     "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
     exit $?
 fi
 
 if [ "${1:-}" = "--update" ] || [ "${1:-}" = "update" ]; then
     run_update
+    exit $?
+fi
+
+if [ "${1:-}" = "--promote" ] || [ "${1:-}" = "promote" ]; then
+    shift
+    promote_runtime "${1:-full}"
     exit $?
 fi
 
@@ -143,11 +230,11 @@ fi
 maybe_update
 
 cat << "EOF"
-  ____  _____ __  __ ___  
- |  _ \| ____|\ \/ // _ \ 
+  ____  _____ __  __ ___
+ |  _ \| ____|\ \/ // _ \
  | |_) |  _|   \  /| | | |
  |  __/| |___  /  \| |_| |
- |_|   |_____|/_/\_\___/ 
+ |_|   |_____|/_/\_\___/
 EOF
 echo ""
 echo "=================================================="
@@ -164,12 +251,7 @@ if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then
     fi
 fi
 
-if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
-    echo "Virtual environment not found. Creating one..."
-    "$(python_command)" -m venv venv
-    echo "Installing dependencies..."
-    "$(venv_python)" -m pip install --disable-pip-version-check -r requirements.txt
-fi
+ensure_runtime_profile full
 
 echo "Starting Pexo API..."
 if [ "$NO_BROWSER" -eq 1 ]; then

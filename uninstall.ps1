@@ -1,4 +1,4 @@
-$PexoDir = "$env:USERPROFILE\.pexo"
+$PexoDir = [System.IO.Path]::GetFullPath((Split-Path -Path $MyInvocation.MyCommand.Path -Parent))
 Write-Host "=================================================="
 Write-Host "Uninstalling Pexo (Primary EXecution Operator)..."
 Write-Host "=================================================="
@@ -11,7 +11,10 @@ taskkill /F /IM python.exe /T /FI "WINDOWTITLE eq Pexo*" 2>$null
 # 2. Remove from PATH
 Write-Host "Removing Pexo from System PATH..."
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$CleanPath = $UserPath.Split(';') | Where-Object { $_ -ne $PexoDir -and $_ -ne "" }
+$CleanPath = @()
+if (-not [string]::IsNullOrWhiteSpace($UserPath)) {
+    $CleanPath = $UserPath.Split(';') | Where-Object { $_ -ne $PexoDir -and $_ -ne "" }
+}
 $NewPath = $CleanPath -join ';'
 [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
 
