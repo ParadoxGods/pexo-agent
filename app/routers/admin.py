@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 def build_client_surface(scope: str = "user") -> dict:
-    return connect_clients(target="all", scope=scope, dry_run=True)
+    return connect_clients(target="all", scope=scope, dry_run=True, verify_existing=False)
 
 
 def serialize_profile(profile: Profile | None) -> dict | None:

@@ -585,6 +585,32 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(execution_report["results"][0]["status"], "connected")
         self.assertIn("enabled", execution_report["results"][0]["verify_output"])
 
+    @patch("app.client_connect.subprocess.run")
+    @patch("app.client_connect.running_from_repo_checkout", return_value=False)
+    @patch("app.client_connect.which")
+    def test_connect_clients_can_skip_verification_for_fast_local_status(self, mock_which, _mock_checkout, mock_run):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
+
+        report = connect_clients(target="all", scope="user", dry_run=True, verify_existing=False)
+
+        self.assertEqual(report["status"], "success")
+        self.assertTrue(all(item["status"] == "available" for item in report["results"]))
+        self.assertTrue(all(item["verification_skipped"] is True for item in report["results"]))
+        mock_run.assert_not_called()
+
+    @patch("app.client_connect.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["gemini", "mcp", "list"], timeout=4))
+    @patch("app.client_connect.running_from_repo_checkout", return_value=False)
+    @patch("app.client_connect.which")
+    def test_connect_clients_marks_verification_timeouts_without_hanging(self, mock_which, _mock_checkout, _mock_run):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe" if name == "gemini" else None
+
+        report = connect_clients(target="gemini", scope="user", dry_run=True)
+
+        self.assertEqual(report["status"], "success")
+        self.assertEqual(report["results"][0]["status"], "available")
+        self.assertTrue(report["results"][0]["verification_timed_out"])
+        self.assertIn("timed out", report["results"][0]["message"])
+
     def test_paths_use_repo_checkout_locally_and_home_for_packaged_mode(self):
         self.assertTrue(looks_like_repo_checkout(CODE_ROOT))
         self.assertEqual(resolve_state_root(code_root=CODE_ROOT, env_override=None), CODE_ROOT)

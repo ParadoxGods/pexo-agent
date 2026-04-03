@@ -10,6 +10,8 @@ from .paths import CODE_ROOT, INSTALL_METADATA_PATH, running_from_repo_checkout
 
 SUPPORTED_CLIENTS = ("codex", "claude", "gemini")
 SUPPORTED_SCOPES = ("user", "project")
+DEFAULT_VERIFY_TIMEOUT_SECONDS = 4
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 15
 
 
 def _format_command(parts: list[str]) -> str:
@@ -31,16 +33,25 @@ def _client_invoker(client_name: str, resolved_binary: str | None) -> str:
     return resolved_binary or client_name
 
 
-def _verify_existing_connection(plan: dict) -> tuple[bool, str]:
-    completed = subprocess.run(plan["verify_command"], capture_output=True, text=True, check=False)
+def _verify_existing_connection(plan: dict, timeout_seconds: int = DEFAULT_VERIFY_TIMEOUT_SECONDS) -> tuple[bool, str, bool]:
+    try:
+        completed = subprocess.run(
+            plan["verify_command"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"Verification timed out after {timeout_seconds}s.", True
     output = ((completed.stdout or "") + (completed.stderr or "")).strip()
     client = plan["client"]
 
     if client in {"codex", "claude"}:
-        return completed.returncode == 0, output
+        return completed.returncode == 0, output, False
     if client == "gemini":
-        return completed.returncode == 0 and "pexo" in output.lower(), output
-    return False, output
+        return completed.returncode == 0 and "pexo" in output.lower(), output, False
+    return False, output, False
 
 
 def build_mcp_stdio_target() -> dict:
@@ -116,7 +127,15 @@ def build_client_connection_plan(client: str, scope: str = "user") -> dict:
     }
 
 
-def connect_clients(target: str = "all", scope: str = "user", dry_run: bool = False) -> dict:
+def connect_clients(
+    target: str = "all",
+    scope: str = "user",
+    dry_run: bool = False,
+    *,
+    verify_existing: bool = True,
+    verify_timeout_seconds: int = DEFAULT_VERIFY_TIMEOUT_SECONDS,
+    command_timeout_seconds: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+) -> dict:
     normalized_target = target.lower()
     if normalized_target == "all":
         clients = list(SUPPORTED_CLIENTS)
@@ -145,20 +164,57 @@ def connect_clients(target: str = "all", scope: str = "user", dry_run: bool = Fa
             continue
 
         if dry_run:
-            configured, verify_output = _verify_existing_connection(plan)
-            result["configured"] = configured
-            result["verify_output"] = verify_output
-            result["status"] = "connected" if configured else "available"
-            result["message"] = (
-                "Client already points at the Pexo MCP server."
-                if configured
-                else "Client is installed and ready to be connected."
-            )
+            if verify_existing:
+                configured, verify_output, timed_out = _verify_existing_connection(
+                    plan,
+                    timeout_seconds=verify_timeout_seconds,
+                )
+                result["configured"] = configured
+                result["verify_output"] = verify_output
+                result["verification_skipped"] = False
+                result["verification_timed_out"] = timed_out
+                result["status"] = "connected" if configured else "available"
+                result["message"] = (
+                    "Client already points at the Pexo MCP server."
+                    if configured
+                    else (
+                        f"Client install detected, but MCP verification timed out after {verify_timeout_seconds}s."
+                        if timed_out
+                        else "Client is installed and ready to be connected."
+                    )
+                )
+            else:
+                result["configured"] = None
+                result["verify_output"] = ""
+                result["verification_skipped"] = True
+                result["verification_timed_out"] = False
+                result["status"] = "available"
+                result["message"] = "Client install detected. MCP verification skipped for fast local status."
             results.append(result)
             continue
 
-        subprocess.run(plan["remove_command"], capture_output=True, text=True, check=False)
-        add_completed = subprocess.run(plan["add_command"], capture_output=True, text=True, check=False)
+        subprocess.run(
+            plan["remove_command"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=command_timeout_seconds,
+        )
+        try:
+            add_completed = subprocess.run(
+                plan["add_command"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=command_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            result["status"] = "failed"
+            result["message"] = f"Client configuration timed out after {command_timeout_seconds}s."
+            result["returncode"] = None
+            failed_clients.append(client)
+            results.append(result)
+            continue
 
         result["stdout"] = (add_completed.stdout or "").strip()
         result["stderr"] = (add_completed.stderr or "").strip()
@@ -171,10 +227,22 @@ def connect_clients(target: str = "all", scope: str = "user", dry_run: bool = Fa
             results.append(result)
             continue
 
-        verify_completed = subprocess.run(plan["verify_command"], capture_output=True, text=True, check=False)
-        result["status"] = "connected"
-        result["message"] = "Client MCP configuration updated."
-        result["verify_output"] = ((verify_completed.stdout or "") + (verify_completed.stderr or "")).strip()
+        configured, verify_output, timed_out = _verify_existing_connection(
+            plan,
+            timeout_seconds=verify_timeout_seconds,
+        )
+        result["status"] = "connected" if configured else "available"
+        result["message"] = (
+            "Client MCP configuration updated."
+            if configured
+            else (
+                f"Client configuration updated, but verification timed out after {verify_timeout_seconds}s."
+                if timed_out
+                else "Client configuration updated. Verification did not confirm the MCP server yet."
+            )
+        )
+        result["verify_output"] = verify_output
+        result["verification_timed_out"] = timed_out
         results.append(result)
 
     status = "success"
