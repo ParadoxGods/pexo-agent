@@ -28,6 +28,12 @@ Pexo takes a different approach:
 
 ## How to Use (For Users)
 
+### The 1-Liner AI Installation (Easiest)
+1. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
+2. Tell the AI: **"Install Pexo from https://github.com/ParadoxGods/pexo-agent"**
+
+The AI will automatically run the global installer, set up your Python environment, and add Pexo to your system PATH. Then, simply type `pexo` in any terminal. During its first run, Pexo will ask you to set your personality preferences and configure a **local or network backup path** to ensure your evolving brain is always safe.
+
 ### Option 1: Native MCP Integration (Recommended)
 You can connect Pexo directly to **Claude Desktop** or **Cursor** so the AI natively understands its tools.
 Add this to your `claude_desktop_config.json` or Cursor MCP settings:
@@ -36,19 +42,12 @@ Add this to your `claude_desktop_config.json` or Cursor MCP settings:
   "mcpServers": {
     "pexo": {
       "command": "cmd.exe",
-      "args": ["/c", "C:\\path\\to\\pexo\\pexo.bat", "--mcp"]
+      "args": ["/c", "pexo", "--mcp"]
     }
   }
 }
 ```
-*(On Mac/Linux, set command to `bash` and args to `["/path/to/pexo", "--mcp"]`)*.
-
-### Option 2: Standalone Orchestrator
-1. Drop the Pexo directory into your project workspace.
-2. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
-3. Instruct the AI: **"Install Pexo and use it."**
-
-*(Alternatively, you can just double-click `pexo.bat` on Windows or run `./pexo` on Mac/Linux to boot it instantly. Pexo will prompt you to add itself to your system PATH, allowing you to just type `pexo` anywhere on your computer.)*
+*(On Mac/Linux, set command to `bash` and args to `["pexo", "--mcp"]`)*.
 
 **Note for Windows Users:** Pexo uses ChromaDB for its Global Vector Brain. During the `pip install` phase, if you get an error regarding `hnswlib` or missing C++ Build Tools, you will need to install the [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). 
 

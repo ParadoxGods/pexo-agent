@@ -37,6 +37,7 @@ class ProfileAnswers(BaseModel):
     name: str = "default_user"
     personality_answers: Dict[str, str] = {}
     scripting_answers: Dict[str, str] = {}
+    backup_path: str = ""
 
 @router.get("/questions")
 def get_onboarding_questions():
@@ -82,12 +83,15 @@ def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_
             profile.personality_prompt = full_personality_prompt
         if scripting_prefs:
             profile.scripting_preferences = scripting_prefs
+        if answers.backup_path:
+            profile.backup_path = answers.backup_path
     else:
         # Create new
         profile = Profile(
             name=answers.name,
             personality_prompt=full_personality_prompt,
-            scripting_preferences=scripting_prefs
+            scripting_preferences=scripting_prefs,
+            backup_path=answers.backup_path if answers.backup_path else None
         )
         db.add(profile)
     

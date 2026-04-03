@@ -96,6 +96,20 @@ def pexo_execute_tool(tool_name: str, kwargs_json_str: str) -> str:
     finally:
         db.close()
 
+@mcp.tool()
+def pexo_run_backup() -> str:
+    """
+    Backs up Pexo's global vector brain, SQLite database, and dynamic tools to the user's configured backup path.
+    """
+    db = SessionLocal()
+    try:
+        res = run_backup(db)
+        return str(res)
+    except Exception as e:
+        return f"Backup Failed: {str(e)}"
+    finally:
+        db.close()
+
 def start_mcp_server():
     """Starts the Pexo MCP server over stdio for native AI integration."""
     mcp.run(transport="stdio")

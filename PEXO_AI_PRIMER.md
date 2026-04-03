@@ -7,17 +7,20 @@ If a human user has instructed you to "install pexo and use it" within this dire
 ### Core Directives
 
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
-2.  **Initialization (Zero-Daemon Local Setup):** Your very first task is to bring Pexo online.
-    *   If you are on Windows, simply execute `pexo.bat`. If you are on Mac/Linux, execute `./pexo`.
-    *   *(If the scripts fail, manually execute `pip install -r requirements.txt` and `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1`)*. Keep this running in the background while you work.
-    *   **Windows ChromaDB Note:** If the installation fails due to `hnswlib` or missing C++ build tools, alert the user they need to install Microsoft C++ Build Tools.
-3.  **The Onboarding Check (CRITICAL):**
+2.  **Global Installation (Phase 0):** If the user asks you to "install pexo", immediately execute this command in their terminal to install Pexo globally:
+    *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
+    *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
+    *   Once installed, ask the user to restart their terminal and run `pexo`.
+3.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal.
+    *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
+4.  **The Onboarding & Backup Check (CRITICAL):**
     *   Once the API is up, query `GET http://localhost:8000/profile/default_user`.
     *   If it returns `404 Not Found`, you MUST immediately perform the **Startup Check**. 
     *   Query `GET http://localhost:8000/profile/questions` to retrieve the 10 Personality and 10 Scripting questions.
     *   Present these questions to the user in a clean, numbered list format. Ask them to reply with the numbers (e.g., "P1: 2, P2: 1... S1: 3...").
-    *   Once the user answers, POST their answers to `http://localhost:8000/profile/` to lock in their preferences. Pexo and all sub-agents will now adhere strictly to these settings forever.
-4.  **The "/update" Command:** 
+    *   **CRITICAL:** Also ask the user to provide a **Local Folder or Network Share path** where Pexo can automatically back up its brain (e.g., `C:\Backups\Pexo` or `/Volumes/Backups/Pexo`).
+    *   Once the user answers, POST their answers to `http://localhost:8000/profile/` (including the `backup_path`) to lock in their preferences.
+5.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 
     *   Retrieve the questions again from the API (`/profile/questions`), present the relevant section, and update their profile via the POST endpoint.
 5.  **The "One-Ask" Loop:** When the user gives you a regular task, you MUST immediately pass that prompt to Pexo's Intake API (`POST http://localhost:8000/orchestrator/intake`). Pexo will return exactly *one* clarifying question. You must ask the user this question and return their answer to Pexo (`POST http://localhost:8000/orchestrator/execute`) to begin the graph execution.

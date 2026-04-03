@@ -23,6 +23,7 @@ class Profile(Base):
     name = Column(String, unique=True, index=True)
     personality_prompt = Column(Text)
     scripting_preferences = Column(JSON)
+    backup_path = Column(String, nullable=True) # Automated backup directory or network share
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
