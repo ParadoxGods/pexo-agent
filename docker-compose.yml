@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: pexo
       POSTGRES_PASSWORD: pexopassword
@@ -10,11 +10,19 @@ services:
     volumes:
       - pexo_data:/var/lib/postgresql/data
 
-  # The main application would be defined here once the tech stack is finalized.
-  # app:
-  #   build: .
-  #   depends_on:
-  #     - db
+  pexo_core:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://pexo:pexopassword@db:5432/pexo
+    volumes:
+      # Mount the local system's docker socket for the Resource Manager agent to monitor host container stats
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the current directory so Pexo can read/write directly to the workspace
+      - .:/workspace
 
 volumes:
   pexo_data:
