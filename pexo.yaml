@@ -1,0 +1,22 @@
+# Pexo Configuration File
+# This file dictates constraints and rules for the Pexo orchestration environment.
+# All connected AI agents (Gemini, Claude, Codex) MUST adhere to these limits.
+
+storage:
+  # All context must be saved to the database but never exceed this limit in GB.
+  # The Context Cost Manager continuously monitors the underlying PostgreSQL volume.
+  max_db_size_gb: 50
+  
+memory:
+  # When agent context limits approach this threshold, the Context Cost Manager 
+  # will trigger a "Compaction Command" forcing the AI to summarize its memory space.
+  trigger_compaction_at_tokens: 32000
+  
+agents:
+  active:
+    - supervisor
+    - developer
+    - time_manager
+    - context_cost_manager
+    - resource_manager
+    - code_organization_manager
