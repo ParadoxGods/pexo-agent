@@ -9,7 +9,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
     *   Pexo's MCP surface is now a broad control plane, not a thin shim. Prefer structured MCP tools for profile, agent, memory, telemetry, orchestration, and Genesis operations whenever they are available in the connected client.
 2.  **Installation (Phase 0):** If the user asks you to "install pexo", prefer the packaged GitHub install path first:
-    *   **Preferred:** `uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"`
+    *   **Preferred:** `uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"`
     *   This creates the `pexo` and `pexo-mcp` commands without requiring a repo clone.
     *   Packaged installs keep mutable local state under `~/.pexo` by default (`pexo.db`, `chroma_db/`, `artifacts/`, and `dynamic_tools/`).
     *   If `uv` is unavailable or the user explicitly wants a checkout-local node, fall back to the platform install script:

@@ -37,13 +37,13 @@ The cleanest path is to install Pexo directly from GitHub instead of cloning the
 
 **Recommended with `uv`:**
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 ```
 
-Prefer a stable tag such as `v1.0.0` for end-user installs instead of `master`:
+Prefer a stable tag such as `v1.0.1` for end-user installs instead of `master`:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 ```
 
 Then initialize the local profile entirely from the terminal:
@@ -246,7 +246,7 @@ The launcher exposes the following setup and administration commands:
 For GitHub-native tool installs, the preferred commands are now:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 pexo headless-setup --preset efficient_operator
 pexo doctor
 pexo

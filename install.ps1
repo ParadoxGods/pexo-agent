@@ -112,8 +112,17 @@ function Invoke-TrackedProcess {
         $process.WaitForExit()
         $process.Refresh()
 
-        $stdoutText = ([string](Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)).Trim()
-        $stderrText = ([string](Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)).Trim()
+        $stdoutText = [string](Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)
+        if ($null -eq $stdoutText) {
+            $stdoutText = ""
+        }
+        $stdoutText = $stdoutText.Trim()
+
+        $stderrText = [string](Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)
+        if ($null -eq $stderrText) {
+            $stderrText = ""
+        }
+        $stderrText = $stderrText.Trim()
 
         if ($process.ExitCode -ne 0) {
             $errorText = if ($stderrText) { $stderrText } elseif ($stdoutText) { $stdoutText } else { "No process output was captured." }
@@ -305,7 +314,11 @@ function Get-CurrentDependencyProfile {
         return ""
     }
 
-    return ([string](Get-Content -LiteralPath $markerPath -Raw -ErrorAction SilentlyContinue)).Trim().ToLowerInvariant()
+    $profileText = [string](Get-Content -LiteralPath $markerPath -Raw -ErrorAction SilentlyContinue)
+    if ($null -eq $profileText) {
+        return ""
+    }
+    return $profileText.Trim().ToLowerInvariant()
 }
 
 function Set-CurrentDependencyProfile {
