@@ -1,3 +1,10 @@
+param(
+    [switch]$HeadlessSetup,
+    [string]$Preset = "efficient_operator",
+    [string]$ProfileName = "default_user",
+    [string]$BackupPath = ""
+)
+
 $ErrorActionPreference = "Stop"
 $PexoDir = "$env:USERPROFILE\.pexo"
 
@@ -81,11 +88,28 @@ if ($PathEntries -notcontains $PexoDir) {
     [Environment]::SetEnvironmentVariable("Path", (($PathEntries + $PexoDir) -join ";"), "User")
 }
 
+if ($HeadlessSetup) {
+    $HeadlessArgs = @("-m", "app.cli", "headless-setup", "--preset", $Preset, "--name", $ProfileName)
+    if (-not [string]::IsNullOrWhiteSpace($BackupPath)) {
+        $HeadlessArgs += @("--backup-path", $BackupPath)
+    }
+    Invoke-TrackedProcess -Percent 95 -StartMessage "Applying headless profile setup..." -HeartbeatMessage "Applying headless profile setup... still working" -FilePath ".\venv\Scripts\python.exe" -ArgumentList $HeadlessArgs -WorkingDirectory $PexoDir
+}
+
 Show-InstallProgress -Percent 100 -Status "Installation complete"
 Write-Progress -Activity "Installing Pexo" -Completed -Status "Installation complete"
 Write-Host "=================================================="
 Write-Host "Pexo installed successfully!"
-Write-Host "AI AGENT: Inform the user to restart their terminal/IDE to refresh the PATH."
-Write-Host "Then, execute 'pexo' in the terminal to boot the local server."
-Write-Host "Finally, tell the user to open http://127.0.0.1:9999 in their browser to access their private local Control Panel."
+Write-Host "AI AGENT: Restart the terminal only if the user needs the refreshed PATH in a new shell."
+if ($HeadlessSetup) {
+    Write-Host "Headless profile setup completed during install."
+    Write-Host "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
+}
+else {
+    Write-Host "Preferred same-shell setup path:"
+    Write-Host "  & `"$PexoDir\pexo.bat`" --headless-setup --preset $Preset"
+    Write-Host "After the terminal is restarted, the same command also works as:"
+    Write-Host "  pexo --headless-setup --preset $Preset"
+    Write-Host "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+}
 Write-Host "=================================================="

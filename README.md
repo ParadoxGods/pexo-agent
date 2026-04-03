@@ -30,8 +30,26 @@ Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone 
 
 The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. The installer now prints explicit percentage checkpoints and heartbeat updates during long-running stages so the user can see install progress clearly. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
 
-Upon completion, executing `pexo` in the terminal will initialize the local server and automatically launch the administrative interface in the default web browser for initial configuration.
-The onboarding flow now defaults to one-click profile presets, with granular tuning and backup configuration available only when needed.
+For AI-driven installs, the preferred path is now fully terminal-first:
+
+```bash
+pexo --list-presets
+pexo --headless-setup --preset efficient_operator
+```
+
+If the terminal has not been restarted yet and the refreshed PATH is not visible, run the installed launcher directly from the install directory instead:
+
+**Windows:**
+```powershell
+& "$env:USERPROFILE\.pexo\pexo.bat" --headless-setup --preset efficient_operator
+```
+
+**macOS/Linux:**
+```bash
+"$HOME/.pexo/pexo" --headless-setup --preset efficient_operator
+```
+
+The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, browsing agent state, editing profiles, or managing additional agents and backups.
 
 ### Uninstallation
 
@@ -92,3 +110,25 @@ To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cu
 ## Architecture Integrity
 
 Pexo ensures absolute data sovereignty. All configuration parameters, memory embeddings, and agent prompts are stored locally in the deployment directory (`pexo.db` and `chroma_db/`). No telemetry or state data is transmitted externally.
+
+## Command Surface
+
+The launcher exposes the following setup and administration commands:
+
+*   `pexo --list-presets` or `pexo list-presets`
+*   `pexo --headless-setup --preset efficient_operator`
+*   `pexo --uninstall` or `pexo uninstall`
+*   `pexo --mcp`
+*   `pexo`
+
+The installation scripts also support an AI-friendly one-shot terminal setup path:
+
+**Windows:**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1 -HeadlessSetup -Preset efficient_operator
+```
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash -s -- --headless-setup --preset efficient_operator
+```

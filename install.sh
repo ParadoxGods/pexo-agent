@@ -1,6 +1,35 @@
 #!/bin/bash
 set -euo pipefail
 PEXO_DIR="$HOME/.pexo"
+HEADLESS_SETUP=0
+PRESET="efficient_operator"
+PROFILE_NAME="default_user"
+BACKUP_PATH=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --headless-setup)
+            HEADLESS_SETUP=1
+            shift
+            ;;
+        --preset)
+            PRESET="$2"
+            shift 2
+            ;;
+        --name)
+            PROFILE_NAME="$2"
+            shift 2
+            ;;
+        --backup-path)
+            BACKUP_PATH="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown installer option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
 
 print_progress() {
     local percent="$1"
@@ -63,10 +92,26 @@ if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then
     grep -Fqx "export PATH=\"\$PATH:$PEXO_DIR\"" ~/.zshrc || echo "export PATH=\"\$PATH:$PEXO_DIR\"" >> ~/.zshrc
 fi
 
+if [ "$HEADLESS_SETUP" -eq 1 ]; then
+    HEADLESS_ARGS=(-m app.cli headless-setup --preset "$PRESET" --name "$PROFILE_NAME")
+    if [ -n "$BACKUP_PATH" ]; then
+        HEADLESS_ARGS+=(--backup-path "$BACKUP_PATH")
+    fi
+    run_tracked 95 "Applying headless profile setup..." "Applying headless profile setup... still working" "$VENV_PYTHON" "${HEADLESS_ARGS[@]}"
+fi
+
 print_progress 100 "Installation complete"
 echo "=================================================="
 echo "Pexo installed successfully!"
-echo "AI AGENT: Inform the user to restart their terminal/IDE to refresh the PATH."
-echo "Then, execute 'pexo' in the terminal to boot the local server."
-echo "Finally, tell the user to open http://127.0.0.1:9999 in their browser to access their private local Control Panel."
+echo "AI AGENT: Restart the terminal only if the user needs the refreshed PATH in a new shell."
+if [ "$HEADLESS_SETUP" -eq 1 ]; then
+    echo "Headless profile setup completed during install."
+    echo "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
+else
+    echo "Preferred same-shell setup path:"
+    echo "  \"$PEXO_DIR/pexo\" --headless-setup --preset $PRESET"
+    echo "After the terminal is restarted, the same command also works as:"
+    echo "  pexo --headless-setup --preset $PRESET"
+    echo "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+fi
 echo "=================================================="
