@@ -166,7 +166,6 @@
     </div>
 
     <script>
-        let masterPassword = "";
         let questionsData = null;
 
         async function checkStatus() {
@@ -176,28 +175,12 @@
                     document.getElementById('wizard').classList.add('active');
                     loadQuestions();
                 } else {
-                    document.getElementById('auth-screen').classList.add('active');
+                    document.getElementById('dashboard').classList.add('active');
+                    fetchProfile();
+                    fetchAgents();
+                    fetchTools();
                 }
             } catch(e) { console.error(e); }
-        }
-
-        async function authenticate() {
-            const pwd = document.getElementById('auth-password').value;
-            const res = await fetch('/profile/auth', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({password: pwd})
-            });
-            if(res.ok) {
-                masterPassword = pwd;
-                document.getElementById('auth-screen').classList.remove('active');
-                document.getElementById('dashboard').classList.add('active');
-                fetchProfile();
-                fetchAgents();
-                fetchTools();
-            } else {
-                document.getElementById('auth-error').innerText = "> ACCESS DENIED.";
-            }
         }
 
         async function loadQuestions() {
@@ -231,13 +214,10 @@
         }
 
         async function submitWizard() {
-            const pwd = document.getElementById('wiz-password').value;
-            if(!pwd) return alert("MASTER PASSWORD REQUIRED.");
             const backup = document.getElementById('wiz-backup').value;
             
             const payload = {
                 name: "default_user",
-                master_password: pwd,
                 backup_path: backup,
                 personality_answers: {},
                 scripting_answers: {}
@@ -252,8 +232,7 @@
                 body: JSON.stringify(payload)
             });
 
-            masterPassword = pwd;
-            nextStep(4); // Show green checkmark
+            nextStep(3); // Show green checkmark
         }
 
         function loadDashboard() {
