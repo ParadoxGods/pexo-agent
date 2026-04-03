@@ -32,6 +32,20 @@ The AI will execute the global installation script, establish the isolated Pytho
 
 Upon completion, executing `pexo` in the terminal will initialize the local server and automatically launch the administrative interface in the default web browser for initial configuration.
 
+### Uninstallation
+
+To completely remove Pexo and all associated local data from your system, execute the following command:
+
+**Windows:**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1
+```
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.sh | bash
+```
+
 ### Native MCP Configuration (Recommended)
 
 To expose Pexo's capabilities directly to an MCP-compliant application (e.g., Cursor, Claude Desktop), append the following configuration to the application's MCP settings:

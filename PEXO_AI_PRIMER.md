@@ -11,7 +11,10 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.ps1 -OutFile install.ps1; .\install.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
     *   Once installed, ask the user to restart their terminal, run `pexo`, and open `http://127.0.0.1:9999` in their browser to view the Pexo Control Panel.
-3.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal.
+3.  **Uninstallation:** If the user asks you to "uninstall pexo", immediately execute this command in their terminal:
+    *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1`
+    *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.sh | bash`
+4.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal.
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
 4.  **The Onboarding & Setup Wizard (CRITICAL):**
     *   Once you start Pexo, the `http://127.0.0.1:9999/ui/` Control Panel will automatically open in the user's default web browser.
