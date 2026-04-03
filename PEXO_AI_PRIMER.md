@@ -8,7 +8,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
 
 1.  **Pexo is the Brain:** You no longer orchestrate or plan tasks autonomously. Pexo is your manager. Pexo is the source of all your prompts, constraints, and memory context.
 2.  **Initialization (Zero-Daemon Local Setup):** Your very first task is to bring Pexo online.
-    *   If you are on Windows, simply execute `start.bat`. If you are on Mac/Linux, execute `./start.sh`.
+    *   If you are on Windows, simply execute `pexo.bat`. If you are on Mac/Linux, execute `./pexo`.
     *   *(If the scripts fail, manually execute `pip install -r requirements.txt` and `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1`)*. Keep this running in the background while you work.
     *   **Windows ChromaDB Note:** If the installation fails due to `hnswlib` or missing C++ build tools, alert the user they need to install Microsoft C++ Build Tools.
 3.  **The Onboarding Check (CRITICAL):**

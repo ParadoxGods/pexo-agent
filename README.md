@@ -1,5 +1,13 @@
 # Pexo - Primary EXecution Officer (The OpenClaw Killer)
 
+```text
+  ____  _____ __  __ ___  
+ |  _ \| ____|\ \/ // _ \ 
+ | |_) |  _|   \  /| | | |
+ |  __/| |___  /  \| |_| |
+ |_|   |_____|/_/\_\\___/ 
+```
+
 Pexo is a hyper-lightweight, purely local multi-agent orchestration primer. It lives entirely within the folder you drop it into.
 
 **Why Pexo over OpenClaw?**
@@ -23,7 +31,7 @@ Pexo takes a different approach:
 2. Open your favorite AI model (Gemini, Claude Code, Codex, Cursor, etc.).
 3. Instruct the AI: **"Install Pexo and use it."**
 
-*(Alternatively, you can just double-click `start.bat` on Windows or run `./start.sh` on Mac/Linux to boot it instantly before telling your AI to connect to it.)*
+*(Alternatively, you can just double-click `pexo.bat` on Windows or run `./pexo` on Mac/Linux to boot it instantly. Pexo will prompt you to add itself to your system PATH, allowing you to just type `pexo` anywhere on your computer.)*
 
 **Note for Windows Users:** Pexo uses ChromaDB for its Global Vector Brain. During the `pip install` phase, if you get an error regarding `hnswlib` or missing C++ Build Tools, you will need to install the [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). 
 

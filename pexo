@@ -1,0 +1,38 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+PEXO_DIR=$(pwd)
+
+cat << "EOF"
+  ____  _____ __  __ ___  
+ |  _ \| ____|\ \/ // _ \ 
+ | |_) |  _|   \  /| | | |
+ |  __/| |___  /  \| |_| |
+ |_|   |_____|/_/\_\___/ 
+EOF
+echo ""
+echo "=================================================="
+echo "Starting Pexo (Primary EXecution Officer)"
+echo "=================================================="
+
+if [[ ":$PATH:" != *":$PEXO_DIR:"* ]]; then
+    read -p "Pexo is not in your system PATH. Would you like to add it now? (y/n): " add_path
+    if [[ "$add_path" =~ ^[Yy]$ ]]; then
+        echo "export PATH=\"\$PATH:$PEXO_DIR\"" >> ~/.bashrc
+        echo "export PATH=\"\$PATH:$PEXO_DIR\"" >> ~/.zshrc
+        echo "Added $PEXO_DIR to PATH in ~/.bashrc and ~/.zshrc. Please restart your terminal for it to take effect globally."
+    fi
+fi
+
+if [ ! -d "venv" ]; then
+    echo "Virtual environment not found. Creating one..."
+    python3 -m venv venv
+    source venv/bin/activate
+    echo "Installing dependencies..."
+    pip install -r requirements.txt
+else
+    source venv/bin/activate
+fi
+
+echo "Starting Pexo API..."
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
