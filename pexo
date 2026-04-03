@@ -181,7 +181,7 @@ promote_runtime() {
 }
 
 if [ "${1:-}" = "--version" ]; then
-    echo "Pexo v1.0.0-stable"
+    echo "Pexo v1.0.0"
     exit 0
 fi
 
@@ -198,6 +198,8 @@ if [ "${1:-}" = "--help" ]; then
     echo "                 Installs or upgrades the local runtime dependency profile"
     echo "  pexo --update | pexo update"
     echo "                 Pulls the latest repository changes immediately"
+    echo "  pexo --doctor | pexo doctor [--json]"
+    echo "                 Prints local installation and runtime diagnostics"
     echo "  pexo --no-browser"
     echo "                 Starts the API without opening the dashboard automatically"
     echo "  pexo --offline | pexo --skip-update"
@@ -213,6 +215,13 @@ fi
 if [ "${1:-}" = "--mcp" ]; then
     ensure_runtime_profile mcp
     "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
+    exit $?
+fi
+
+if [ "${1:-}" = "--doctor" ] || [ "${1:-}" = "doctor" ]; then
+    shift
+    ensure_runtime_profile core
+    "$(venv_python)" -m app.launcher doctor "$@"
     exit $?
 fi
 

@@ -26,6 +26,8 @@ if "%~1"=="--skip-update" (
 if "%~1"=="--version" goto version
 if "%~1"=="--help" goto help
 if "%~1"=="--mcp" goto mcp
+if "%~1"=="--doctor" goto doctor
+if /I "%~1"=="doctor" goto doctor
 if "%~1"=="--update" goto update
 if /I "%~1"=="update" goto update
 if "%~1"=="--promote" goto promote
@@ -142,8 +144,15 @@ if errorlevel 1 exit /b %ERRORLEVEL%
 venv\Scripts\python.exe -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
 exit /b %ERRORLEVEL%
 
+:doctor
+shift
+call :ensure_runtime_profile core
+if errorlevel 1 exit /b %ERRORLEVEL%
+venv\Scripts\python.exe -m app.launcher doctor %1 %2 %3 %4 %5 %6 %7 %8 %9
+exit /b %ERRORLEVEL%
+
 :version
-echo Pexo v1.0.0-stable
+echo Pexo v1.0.0
 exit /b 0
 
 :help
@@ -159,6 +168,8 @@ echo   pexo --promote ^| pexo promote [core^|mcp^|full^|vector]
 echo                  Installs or upgrades the local runtime dependency profile
 echo   pexo --update ^| pexo update
 echo                  Pulls the latest repository changes immediately
+echo   pexo --doctor ^| pexo doctor [--json]
+echo                  Prints local installation and runtime diagnostics
 echo   pexo --no-browser
 echo                  Starts the API without opening the dashboard automatically
 echo   pexo --offline ^| pexo --skip-update

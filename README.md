@@ -37,10 +37,10 @@ The cleanest path is to install Pexo directly from GitHub instead of cloning the
 
 **Recommended with `uv`:**
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
 ```
 
-If you are installing from a tagged release, use the tag instead of `master`:
+Prefer a stable tag such as `v1.0.0` for end-user installs instead of `master`:
 
 ```bash
 uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
@@ -51,6 +51,7 @@ Then initialize the local profile entirely from the terminal:
 ```bash
 pexo list-presets
 pexo headless-setup --preset efficient_operator
+pexo doctor
 ```
 
 Use the dashboard later only when needed:
@@ -111,6 +112,8 @@ The installers also support custom or repo-local targets, so an existing checkou
 ```
 
 The web interface is no longer required for first-run setup. Use `pexo` later when you want the localhost dashboard for inspecting memory, editing agents, correcting stored memories, adjusting profile settings, reviewing execution telemetry, or managing additional backups.
+
+Use `pexo doctor` any time you want to confirm the current install mode, state directory, runtime profile, MCP command, and upgrade or uninstall path.
 
 ### Uninstallation
 
@@ -232,6 +235,7 @@ The launcher exposes the following setup and administration commands:
 *   `pexo --promote full`
 *   `pexo --promote vector`
 *   `pexo --update` or `pexo update`
+*   `pexo --doctor` or `pexo doctor`
 *   `pexo --no-browser`
 *   `pexo --offline` or `pexo --skip-update`
 *   `pexo --uninstall` or `pexo uninstall`
@@ -242,8 +246,9 @@ The launcher exposes the following setup and administration commands:
 For GitHub-native tool installs, the preferred commands are now:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"
 pexo headless-setup --preset efficient_operator
+pexo doctor
 pexo
 ```
 

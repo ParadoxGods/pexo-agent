@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
 import app.routers.memory as memory_router
+import app.runtime as runtime_module
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
 from app.main import app
@@ -83,6 +84,7 @@ from app.routers.memory import (
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, derive_profile_answers, upsert_profile
 from app.routers.tools import ToolExecutionRequest, ToolRegistrationRequest, execute_tool, register_tool, resolve_tool_path
 from app.runtime import build_runtime_status
+from app.launcher import build_doctor_report
 
 
 class FakeCollection:
@@ -268,6 +270,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--headless-setup", shell_launcher)
         self.assertIn("--promote", shell_launcher)
         self.assertIn("--update", shell_launcher)
+        self.assertIn("--doctor", shell_launcher)
         self.assertIn("--no-browser", shell_launcher)
         self.assertIn("--offline", shell_launcher)
         self.assertIn("--skip-update", shell_launcher)
@@ -280,6 +283,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("--headless-setup", batch_launcher)
         self.assertIn("--promote", batch_launcher)
         self.assertIn("--update", batch_launcher)
+        self.assertIn("--doctor", batch_launcher)
         self.assertIn("--no-browser", batch_launcher)
         self.assertIn("--offline", batch_launcher)
         self.assertIn("--skip-update", batch_launcher)
@@ -334,9 +338,21 @@ class HardeningTests(unittest.TestCase):
 
     def test_readme_documents_packaged_install_and_pexo_mcp(self):
         readme = Path("README.md").read_text(encoding="utf-8")
-        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@master"', readme)
+        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.0"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
+        self.assertIn("pexo doctor", readme)
+
+    def test_doctor_report_surfaces_guidance_and_install_health(self):
+        report = build_doctor_report()
+
+        self.assertIn(report["install_mode"], {"checkout", "packaged"})
+        self.assertIn("update", report["guidance"])
+        self.assertIn("uninstall", report["guidance"])
+        self.assertIn("mcp", report["guidance"])
+        self.assertIn("vector", report["guidance"])
+        self.assertIn("python", report["commands"])
+        self.assertIsInstance(report["issues"], list)
 
     def test_paths_use_repo_checkout_locally_and_home_for_packaged_mode(self):
         self.assertTrue(looks_like_repo_checkout(CODE_ROOT))
@@ -359,6 +375,13 @@ class HardeningTests(unittest.TestCase):
         content = Path(".gitattributes").read_text(encoding="utf-8")
         self.assertIn("*.sh text eol=lf", content)
         self.assertIn("pexo text eol=lf", content)
+
+    def test_gitignore_covers_repo_local_runtime_state(self):
+        content = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".pexo-deps-profile", content)
+        self.assertIn(".pexo-update-check", content)
+        self.assertIn("artifacts/", content)
+        self.assertIn("dynamic_tools/", content)
 
     def test_install_runtime_ci_workflow_covers_windows_and_linux(self):
         workflow = Path(".github/workflows/install-runtime-ci.yml").read_text(encoding="utf-8")
@@ -669,6 +692,10 @@ class HardeningTests(unittest.TestCase):
             memory_router.Settings = original_settings
             memory_router._memory_collection = original_collection
             db.close()
+
+    def test_runtime_module_availability_handles_missing_optional_parents(self):
+        with patch("app.runtime.find_spec", side_effect=ModuleNotFoundError("mcp")):
+            self.assertFalse(runtime_module._module_available("mcp.server.fastmcp"))
 
     @patch("app.routers.runtime.promote_runtime")
     def test_mcp_runtime_tools_expose_status_and_promotion(self, mock_promote_runtime):
