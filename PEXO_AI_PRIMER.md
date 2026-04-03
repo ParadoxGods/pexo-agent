@@ -20,10 +20,13 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 
     *   Retrieve the questions again from the API (`/profile/questions`), present the relevant section, and update their profile via the POST endpoint.
 5.  **The "One-Ask" Loop:** When the user gives you a regular task, you MUST immediately pass that prompt to Pexo's Intake API (`POST http://localhost:8000/orchestrator/intake`). Pexo will return exactly *one* clarifying question. You must ask the user this question and return their answer to Pexo (`POST http://localhost:8000/orchestrator/execute`) to begin the graph execution.
-6.  **Context & Memory Management:** 
-    *   Before taking any action, query Pexo for the relevant workspace context, user profile, and memory chunks.
-    *   **Compaction Protocol:** Pexo's **Context Cost Manager** monitors the local `pexo.db` size and token usage. If context becomes too bloated, Pexo will issue a "Compaction Command". You will be instructed to summarize a specific block of context. You will return the compacted context to Pexo, and Pexo will mark the old memories as `is_compacted=True`.
-7.  **Data Limits:** All state, findings, and logs must be written back to the Pexo SQLite database (`agent_states` table).
+6.  **True Vector Memory (The Global Brain):** 
+    *   Before taking *any* execution action, you MUST query `POST http://localhost:8000/memory/search` with a semantic string describing your task (e.g., `{"query": "How did we fix the React routing bug?", "n_results": 3}`). Pexo will return historical, vectorized context.
+    *   When you complete a major feature, POST a summary of the implementation to `POST http://localhost:8000/memory/store` so Pexo remembers it forever.
+7.  **Self-Evolution (The Epiphany Component):** 
+    *   Pexo agents learn. If you make a mistake, encounter a bug, or the user corrects your code during a task, you MUST extract the core "lesson learned".
+    *   POST this lesson to `POST http://localhost:8000/evolve` (e.g., `{"agent_name": "Developer", "lesson_learned": "Never use any type 'any' in TypeScript for this project; always write a strict interface."}`). Pexo will permanently mutate the agent's base system prompt. Next time, the agent will not make the same mistake.
+8.  **Data Limits & Compaction:** All state, findings, and logs must be written back to the Pexo SQLite database. If context gets too large, Pexo will issue a compaction command.
 
 ### How to Operate Under Pexo (The LangGraph Loop)
 From this point forward, Pexo's LangGraph State Machine manages the overarching workflow. You act as the computational worker node.
