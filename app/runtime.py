@@ -5,28 +5,12 @@ import subprocess
 import sys
 import time
 from importlib.util import find_spec
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from .dependency_profiles import PROFILE_DEPENDENCIES, PROFILE_ORDER
 from .models import SystemSetting
-from .paths import PROJECT_ROOT, RUNTIME_MARKER_PATH
-
-PROFILE_ORDER = {
-    "core": 1,
-    "mcp": 2,
-    "full": 3,
-    "vector": 4,
-}
-
-PROFILE_REQUIREMENTS = {
-    "core": PROJECT_ROOT / "requirements-core.txt",
-    "mcp": PROJECT_ROOT / "requirements-mcp.txt",
-    "full": PROJECT_ROOT / "requirements-full.txt",
-    "vector": PROJECT_ROOT / "requirements-vector.txt",
-}
-
-CONSTRAINTS_FILE = PROJECT_ROOT / "constraints.txt"
+from .paths import CODE_ROOT, PROJECT_ROOT, RUNTIME_MARKER_PATH, running_from_repo_checkout
 VECTOR_PROMOTION_NOTICE_KEY = "runtime.vector_promotion_notice_issued"
 
 
@@ -34,9 +18,9 @@ def get_profile_rank(profile: str | None) -> int:
     return PROFILE_ORDER.get((profile or "").lower(), 0)
 
 
-def runtime_requirements_path(profile: str) -> Path:
+def runtime_dependencies(profile: str) -> list[str]:
     try:
-        return PROFILE_REQUIREMENTS[profile]
+        return PROFILE_DEPENDENCIES[profile]
     except KeyError as exc:  # pragma: no cover - input validated by callers
         raise ValueError(f"Unsupported runtime profile '{profile}'.") from exc
 
@@ -50,6 +34,7 @@ def get_runtime_marker_profile() -> str:
 def set_runtime_marker_profile(profile: str) -> None:
     current = get_runtime_marker_profile()
     effective = profile if get_profile_rank(profile) >= get_profile_rank(current) else current
+    RUNTIME_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
     RUNTIME_MARKER_PATH.write_text(effective, encoding="utf-8")
 
 
@@ -136,6 +121,8 @@ def build_runtime_status(db: Session | None = None) -> dict:
         "installed_profiles": installed_profiles,
         "vector_embeddings_available": installed_profiles["vector"],
         "project_root": str(PROJECT_ROOT),
+        "code_root": str(CODE_ROOT),
+        "install_mode": "checkout" if running_from_repo_checkout() else "packaged",
         "recommended_promotions": [
             profile
             for profile in ("mcp", "full", "vector")
@@ -148,12 +135,10 @@ def build_runtime_status(db: Session | None = None) -> dict:
 
 def promote_runtime(profile: str) -> dict:
     normalized_profile = profile.lower()
-    if normalized_profile not in PROFILE_REQUIREMENTS:
+    if normalized_profile not in PROFILE_DEPENDENCIES:
         raise ValueError(f"Unsupported runtime profile '{profile}'.")
 
-    requirement_path = runtime_requirements_path(normalized_profile)
-    if not requirement_path.exists():
-        raise ValueError(f"Missing requirements file for runtime profile '{normalized_profile}'.")
+    dependency_specs = runtime_dependencies(normalized_profile)
 
     command: list[str]
     if shutil.which("uv"):
@@ -163,10 +148,7 @@ def promote_runtime(profile: str) -> dict:
             "install",
             "--python",
             sys.executable,
-            "-r",
-            str(requirement_path),
-            "-c",
-            str(CONSTRAINTS_FILE),
+            *dependency_specs,
         ]
     else:
         command = [
@@ -175,16 +157,17 @@ def promote_runtime(profile: str) -> dict:
             "pip",
             "install",
             "--disable-pip-version-check",
-            "-r",
-            str(requirement_path),
-            "-c",
-            str(CONSTRAINTS_FILE),
+            *dependency_specs,
         ]
 
+    if running_from_repo_checkout():
+        constraints_file = CODE_ROOT / "constraints.txt"
+        if constraints_file.exists():
+            command.extend(["-c", str(constraints_file)])
     started_at = time.monotonic()
     completed = subprocess.run(
         command,
-        cwd=str(PROJECT_ROOT),
+        cwd=str(CODE_ROOT),
         capture_output=True,
         text=True,
         check=False,
