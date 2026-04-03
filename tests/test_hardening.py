@@ -469,8 +469,12 @@ class HardeningTests(unittest.TestCase):
 
         plan = build_client_connection_plan("codex", scope="user")
 
-        self.assertEqual(plan["target"]["command"], "cmd.exe")
-        self.assertIn("pexo.bat", plan["manual_command"])
+        if os.name == "nt":
+            self.assertEqual(plan["target"]["command"], "cmd.exe")
+            self.assertIn("pexo.bat", plan["manual_command"])
+        else:
+            self.assertEqual(plan["target"]["command"], "bash")
+            self.assertIn("pexo --mcp", plan["manual_command"])
         self.assertIn("--mcp", plan["manual_command"])
 
     @patch("app.client_connect.subprocess.run")
