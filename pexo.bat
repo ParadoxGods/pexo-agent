@@ -33,6 +33,11 @@ IF NOT EXIST "venv" (
     call venv\Scripts\activate.bat
 )
 
-echo Starting Pexo API...
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
-pause
+if "%~1"=="--mcp" (
+    :: Run the FastMCP server over stdio (Silent stdout, only MCP protocol output allowed)
+    python -c "from app.database import init_db; init_db(); from app.mcp_server import start_mcp_server; start_mcp_server()"
+) else (
+    echo Starting Pexo API...
+    python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+    pause
+)
