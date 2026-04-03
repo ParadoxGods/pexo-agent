@@ -13,6 +13,38 @@ from sqlalchemy import inspect
 
 from app.cli import headless_setup, list_presets
 from app.database import SessionLocal, engine, init_db
+from app.mcp_server import (
+    pexo_create_agent,
+    pexo_delete_agent,
+    pexo_delete_memory,
+    pexo_delete_tool,
+    pexo_execute_plan,
+    pexo_execute_tool,
+    pexo_get_admin_snapshot,
+    pexo_get_memory,
+    pexo_get_next_task,
+    pexo_get_profile,
+    pexo_get_profile_questions,
+    pexo_get_session_activity,
+    pexo_get_telemetry,
+    pexo_get_tool,
+    pexo_intake_prompt,
+    pexo_list_agents,
+    pexo_list_profile_presets,
+    pexo_list_recent_memories,
+    pexo_list_sessions,
+    pexo_list_tools,
+    pexo_quick_setup_profile,
+    pexo_read_profile,
+    pexo_register_tool,
+    pexo_run_memory_maintenance,
+    pexo_store_memory,
+    pexo_submit_task_result,
+    pexo_update_agent,
+    pexo_update_memory,
+    pexo_update_profile,
+    pexo_update_tool,
+)
 from app.models import AgentProfile, AgentState, Memory, Profile
 from app.paths import CHROMA_DB_DIR, PEXO_DB_PATH
 from app.routers.admin import build_telemetry_payload
@@ -405,6 +437,146 @@ class HardeningTests(unittest.TestCase):
             self.assertTrue(any(activity["agent_name"] == "Developer" for activity in telemetry["recent_activity"]))
         finally:
             db.close()
+
+    def test_mcp_profile_and_agent_tools_expose_structured_control_plane(self):
+        init_db()
+
+        questions = pexo_get_profile_questions()
+        self.assertIn("personality", questions)
+        self.assertIn("scripting", questions)
+
+        presets = pexo_list_profile_presets()
+        self.assertTrue(any(preset["id"] == "efficient_operator" for preset in presets))
+
+        setup = pexo_quick_setup_profile("efficient_operator")
+        self.assertEqual(setup["status"], "success")
+        self.assertEqual(setup["profile"]["name"], "default_user")
+
+        updated_profile = pexo_update_profile(personality_answers={"p1": "2"})
+        self.assertEqual(updated_profile["profile_answers"]["personality_answers"]["p1"], "2")
+
+        profile = pexo_get_profile()
+        self.assertEqual(profile["profile"]["name"], "default_user")
+        self.assertEqual(profile["profile_answers"]["personality_answers"]["p1"], "2")
+
+        profile_bundle = pexo_read_profile()
+        self.assertIn("profile", profile_bundle)
+        self.assertIn("agents", profile_bundle)
+
+        created_agent = pexo_create_agent(
+            name="Reviewer",
+            role="Code Reviewer",
+            system_prompt="Review all code for correctness.",
+            capabilities=["review", "analyze"],
+        )
+        self.assertEqual(created_agent["name"], "Reviewer")
+
+        updated_agent = pexo_update_agent(
+            agent_name="Reviewer",
+            system_prompt="Review all code for correctness and regressions.",
+            capabilities=["review"],
+        )
+        self.assertEqual(updated_agent["status"], "success")
+        self.assertEqual(updated_agent["agent"]["capabilities"], ["review"])
+
+        agents = pexo_list_agents()
+        self.assertTrue(any(agent["name"] == "Reviewer" for agent in agents))
+
+        deleted_agent = pexo_delete_agent(agent_name="Reviewer")
+        self.assertEqual(deleted_agent["status"], "success")
+
+    @patch("app.routers.memory.get_memory_collection")
+    def test_mcp_memory_admin_and_session_tools(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+
+        stored = pexo_store_memory(
+            content="Implemented a deterministic smoke path.",
+            task_context="task-mcp",
+            session_id="session-mcp",
+        )
+        memory_id = stored["memory_id"]
+        self.assertIn("maintenance", stored)
+
+        recent = pexo_list_recent_memories(limit=5, include_archived=True)
+        self.assertTrue(any(memory["id"] == memory_id for memory in recent["memories"]))
+
+        memory = pexo_get_memory(memory_id)
+        self.assertEqual(memory["task_context"], "task-mcp")
+
+        updated = pexo_update_memory(memory_id, content="Updated deterministic smoke path.", is_pinned=True)
+        self.assertEqual(updated["status"], "success")
+        self.assertTrue(updated["memory"]["is_pinned"])
+
+        maintenance = pexo_run_memory_maintenance("task-mcp")
+        self.assertEqual(maintenance["status"], "success")
+
+        intake = pexo_intake_prompt("Create a test plan for local execution.")
+        self.assertIn("clarification_question", intake)
+
+        execution = pexo_execute_plan(intake["session_id"], "Prefer a flat workspace layout.")
+        self.assertEqual(execution["session_id"], intake["session_id"])
+
+        next_step = pexo_get_next_task(intake["session_id"])
+        self.assertEqual(next_step["status"], "pending_action")
+        self.assertEqual(next_step["role"], "Supervisor")
+
+        submit = pexo_submit_task_result(
+            intake["session_id"],
+            [{"id": "task-1", "description": "Write the plan", "assigned_agent": "Developer"}],
+        )
+        self.assertEqual(submit["status"], "Result accepted. Graph advanced.")
+
+        sessions = pexo_list_sessions()
+        self.assertTrue(any(session["session_id"] == intake["session_id"] for session in sessions))
+
+        activity = pexo_get_session_activity(intake["session_id"])
+        self.assertTrue(any(item["agent_name"] == "orchestrator" for item in activity))
+
+        telemetry = pexo_get_telemetry()
+        self.assertGreaterEqual(telemetry["summary"]["session_count"], 1)
+
+        snapshot = pexo_get_admin_snapshot(memory_limit=5)
+        self.assertIn("telemetry", snapshot)
+        self.assertIn("recent_memories", snapshot)
+
+        deleted = pexo_delete_memory(memory_id)
+        self.assertEqual(deleted["status"], "success")
+
+    def test_mcp_genesis_tool_lifecycle(self):
+        init_db()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_tools_dir = Path(tmpdir)
+            with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", temp_tools_dir):
+                created = pexo_register_tool(
+                    name="echo_tool",
+                    description="Echoes keyword arguments.",
+                    python_code="def run(**kwargs):\n    return {'echo': kwargs.get('message', ''), 'count': kwargs.get('count', 0)}\n",
+                )
+                self.assertEqual(created["status"], "Success. Genesis Engine has assimilated the new tool.")
+
+                tool = pexo_get_tool("echo_tool")
+                self.assertEqual(tool["name"], "echo_tool")
+                self.assertIn("def run", tool["python_code"])
+
+                tools = pexo_list_tools()
+                self.assertTrue(any(entry["name"] == "echo_tool" for entry in tools))
+
+                updated = pexo_update_tool(
+                    "echo_tool",
+                    description="Echoes keyword arguments in uppercase.",
+                    python_code="def run(**kwargs):\n    return {'echo': str(kwargs.get('message', '')).upper()}\n",
+                )
+                self.assertEqual(updated["status"], "success")
+                self.assertIn("uppercase", updated["tool"]["description"])
+
+                executed = pexo_execute_tool("echo_tool", {"message": "hello"})
+                self.assertEqual(executed["status"], "success")
+                self.assertEqual(executed["result"]["echo"], "HELLO")
+
+                deleted = pexo_delete_tool("echo_tool")
+                self.assertEqual(deleted["status"], "success")
+                self.assertFalse((temp_tools_dir / "echo_tool.py").exists())
 
 
 if __name__ == "__main__":

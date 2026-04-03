@@ -18,6 +18,12 @@ class ToolRegistrationRequest(BaseModel):
     description: str
     python_code: str
 
+
+class ToolUpdateRequest(BaseModel):
+    description: str | None = None
+    python_code: str | None = None
+
+
 class ToolExecutionRequest(BaseModel):
     kwargs: dict = Field(default_factory=dict)
 
@@ -31,9 +37,22 @@ def validate_tool_name(tool_name: str) -> str:
     return tool_name
 
 
-def resolve_tool_path(tool_name: str, base_dir: Path = DYNAMIC_TOOLS_DIR) -> Path:
+def resolve_tool_path(tool_name: str, base_dir: Path | None = None) -> Path:
     safe_tool_name = validate_tool_name(tool_name)
+    base_dir = base_dir or DYNAMIC_TOOLS_DIR
     return base_dir / f"{safe_tool_name}.py"
+
+
+def serialize_tool(tool: DynamicTool, include_code: bool = False) -> dict:
+    payload = {
+        "id": tool.id,
+        "name": tool.name,
+        "description": tool.description,
+        "created_at": tool.created_at.isoformat() if getattr(tool, "created_at", None) else None,
+    }
+    if include_code:
+        payload["python_code"] = tool.python_code
+    return payload
 
 @router.post("/execute/{tool_name}")
 def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = Depends(get_db)):
@@ -122,5 +141,62 @@ def register_tool(request: ToolRegistrationRequest, db: Session = Depends(get_db
 @router.get("/")
 def list_tools(db: Session = Depends(get_db)):
     """Returns a list of all dynamically generated tools."""
-    tools = db.query(DynamicTool).all()
-    return [{"name": t.name, "description": t.description} for t in tools]
+    tools = db.query(DynamicTool).order_by(DynamicTool.name.asc()).all()
+    return [serialize_tool(tool) for tool in tools]
+
+
+@router.get("/{tool_name}")
+def get_tool(tool_name: str, db: Session = Depends(get_db)):
+    safe_tool_name = validate_tool_name(tool_name)
+    tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
+    return serialize_tool(tool, include_code=True)
+
+
+@router.put("/{tool_name}")
+def update_tool(tool_name: str, request: ToolUpdateRequest, db: Session = Depends(get_db)):
+    safe_tool_name = validate_tool_name(tool_name)
+    tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
+
+    tool_path = resolve_tool_path(safe_tool_name)
+    if not tool_path.exists():
+        raise HTTPException(status_code=500, detail=f"Tool file missing from disk: {tool_path}")
+
+    if request.description is not None:
+        tool.description = request.description
+
+    if request.python_code is not None:
+        try:
+            with tool_path.open("w", encoding="utf-8") as f:
+                f.write(request.python_code)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update tool on disk: {str(e)}")
+        tool.python_code = request.python_code
+
+    db.commit()
+    db.refresh(tool)
+    return {
+        "status": "success",
+        "message": f"Tool '{safe_tool_name}' updated successfully.",
+        "tool": serialize_tool(tool, include_code=True),
+    }
+
+
+@router.delete("/{tool_name}")
+def delete_tool(tool_name: str, db: Session = Depends(get_db)):
+    safe_tool_name = validate_tool_name(tool_name)
+    tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
+
+    tool_path = resolve_tool_path(safe_tool_name)
+    db.delete(tool)
+    db.commit()
+    tool_path.unlink(missing_ok=True)
+    return {
+        "status": "success",
+        "message": f"Tool '{safe_tool_name}' deleted successfully.",
+    }
