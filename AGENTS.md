@@ -4,42 +4,46 @@ This repository is designed to be installed and operated by AI agents.
 
 ## Default behavior
 
-1. Prefer the standalone bootstrap path first.
+1. Prefer the latest GitHub Release install bundle first.
 2. Do not touch the current repo unless the user explicitly asks for a repo-local node.
 3. Complete first-run setup in the terminal.
 4. Run `pexo doctor` after setup.
 5. Do not open the browser UI unless the user asks for it.
+6. Do not execute raw remote scripts unless the user explicitly asks for the legacy bootstrap path.
 
 ## Canonical Install
 
-Use the standalone bootstrap path first. It prefers packaged install automatically, falls back safely, completes headless setup, connects supported clients, runs `pexo doctor`, and emits `PEXO_INSTALL_SUMMARY_JSON=...`.
+Use the latest GitHub Release install bundle first. It is the default install path because it uses immutable release assets instead of executing raw remote scripts, completes headless setup, connects supported clients, runs `pexo doctor`, and emits `PEXO_INSTALL_SUMMARY_JSON=...`.
 
 Windows:
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.3/bootstrap.ps1 -OutFile bootstrap.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-windows.zip" --clobber
+Expand-Archive .\pexo-install-windows.zip -DestinationPath . -Force
+.\pexo-install\install.cmd
 ```
 
 macOS/Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.3/bootstrap.sh | bash
+gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-unix.tar.gz" --clobber
+tar -xzf pexo-install-unix.tar.gz
+./pexo-install/install.sh
 ```
 
 ## Direct Packaged Install
 
-Use this only if the bootstrap path is unavailable.
+Use this only if the release bundle path is unavailable.
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.3"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"
 pexo headless-setup --preset efficient_operator
 pexo connect all --scope user
 pexo doctor
 ```
 
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.3"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"
 pexo headless-setup --preset efficient_operator
 pexo connect all --scope user
 pexo doctor

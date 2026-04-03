@@ -15,6 +15,7 @@ from .paths import (
     CHROMA_DB_DIR,
     CODE_ROOT,
     DYNAMIC_TOOLS_DIR,
+    INSTALL_METADATA_PATH,
     PEXO_DB_PATH,
     PROJECT_ROOT,
     RUNTIME_MARKER_PATH,
@@ -27,11 +28,25 @@ from .version import __version__
 UPDATE_INTERVAL_SECONDS = 12 * 60 * 60
 
 
+def _read_install_metadata() -> dict | None:
+    if not INSTALL_METADATA_PATH.exists():
+        return None
+    try:
+        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _coerce_repo_source() -> str:
     return "ParadoxGods/pexo-agent"
 
 
 def _package_update_guidance() -> str:
+    metadata = _read_install_metadata()
+    if metadata:
+        guidance = metadata.get("guidance", {}).get("update")
+        if guidance:
+            return str(guidance)
     if shutil_which("uv"):
         return "uv tool upgrade pexo-agent"
     if shutil_which("pipx"):
@@ -40,6 +55,11 @@ def _package_update_guidance() -> str:
 
 
 def _package_uninstall_guidance() -> str:
+    metadata = _read_install_metadata()
+    if metadata:
+        guidance = metadata.get("guidance", {}).get("uninstall")
+        if guidance:
+            return str(guidance)
     if shutil_which("uv"):
         return "uv tool uninstall pexo-agent"
     if shutil_which("pipx"):
@@ -341,6 +361,7 @@ def build_doctor_report() -> dict:
             "dynamic_tools": str(DYNAMIC_TOOLS_DIR),
             "runtime_marker": str(RUNTIME_MARKER_PATH),
             "update_stamp": str(UPDATE_STAMP_PATH),
+            "install_metadata": str(INSTALL_METADATA_PATH),
         },
         "path_health": {
             "state_root_exists": PROJECT_ROOT.exists(),
@@ -364,6 +385,7 @@ def build_doctor_report() -> dict:
         },
         "runtime": runtime_status,
         "database": sqlite_report,
+        "install_metadata": _read_install_metadata(),
         "guidance": {
             "update": (
                 "Checkout a branch, then run git pull --ff-only"
@@ -419,6 +441,8 @@ def run_doctor(as_json: bool = False) -> int:
     print(f"Vector store: {report['paths']['vector_store']} ({'present' if report['path_health']['vector_store_exists'] else 'missing'})")
     print(f"Artifacts: {report['paths']['artifacts']} ({'present' if report['path_health']['artifacts_exists'] else 'missing'})")
     print(f"Dynamic tools: {report['paths']['dynamic_tools']} ({'present' if report['path_health']['dynamic_tools_exists'] else 'missing'})")
+    if report["install_metadata"]:
+        print(f"Install method: {report['install_metadata'].get('method', 'unknown')}")
     print(f"Commands: pexo={report['commands']['pexo'] or 'not found'} | pexo-mcp={report['commands']['pexo_mcp'] or 'not found'}")
     print(
         "Client CLIs: "

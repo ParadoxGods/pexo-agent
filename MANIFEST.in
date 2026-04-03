@@ -7,6 +7,9 @@ include bootstrap.sh
 include install.cmd
 include install.ps1
 include install.sh
+recursive-include release_bundle *.cmd
+recursive-include release_bundle *.ps1
+recursive-include release_bundle *.sh
 include uninstall.cmd
 include uninstall.ps1
 include uninstall.sh

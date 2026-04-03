@@ -49,6 +49,7 @@ PEXO_DB_PATH = STATE_ROOT / "pexo.db"
 CHROMA_DB_DIR = STATE_ROOT / "chroma_db"
 RUNTIME_MARKER_PATH = STATE_ROOT / ".pexo-deps-profile"
 UPDATE_STAMP_PATH = STATE_ROOT / ".pexo-update-check"
+INSTALL_METADATA_PATH = STATE_ROOT / ".pexo-install.json"
 
 
 def running_from_repo_checkout() -> bool:

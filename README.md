@@ -12,29 +12,32 @@ It runs on the local machine, keeps its state local, and gives AI clients a shar
 
 ## Install
 
-The recommended path is the standalone bootstrap. It prefers a packaged install, falls back safely when needed, completes headless setup, connects supported AI clients, runs `pexo doctor`, and prints `PEXO_INSTALL_SUMMARY_JSON=...` at the end.
+The recommended path is the latest GitHub Release install bundle. It avoids raw remote script execution, installs from a versioned release asset, completes headless setup, connects supported AI clients, runs `pexo doctor`, and prints `PEXO_INSTALL_SUMMARY_JSON=...` at the end.
 
 Windows:
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.3/bootstrap.ps1 -OutFile bootstrap.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-windows.zip" --clobber
+Expand-Archive .\pexo-install-windows.zip -DestinationPath . -Force
+.\pexo-install\install.cmd
 ```
 
 macOS/Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.3/bootstrap.sh | bash
+gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-unix.tar.gz" --clobber
+tar -xzf pexo-install-unix.tar.gz
+./pexo-install/install.sh
 ```
 
-Direct packaged install is also supported:
+If `gh` is unavailable, use a direct packaged install from a pinned tag:
 
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.3"
+uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"
 ```
 
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.3"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"
 ```
 
 ## Quick Start
@@ -124,6 +127,8 @@ macOS/Linux:
 ```
 
 Use `-RepoPath` or `--repo-path` if you want to target an existing checkout without using the current working tree.
+
+Legacy raw bootstrap scripts still exist, but they are fallback-only and should not be the default path for AI-driven installs.
 
 ## Uninstall
 
