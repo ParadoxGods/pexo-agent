@@ -337,7 +337,7 @@ class HardeningTests(unittest.TestCase):
         bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
         bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
 
-        self.assertIn('[string]$Ref = "v1.0.4"', bootstrap_ps)
+        self.assertIn('[string]$Ref = "v1.0.5"', bootstrap_ps)
         self.assertIn('throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($ArgumentList -join \' \')"', bootstrap_ps)
         self.assertNotIn('throw "Command failed with exit code $LASTEXITCODE:', bootstrap_ps)
         self.assertIn('[string]$ConnectClients = "all"', bootstrap_ps)
@@ -347,7 +347,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"', bootstrap_ps)
         self.assertIn('Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients', bootstrap_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
-        self.assertIn('REF="v1.0.4"', bootstrap_sh)
+        self.assertIn('REF="v1.0.5"', bootstrap_sh)
         self.assertIn('CONNECT_CLIENTS="all"', bootstrap_sh)
         self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
@@ -410,8 +410,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", readme)
         self.assertIn("pexo-install-windows.zip", readme)
         self.assertIn("pexo-install-unix.tar.gz", readme)
-        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"', readme)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"', readme)
+        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.5"', readme)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.5"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
@@ -430,7 +430,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", agents_doc)
         self.assertIn("pexo-install-windows.zip", agents_doc)
         self.assertIn("pexo-install-unix.tar.gz", agents_doc)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.4"', agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.5"', agents_doc)
         self.assertIn("pexo connect all --scope user", agents_doc)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
@@ -483,6 +483,18 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("codex mcp add pexo -- pexo-mcp", codex_plan["manual_command"])
         self.assertIn("claude mcp add pexo --scope user -- pexo-mcp", claude_plan["manual_command"])
         self.assertIn("gemini mcp add --scope user --transport stdio pexo pexo-mcp", gemini_plan["manual_command"])
+
+    @patch("app.client_connect.running_from_repo_checkout", return_value=False)
+    @patch("app.client_connect.which")
+    @patch("app.client_connect._read_install_metadata")
+    def test_client_connect_prefers_recorded_mcp_command_for_packaged_installs(self, mock_metadata, mock_which, _mock_checkout):
+        mock_which.side_effect = lambda name: f"C:/Tools/{name}.exe"
+        mock_metadata.return_value = {"mcp_command": "C:/Users/dustin/.pexo/venv/Scripts/pexo-mcp.exe"}
+
+        plan = build_client_connection_plan("codex", scope="user")
+
+        self.assertEqual(plan["target"]["command"], "C:/Users/dustin/.pexo/venv/Scripts/pexo-mcp.exe")
+        self.assertIn("pexo-mcp.exe", plan["manual_command"])
 
     @patch("app.client_connect.running_from_repo_checkout", return_value=True)
     @patch("app.client_connect.which")

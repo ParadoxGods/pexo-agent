@@ -101,6 +101,7 @@ function Write-InstallMetadata {
     $payload = @{
         version = $Version
         method = $Method
+        release = "https://github.com/ParadoxGods/pexo-agent/releases/tag/v$Version"
         command_path = $CommandPath
         mcp_command = $McpCommand
         guidance = @{
@@ -143,7 +144,8 @@ if (Test-CommandAvailable "pipx") {
     Add-ToSessionPath -Entry $pipxBin
     Add-ToUserPath -Entry $pipxBin
     $commandPath = "pexo"
-    $mcpCommand = "pexo-mcp"
+    $mcpCommand = [string]((Get-Command "pexo-mcp" -ErrorAction SilentlyContinue).Source)
+    if ([string]::IsNullOrWhiteSpace($mcpCommand)) { $mcpCommand = "pexo-mcp" }
     $uninstallGuidance = "pipx uninstall pexo-agent; Remove-Item -Recurse -Force `"$StateRoot`""
 }
 else {

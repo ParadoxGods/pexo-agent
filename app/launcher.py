@@ -396,7 +396,11 @@ def build_doctor_report() -> dict:
                 "pexo uninstall"
                 if install_mode == "checkout" else _package_uninstall_guidance()
             ),
-            "mcp": str(CODE_ROOT / "pexo") + " --mcp" if install_mode == "checkout" else "pexo-mcp",
+            "mcp": (
+                str(CODE_ROOT / "pexo") + " --mcp"
+                if install_mode == "checkout"
+                else str((_read_install_metadata() or {}).get("mcp_command") or "pexo-mcp")
+            ),
             "connect": "pexo connect all --scope user",
             "vector": "pexo promote vector",
         },

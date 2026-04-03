@@ -94,6 +94,7 @@ path = Path(sys.argv[1])
 payload = {
     "version": sys.argv[2],
     "method": sys.argv[3],
+    "release": f"https://github.com/ParadoxGods/pexo-agent/releases/tag/v{sys.argv[2]}",
     "command_path": sys.argv[4],
     "mcp_command": sys.argv[5],
     "guidance": {"uninstall": sys.argv[6], "update": sys.argv[7]},
@@ -139,7 +140,8 @@ if command -v pipx >/dev/null 2>&1; then
     append_session_path "$PIPX_BIN_DIR"
     append_shell_path "$PIPX_BIN_DIR"
     COMMAND_PATH="pexo"
-    MCP_COMMAND="pexo-mcp"
+    MCP_COMMAND="$(command -v pexo-mcp || true)"
+    if [ -z "$MCP_COMMAND" ]; then MCP_COMMAND="pexo-mcp"; fi
     UNINSTALL_GUIDANCE="pipx uninstall pexo-agent && rm -rf \"$STATE_ROOT\""
 else
     INSTALL_METHOD="release_bundle_managed_venv"

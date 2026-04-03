@@ -3,9 +3,10 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import json
 from shutil import which
 
-from .paths import CODE_ROOT, running_from_repo_checkout
+from .paths import CODE_ROOT, INSTALL_METADATA_PATH, running_from_repo_checkout
 
 SUPPORTED_CLIENTS = ("codex", "claude", "gemini")
 SUPPORTED_SCOPES = ("user", "project")
@@ -17,6 +18,15 @@ def _format_command(parts: list[str]) -> str:
     return shlex.join(parts)
 
 
+def _read_install_metadata() -> dict | None:
+    if not INSTALL_METADATA_PATH.exists():
+        return None
+    try:
+        return json.loads(INSTALL_METADATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def build_mcp_stdio_target() -> dict:
     if running_from_repo_checkout():
         if os.name == "nt":
@@ -26,7 +36,10 @@ def build_mcp_stdio_target() -> dict:
             command = "bash"
             args = [str(CODE_ROOT / "pexo"), "--mcp"]
     else:
-        command = "pexo-mcp"
+        metadata = _read_install_metadata()
+        command = str(metadata.get("mcp_command", "")).strip() if metadata else ""
+        if not command:
+            command = "pexo-mcp"
         args = []
 
     return {
