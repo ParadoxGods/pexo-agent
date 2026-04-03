@@ -43,7 +43,9 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         "current_agent": "Supervisor",
         "current_instruction": "",
         "waiting_for_ai": False,
-        "final_response": ""
+        "final_response": "",
+        "user_profile": "",
+        "available_agents": ""
     }
     
     db_state = AgentState(
@@ -114,8 +116,8 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     if state["current_agent"] == "Supervisor":
         # Expecting a list of tasks
         state["tasks"] = result.result_data if isinstance(result.result_data, list) else []
-    elif state["current_agent"] == "Developer":
-        # Append completed task
+    elif state["current_agent"] not in ["Supervisor", "Code Organization Manager"]:
+        # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
         tasks = state.get("tasks", [])
         completed = state.get("completed_tasks", [])
         if len(completed) < len(tasks):
