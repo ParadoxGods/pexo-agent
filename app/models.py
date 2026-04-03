@@ -36,6 +36,14 @@ class Workspace(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)
+    value = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
 class Memory(Base):
     __tablename__ = "memories"
     id = Column(Integer, primary_key=True, index=True)
@@ -49,6 +57,23 @@ class Memory(Base):
     is_pinned = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
     compacted_into_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    source_type = Column(String, index=True)  # text, upload, local_path
+    source_uri = Column(String, nullable=True)
+    content_type = Column(String, nullable=True)
+    storage_path = Column(String, unique=True)
+    extracted_text = Column(Text, nullable=True)
+    session_id = Column(String, index=True)
+    task_context = Column(String, index=True)
+    sha256 = Column(String, index=True)
+    size_bytes = Column(Integer, default=0)
+    details = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

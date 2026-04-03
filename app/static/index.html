@@ -64,10 +64,14 @@
         button.danger { border-color: var(--danger); color: var(--danger); }
         button.danger:hover { background: var(--danger); color: #fff; }
         
-        .agent-list, .tool-list, .memory-list { list-style: none; padding: 0; margin: 0; }
-        .agent-list li, .tool-list li, .memory-list li { padding: 0.75rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+        .agent-list, .tool-list, .memory-list, .artifact-list { list-style: none; padding: 0; margin: 0; }
+        .agent-list li, .tool-list li, .memory-list li, .artifact-list li { padding: 0.75rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
         .list-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
         .meta-line { color: var(--text-muted); font-size: 0.8rem; }
+        .status-line { color: var(--text-muted); font-size: 0.85rem; margin-top: 0.75rem; }
+        .runtime-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+        .inline-form { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .inline-form > * { flex: 1 1 220px; }
         
         pre { 
             background: #000; 
@@ -211,6 +215,12 @@
                         </div>
                         <p id="profile-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
                     </div>
+                    <div style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+                        <h3 style="color:#fff; border-bottom: 1px solid #222;">RUNTIME CONTROL PLANE</h3>
+                        <div id="runtime-summary-panel">Loading runtime...</div>
+                        <div class="runtime-actions" id="runtime-actions"></div>
+                        <p id="runtime-status" class="status-line"></p>
+                    </div>
                 </div>
 
                 <div class="card">
@@ -286,6 +296,43 @@
                 </div>
 
                 <div class="card full-width">
+                    <h2>ARTIFACT CONTROL PLANE</h2>
+                    <div class="grid" style="grid-template-columns: 1.1fr 0.9fr; gap: 1rem; margin-top:0;">
+                        <div>
+                            <div class="inline-form" style="margin-bottom:0.75rem;">
+                                <input type="text" id="artifact-search-query" placeholder="SEARCH ARTIFACTS...">
+                                <button onclick="searchArtifacts()" style="width:auto;">SEARCH</button>
+                                <button onclick="refreshDashboard()" style="width:auto;">REFRESH</button>
+                            </div>
+                            <ul class="artifact-list" id="artifact-list"></ul>
+                        </div>
+                        <div>
+                            <h3 style="color:#fff; border-bottom: 1px solid #222;">ARTIFACT INGEST</h3>
+                            <input type="text" id="artifact-session-id" placeholder="SESSION_ID (default: artifact_session)">
+                            <input type="text" id="artifact-task-context" placeholder="TASK_CONTEXT (default: general)">
+                            <input type="text" id="artifact-name" placeholder="TEXT ARTIFACT NAME">
+                            <textarea id="artifact-text-content" placeholder="PASTE TEXT, LOGS, OR NOTES" rows="5"></textarea>
+                            <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+                                <button onclick="saveTextArtifact()">STORE TEXT</button>
+                            </div>
+                            <input type="text" id="artifact-path" placeholder="LOCAL FILE PATH TO COPY INTO PEXO">
+                            <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+                                <button onclick="savePathArtifact()">REGISTER PATH</button>
+                            </div>
+                            <input type="file" id="artifact-upload-file">
+                            <div style="display:flex; gap:0.5rem;">
+                                <button onclick="uploadArtifact()">UPLOAD FILE</button>
+                            </div>
+                            <p id="artifact-status" class="status-line"></p>
+                            <div style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+                                <h3 style="color:#fff; border-bottom: 1px solid #222;">ARTIFACT PREVIEW</h3>
+                                <div id="artifact-preview">NO ARTIFACT SELECTED.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card full-width">
                     <h2>GENESIS ENGINE (DYNAMIC TOOLS)</h2>
                     <ul class="tool-list" id="tool-list"></ul>
                 </div>
@@ -304,7 +351,9 @@
             agents: [],
             tools: [],
             recent_memories: [],
+            recent_artifacts: [],
             stats: {},
+            runtime: {},
             telemetry: { summary: {}, recent_sessions: [], recent_activity: [] },
         };
 
@@ -390,11 +439,32 @@
 
             document.getElementById('profile-display').innerHTML = `
                 <p><strong>BACKUP PATH:</strong> ${escapeHtml(backupPath)}</p>
-                <p><strong>AGENTS:</strong> ${stats.agent_count || 0} | <strong>TOOLS:</strong> ${stats.tool_count || 0} | <strong>MEMORIES:</strong> ${stats.memory_count || 0}</p>
+                <p><strong>AGENTS:</strong> ${stats.agent_count || 0} | <strong>TOOLS:</strong> ${stats.tool_count || 0} | <strong>MEMORIES:</strong> ${stats.memory_count || 0} | <strong>ARTIFACTS:</strong> ${stats.artifact_count || 0}</p>
                 <p><strong>PINNED:</strong> ${stats.pinned_memory_count || 0} | <strong>ARCHIVED:</strong> ${stats.archived_memory_count || 0} | <strong>COMPACTED:</strong> ${stats.compacted_memory_count || 0}</p>
                 <pre>PERSONALITY\n${escapeHtml(personalityText)}\n\nSCRIPTING\n${escapeHtml(scriptingText)}</pre>
             `;
             document.getElementById('backup-path-input').value = profile?.backup_path || '';
+        }
+
+        function renderRuntime(runtime) {
+            const installedProfiles = runtime?.installed_profiles || {};
+            const installedSummary = Object.entries(installedProfiles)
+                .map(([profile, installed]) => `${profile.toUpperCase()}: ${installed ? 'READY' : 'NOT INSTALLED'}`)
+                .join(' | ') || 'NO RUNTIME STATUS AVAILABLE.';
+            const offer = runtime?.vector_promotion_offer;
+            const recommended = (runtime?.recommended_promotions || []).map(profile => profile.toUpperCase()).join(', ') || 'NONE';
+
+            document.getElementById('runtime-summary-panel').innerHTML = `
+                <p><strong>ACTIVE PROFILE:</strong> ${escapeHtml(runtime?.active_profile || 'unknown').toUpperCase()}</p>
+                <p><strong>MARKER PROFILE:</strong> ${escapeHtml(runtime?.marker_profile || 'unset').toUpperCase()}</p>
+                <p><strong>INSTALLED:</strong> ${escapeHtml(installedSummary)}</p>
+                <p><strong>RECOMMENDED PROMOTIONS:</strong> ${escapeHtml(recommended)}</p>
+                ${offer ? `<pre>VECTOR MEMORY NOTICE\n${escapeHtml(offer.reason)}\nSUGGESTED COMMAND: ${escapeHtml(offer.suggested_command)}</pre>` : '<p>VECTOR MEMORY RUNTIME IS AVAILABLE.</p>'}
+            `;
+
+            document.getElementById('runtime-actions').innerHTML = ['mcp', 'full', 'vector'].map(profile => `
+                <button onclick="promoteRuntime('${profile}')" ${installedProfiles[profile] ? 'disabled' : ''}>PROMOTE ${profile.toUpperCase()}</button>
+            `).join('');
         }
 
         function renderProfileEditor(profileAnswers) {
@@ -459,6 +529,25 @@
             `).join('') : '<li>NO MEMORIES STORED.</li>';
         }
 
+        function renderArtifacts(artifacts) {
+            const list = document.getElementById('artifact-list');
+            list.innerHTML = artifacts.length ? artifacts.map(artifact => `
+                <li>
+                    <div style="flex:1;">
+                        <div><strong>${escapeHtml(artifact.name)}</strong> [${escapeHtml(artifact.source_type || 'unknown').toUpperCase()}]</div>
+                        <div class="meta-line">${escapeHtml(artifact.task_context || 'general')} | ${escapeHtml(artifact.session_id || 'artifact_session')}</div>
+                        <div class="meta-line">${escapeHtml(artifact.content_type || 'application/octet-stream')} | ${(artifact.size_bytes || 0).toLocaleString()} bytes</div>
+                        <div class="meta-line">${escapeHtml(truncateText(artifact.preview || '', 200) || 'NO EXTRACTED TEXT PREVIEW')}</div>
+                    </div>
+                    <div class="list-actions">
+                        <button onclick="viewArtifact(${artifact.id})">VIEW</button>
+                        <button onclick="downloadArtifact(${artifact.id})">DOWNLOAD</button>
+                        <button class="danger" onclick="deleteArtifact(${artifact.id})">DELETE</button>
+                    </div>
+                </li>
+            `).join('') : '<li>NO ARTIFACTS REGISTERED.</li>';
+        }
+
         function renderTelemetry(telemetry) {
             const summary = telemetry?.summary || {};
             const statusBreakdown = Object.entries(summary.status_breakdown || {})
@@ -497,6 +586,8 @@ DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')
             renderAgents(snapshot.agents || []);
             renderTools(snapshot.tools || []);
             renderMemories(snapshot.recent_memories || []);
+            renderArtifacts(snapshot.recent_artifacts || []);
+            renderRuntime(snapshot.runtime || {});
             renderTelemetry(snapshot.telemetry || {});
         }
 
@@ -640,6 +731,13 @@ DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')
             if (res.ok) {
                 await refreshDashboard();
             }
+        }
+
+        function getArtifactContextPayload() {
+            return {
+                session_id: document.getElementById('artifact-session-id').value.trim() || 'artifact_session',
+                task_context: document.getElementById('artifact-task-context').value.trim() || 'general',
+            };
         }
 
         function resetAgentForm() {
@@ -808,7 +906,7 @@ DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')
             const res = await fetch('/memory/search', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({query, n_results: 5})
+                body: JSON.stringify({query, n_results: 5, auto_promote_vector: false})
             });
             const data = await res.json();
             const resultsDiv = document.getElementById('memory-results');
@@ -827,6 +925,12 @@ DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')
                     <pre>${escapeHtml(result.content)}</pre>
                 </div>
             `).join('');
+            if (data.runtime) {
+                renderRuntime(data.runtime);
+            }
+            if (data.promotion_offer) {
+                document.getElementById('runtime-status').innerText = `> ${data.promotion_offer.reason}`;
+            }
         }
 
         async function runBackup() {
@@ -834,6 +938,143 @@ DETAIL: ${escapeHtml(activity.task_description || activity.output_preview || '')
             const res = await fetch('/backup/run', {method: 'POST'});
             const data = await res.json();
             document.getElementById('backup-status').innerText = res.ok ? `> ${data.message}` : `> ERROR: ${data.detail}`;
+        }
+
+        async function promoteRuntime(profile) {
+            document.getElementById('runtime-status').innerText = `> PROMOTING ${profile.toUpperCase()} RUNTIME...`;
+            const res = await fetch(`/runtime/promote/${profile}`, {method: 'POST'});
+            const data = await res.json();
+            document.getElementById('runtime-status').innerText = res.ok
+                ? `> ${profile.toUpperCase()} RUNTIME READY.`
+                : `> ERROR: ${data.detail || data.stderr || 'Runtime promotion failed.'}`;
+            if (res.ok) {
+                renderRuntime(data.runtime || {});
+                await refreshDashboard();
+            }
+        }
+
+        async function saveTextArtifact() {
+            const name = document.getElementById('artifact-name').value.trim();
+            const content = document.getElementById('artifact-text-content').value.trim();
+            if (!name || !content) {
+                document.getElementById('artifact-status').innerText = '> ERROR: ARTIFACT NAME AND CONTENT ARE REQUIRED.';
+                return;
+            }
+            const payload = {
+                name,
+                content,
+                ...getArtifactContextPayload(),
+            };
+            const res = await fetch('/artifacts/register-text', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById('artifact-status').innerText = res.ok ? '> TEXT ARTIFACT STORED.' : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                document.getElementById('artifact-name').value = '';
+                document.getElementById('artifact-text-content').value = '';
+                await refreshDashboard();
+                if (data.artifact?.id) {
+                    await viewArtifact(data.artifact.id);
+                }
+            }
+        }
+
+        async function savePathArtifact() {
+            const path = document.getElementById('artifact-path').value.trim();
+            if (!path) {
+                document.getElementById('artifact-status').innerText = '> ERROR: LOCAL FILE PATH IS REQUIRED.';
+                return;
+            }
+            const res = await fetch('/artifacts/register-path', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path,
+                    ...getArtifactContextPayload(),
+                }),
+            });
+            const data = await res.json();
+            document.getElementById('artifact-status').innerText = res.ok ? '> FILE REGISTERED AS ARTIFACT.' : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                document.getElementById('artifact-path').value = '';
+                await refreshDashboard();
+                if (data.artifact?.id) {
+                    await viewArtifact(data.artifact.id);
+                }
+            }
+        }
+
+        async function uploadArtifact() {
+            const input = document.getElementById('artifact-upload-file');
+            const file = input.files && input.files[0];
+            if (!file) {
+                document.getElementById('artifact-status').innerText = '> ERROR: CHOOSE A FILE FIRST.';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            const context = getArtifactContextPayload();
+            formData.append('session_id', context.session_id);
+            formData.append('task_context', context.task_context);
+            const res = await fetch('/artifacts/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+            document.getElementById('artifact-status').innerText = res.ok ? '> FILE UPLOADED.' : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                input.value = '';
+                await refreshDashboard();
+                if (data.artifact?.id) {
+                    await viewArtifact(data.artifact.id);
+                }
+            }
+        }
+
+        async function searchArtifacts() {
+            const query = document.getElementById('artifact-search-query').value.trim();
+            const res = await fetch(`/artifacts/?limit=20&query=${encodeURIComponent(query)}`);
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById('artifact-status').innerText = `> ERROR: ${data.detail}`;
+                return;
+            }
+            renderArtifacts(data.artifacts || []);
+            document.getElementById('artifact-status').innerText = `> ${query ? 'ARTIFACT SEARCH COMPLETE.' : 'ARTIFACT LIST REFRESHED.'}`;
+        }
+
+        async function viewArtifact(id) {
+            const res = await fetch(`/artifacts/${id}`);
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById('artifact-status').innerText = `> ERROR: ${data.detail}`;
+                return;
+            }
+            document.getElementById('artifact-preview').innerHTML = `
+                <p><strong>${escapeHtml(data.name)}</strong> [${escapeHtml((data.source_type || 'unknown').toUpperCase())}]</p>
+                <p class="meta-line">${escapeHtml(data.content_type || 'application/octet-stream')} | ${(data.size_bytes || 0).toLocaleString()} bytes</p>
+                <p class="meta-line">${escapeHtml(data.source_uri || data.storage_path || '')}</p>
+                <pre>${escapeHtml(data.extracted_text || 'NO EXTRACTED TEXT AVAILABLE.')}</pre>
+            `;
+            document.getElementById('artifact-status').innerText = `> VIEWING ARTIFACT ${id}.`;
+        }
+
+        function downloadArtifact(id) {
+            window.open(`/artifacts/${id}/download`, '_blank', 'noopener');
+        }
+
+        async function deleteArtifact(id) {
+            if (!confirm('DELETE ARTIFACT?')) return;
+            const res = await fetch(`/artifacts/${id}`, {method: 'DELETE'});
+            const data = await res.json();
+            document.getElementById('artifact-status').innerText = res.ok ? `> ${data.message}` : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                document.getElementById('artifact-preview').innerText = 'NO ARTIFACT SELECTED.';
+                await refreshDashboard();
+            }
         }
 
         checkStatus();

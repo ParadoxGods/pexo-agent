@@ -9,6 +9,7 @@ DATABASE_URL = f"sqlite:///{PEXO_DB_PATH.as_posix()}"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+_db_initialized = False
 
 
 MEMORY_TABLE_MIGRATIONS = {
@@ -39,6 +40,7 @@ def run_schema_migrations() -> None:
 
 def init_db():
     """Initializes the local SQLite database."""
+    global _db_initialized
     from . import models  # Ensure SQLAlchemy metadata is registered before create_all.
     from .core_agents import ensure_core_agent_profiles
 
@@ -49,8 +51,16 @@ def init_db():
         ensure_core_agent_profiles(db)
     finally:
         db.close()
+    _db_initialized = True
+
+
+def ensure_db_ready():
+    if _db_initialized and PEXO_DB_PATH.exists():
+        return
+    init_db()
 
 def get_db():
+    ensure_db_ready()
     db = SessionLocal()
     try:
         yield db

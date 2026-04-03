@@ -1,3 +1,4 @@
+import importlib
 from datetime import datetime
 import uuid
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
+from ..runtime import build_runtime_status, build_vector_promotion_offer, maybe_issue_vector_promotion_offer, promote_runtime
 
 try:
     import chromadb
@@ -28,8 +30,24 @@ SUMMARY_FRAGMENT_LENGTH = 240
 _memory_collection = None
 
 
+def refresh_memory_runtime() -> bool:
+    global chromadb, Settings, _memory_collection
+    if chromadb is not None and Settings is not None:
+        return True
+    try:
+        chromadb = importlib.import_module("chromadb")
+        Settings = importlib.import_module("chromadb.config").Settings
+        _memory_collection = None
+        return True
+    except ImportError:
+        chromadb = None
+        Settings = None
+        _memory_collection = None
+        return False
+
+
 def memory_embeddings_enabled() -> bool:
-    return chromadb is not None and Settings is not None
+    return refresh_memory_runtime()
 
 
 def get_memory_collection():
@@ -140,6 +158,43 @@ def _format_memory_search_results(memories: list[Memory], *, distance_by_id: dic
             }
         )
     return {"results": formatted_results}
+
+
+def _with_runtime_metadata(
+    payload: dict,
+    db: Session,
+    *,
+    promotion_offer: dict | None = None,
+    promotion_result: dict | None = None,
+) -> dict:
+    enriched = dict(payload)
+    enriched["runtime"] = build_runtime_status(db)
+    if promotion_offer is not None:
+        enriched["promotion_offer"] = promotion_offer
+    if promotion_result is not None:
+        enriched["promotion_result"] = promotion_result
+    return enriched
+
+
+def _resolve_vector_runtime(
+    db: Session,
+    *,
+    auto_promote_vector: bool = False,
+) -> tuple[dict | None, dict | None]:
+    promotion_offer = None
+    promotion_result = None
+
+    if memory_embeddings_enabled():
+        return promotion_offer, promotion_result
+
+    promotion_offer = maybe_issue_vector_promotion_offer(db) or build_vector_promotion_offer()
+    if auto_promote_vector:
+        promotion_result = promote_runtime("vector")
+        if promotion_result["status"] == "success":
+            refresh_memory_runtime()
+            promotion_offer = None
+
+    return promotion_offer, promotion_result
 
 
 def _search_memories_without_embeddings(request: "MemorySearchRequest", db: Session) -> dict:
@@ -286,11 +341,13 @@ class MemoryStoreRequest(BaseModel):
     session_id: str
     content: str
     task_context: str
+    auto_promote_vector: bool = False
 
 
 class MemorySearchRequest(BaseModel):
     query: str
     n_results: int = 3
+    auto_promote_vector: bool = False
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -311,6 +368,11 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
     Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
     This acts as the global, persistent brain across all tasks.
     """
+    promotion_offer, promotion_result = _resolve_vector_runtime(
+        db,
+        auto_promote_vector=request.auto_promote_vector,
+    )
+
     new_memory = Memory(
         session_id=request.session_id,
         content=request.content,
@@ -329,13 +391,13 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
     db.refresh(new_memory)
     maintenance = maintain_memory_health(db, task_context=request.task_context)
 
-    return {
+    return _with_runtime_metadata({
         "status": "Memory permanently embedded into Pexo's global brain.",
         "memory_id": new_memory.id,
         "chroma_id": new_memory.chroma_id,
         "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
         "maintenance": maintenance,
-    }
+    }, db, promotion_offer=promotion_offer, promotion_result=promotion_result)
 
 
 @router.post("/search")
@@ -344,9 +406,19 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     Allows the AI to perform a semantic vector search across Pexo's entire history
     to find relevant context, past bug fixes, or user patterns.
     """
+    promotion_offer, promotion_result = _resolve_vector_runtime(
+        db,
+        auto_promote_vector=request.auto_promote_vector,
+    )
+
     collection = get_memory_collection()
     if collection is None:
-        return _search_memories_without_embeddings(request, db)
+        return _with_runtime_metadata(
+            _search_memories_without_embeddings(request, db),
+            db,
+            promotion_offer=promotion_offer,
+            promotion_result=promotion_result,
+        )
 
     results = collection.query(query_texts=[request.query], n_results=request.n_results)
 
@@ -355,7 +427,12 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     metadatas = results.get("metadatas") or []
     distances = results.get("distances") or []
     if not documents or not documents[0]:
-        return {"results": []}
+        return _with_runtime_metadata(
+            {"results": []},
+            db,
+            promotion_offer=promotion_offer,
+            promotion_result=promotion_result,
+        )
 
     chroma_ids = ids[0] if ids else []
     memory_records = (
@@ -378,10 +455,15 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
         metadata_by_id[memory_record.id] = metadatas[0][index] if metadatas and metadatas[0] else {}
         distance_by_id[memory_record.id] = distances[0][index] if distances and distances[0] else None
 
-    return _format_memory_search_results(
-        matched_records,
-        distance_by_id=distance_by_id,
-        metadata_by_id=metadata_by_id,
+    return _with_runtime_metadata(
+        _format_memory_search_results(
+            matched_records,
+            distance_by_id=distance_by_id,
+            metadata_by_id=metadata_by_id,
+        ),
+        db,
+        promotion_offer=promotion_offer,
+        promotion_result=promotion_result,
     )
 
 

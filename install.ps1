@@ -31,6 +31,17 @@ function Test-CommandAvailable {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Test-UsableVenvPython {
+    param([string]$PythonPath)
+
+    if (-not (Test-Path $PythonPath)) {
+        return $false
+    }
+
+    & $PythonPath -c "import sys" *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Resolve-FullPath {
     param([string]$PathValue)
 
@@ -351,7 +362,12 @@ Set-Location $PexoDir
 
 Show-InstallProgress -Percent 40 -Status "Preparing isolated Python environment"
 $createdVenv = $false
-if (-not (Test-Path ".\venv\Scripts\python.exe")) {
+$venvPythonPath = Join-Path $PexoDir "venv\Scripts\python.exe"
+if (-not (Test-UsableVenvPython $venvPythonPath)) {
+    if (Test-Path (Join-Path $PexoDir "venv")) {
+        Show-InstallProgress -Percent 43 -Status "Existing virtual environment is unusable. Recreating it..."
+        Remove-Item -LiteralPath (Join-Path $PexoDir "venv") -Recurse -Force -ErrorAction SilentlyContinue
+    }
     $createdVenv = $true
     Invoke-TrackedProcess -Percent 45 -StartMessage "Creating Python virtual environment..." -HeartbeatMessage "Creating Python virtual environment... still working" -FilePath "python" -ArgumentList @("-m", "venv", "venv") -WorkingDirectory $PexoDir
 }

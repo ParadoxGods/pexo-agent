@@ -262,6 +262,18 @@ venv_python() {
     fi
 }
 
+venv_python_usable() {
+    if [ -x "venv/bin/python3" ]; then
+        venv/bin/python3 -c "import sys" >/dev/null 2>&1
+        return $?
+    fi
+    if [ -x "venv/bin/python" ]; then
+        venv/bin/python -c "import sys" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
 install_dependency_profile() {
     local profile="$1"
     local start_message="$2"
@@ -359,7 +371,11 @@ cd "$PEXO_DIR"
 print_progress 40 "Preparing isolated Python environment"
 PYTHON_CMD=$(resolve_python_command)
 CREATED_VENV=0
-if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
+if ! venv_python_usable; then
+    if [ -d "venv" ]; then
+        print_progress 43 "Existing virtual environment is unusable. Recreating it..."
+        rm -rf venv
+    fi
     CREATED_VENV=1
     run_tracked 45 "Creating Python virtual environment..." "Creating Python virtual environment... still working" "$PYTHON_CMD" -m venv venv
 fi

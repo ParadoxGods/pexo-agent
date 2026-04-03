@@ -70,7 +70,12 @@ pause
 exit /b %ERRORLEVEL%
 
 :ensure_venv
-if exist "venv\Scripts\python.exe" exit /b 0
+if exist "venv\Scripts\python.exe" (
+    venv\Scripts\python.exe -c "import sys" >nul 2>nul
+    if not errorlevel 1 exit /b 0
+    echo Existing virtual environment is unusable. Recreating it...
+    rmdir /s /q venv 2>nul
+)
 echo Virtual environment not found. Creating one...
 python -m venv venv
 if errorlevel 1 exit /b %ERRORLEVEL%

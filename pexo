@@ -32,6 +32,18 @@ venv_python() {
     fi
 }
 
+venv_python_usable() {
+    if [ -x "venv/bin/python3" ]; then
+        venv/bin/python3 -c "import sys" >/dev/null 2>&1
+        return $?
+    fi
+    if [ -x "venv/bin/python" ]; then
+        venv/bin/python -c "import sys" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
 python_command() {
     case "${OSTYPE:-}" in
         msys*|cygwin*|win32*)
@@ -102,7 +114,11 @@ install_profile() {
 }
 
 ensure_venv() {
-    if [ ! -x "venv/bin/python3" ] && [ ! -x "venv/bin/python" ]; then
+    if ! venv_python_usable; then
+        if [ -d "venv" ]; then
+            echo "Existing virtual environment is unusable. Recreating it..." >&2
+            rm -rf venv
+        fi
         echo "Virtual environment not found. Creating one..." >&2
         "$(python_command)" -m venv venv 1>&2
     fi

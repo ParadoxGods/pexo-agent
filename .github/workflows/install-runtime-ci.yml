@@ -1,0 +1,83 @@
+name: Install Runtime CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install-runtime-smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare Unix executable bits
+        if: runner.os != 'Windows'
+        run: chmod +x install.sh pexo uninstall.sh
+
+      - name: Repo-local install and launcher smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+          .\pexo.bat --promote full
+          .\venv\Scripts\python.exe -c "from app.mcp_server import mcp; print('mcp-import-ok')"
+          cmd /c .\pexo.bat --help
+          .\venv\Scripts\python.exe -m unittest discover -s tests -v
+
+      - name: Repo-local install and launcher smoke (Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bash ./install.sh --use-current-checkout --install-profile mcp --headless-setup --preset efficient_operator --skip-update
+          bash ./pexo --promote full
+          ./venv/bin/python -c "from app.mcp_server import mcp; print('mcp-import-ok')"
+          bash ./pexo --help
+          ./venv/bin/python -m unittest discover -s tests -v
+
+      - name: Disposable install and uninstall smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $disposable = Join-Path $env:RUNNER_TEMP "pexo-disposable"
+          if (Test-Path $disposable) { Remove-Item -Recurse -Force $disposable }
+          git clone . $disposable
+          Push-Location $disposable
+          .\install.ps1 -UseCurrentCheckout -InstallProfile mcp -HeadlessSetup -Preset efficient_operator -SkipUpdate
+          Pop-Location
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$disposable\uninstall.ps1"
+          $renamed = Join-Path (Split-Path $disposable -Parent) ".pexo_deleted"
+          if ((Test-Path $disposable) -and -not (Test-Path $renamed)) {
+            throw "Disposable uninstall did not remove or rename the install directory."
+          }
+
+      - name: Disposable install and uninstall smoke (Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          disposable="$RUNNER_TEMP/pexo-disposable"
+          rm -rf "$disposable"
+          git clone . "$disposable"
+          (
+            cd "$disposable"
+            chmod +x install.sh pexo uninstall.sh
+            bash ./install.sh --use-current-checkout --install-profile mcp --headless-setup --preset efficient_operator --skip-update
+            bash ./uninstall.sh
+          )
+          if [ -d "$disposable" ] && [ ! -d "$(dirname "$disposable")/.pexo_deleted" ]; then
+            echo "Disposable uninstall did not remove the install directory." >&2
+            exit 1
+          fi
