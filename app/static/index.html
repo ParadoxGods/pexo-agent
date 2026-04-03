@@ -9,10 +9,10 @@
             --bg: #050505;
             --surface: #0a0a0a;
             --border: #333333;
-            --text: #00ff00;
+            --text: #409FD6;
             --text-muted: #aaaaaa;
-            --accent: #00ff00;
-            --accent-hover: #00cc00;
+            --accent: #409FD6;
+            --accent-hover: #5ab0e2;
             --danger: #ff0033;
         }
         body {
@@ -27,8 +27,8 @@
         .header { text-align: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
         .ascii-logo { color: var(--accent); white-space: pre; font-size: 1.2rem; font-weight: bold; margin-bottom: 1rem; line-height: 1.1; }
         
-        .wizard, .auth-screen { display: none; background: var(--surface); border: 1px solid var(--border); padding: 2rem; margin-top: 2rem; }
-        .wizard.active, .auth-screen.active, .dashboard.active { display: block; }
+        .wizard { display: none; background: var(--surface); border: 1px solid var(--border); padding: 2rem; margin-top: 2rem; }
+        .wizard.active, .dashboard.active { display: block; }
         .dashboard { display: none; }
         
         .step { display: none; }
@@ -61,9 +61,6 @@
         
         .full-width { grid-column: 1 / -1; }
         
-        .question-group { margin-bottom: 1.5rem; }
-        .question-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; color: var(--text-muted); }
-        
         /* Animated Checkmark */
         .checkmark-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; }
         .checkmark { width: 80px; height: 80px; border-radius: 50%; display: block; stroke-width: 4; stroke: var(--accent); stroke-miterlimit: 10; margin: 10% auto; box-shadow: inset 0px 0px 0px var(--accent); animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
@@ -72,6 +69,12 @@
         @keyframes stroke { 100% { stroke-dashoffset: 0; } }
         @keyframes scale { 0%, 100% { transform: none; } 50% { transform: scale3d(1.1, 1.1, 1); } }
         @keyframes fill { 100% { box-shadow: inset 0px 0px 0px 30px var(--accent); } }
+
+        .interactive-opt {
+            display: block; width: 100%; text-align: left; margin-bottom: 0.5rem; padding: 1rem;
+            background: #000; border: 1px solid var(--border); color: var(--accent); font-size: 1rem;
+        }
+        .interactive-opt:hover { background: #111; border-color: var(--accent); }
     </style>
 </head>
 <body>
@@ -90,24 +93,19 @@
         <!-- WIZARD SCREEN -->
         <div id="wizard" class="wizard">
             <div id="step-1" class="step active">
-                <h2>INITIALIZATION: PHASE 1</h2>
-                <p>Configure Swarm Personality & Scripting Preferences.</p>
-                <div class="grid" style="margin-top:0">
-                    <div id="wiz-personality"></div>
-                    <div id="wiz-scripting"></div>
-                </div>
-                <div style="display:flex; justify-content:flex-end; margin-top:2rem;">
-                    <button onclick="nextStep(2)">NEXT: BACKUP >></button>
-                </div>
+                <h2>INITIALIZATION: PROFILING</h2>
+                <p id="wiz-progress" style="color: var(--text-muted);">> Question 1 of 20</p>
+                <h3 id="wiz-q-text" style="color: #fff; margin: 2rem 0;">Loading...</h3>
+                <div id="wiz-q-options"></div>
             </div>
             
             <div id="step-2" class="step">
-                <h2>INITIALIZATION: PHASE 2</h2>
-                <p>Set a local path or network share for the Global Brain Auto-Backup.</p>
+                <h2>INITIALIZATION: BACKUP PATH</h2>
+                <p>Set a local directory or network share for the Global Brain Auto-Backup.</p>
                 <input type="text" id="wiz-backup" placeholder="e.g. C:\Backups\Pexo or /Volumes/Backups/Pexo">
-                <div style="display:flex; justify-content:space-between; margin-top:2rem;">
-                    <button onclick="nextStep(1)"><< BACK</button>
-                    <button onclick="submitWizard()">FINALIZE ASSIMILATION</button>
+                <p id="wiz-backup-error" style="color: var(--danger); font-weight: bold;"></p>
+                <div style="display:flex; justify-content:flex-end; margin-top:2rem;">
+                    <button onclick="submitWizard()">FINALIZE ASSIMILATION >></button>
                 </div>
             </div>
 
@@ -118,8 +116,8 @@
                         <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
                     </svg>
                     <h2>SYSTEM ASSIMILATED</h2>
-                    <p>Pexo is fully online and ready for deployment.</p>
-                    <button onclick="loadDashboard()">ENTER TERMINAL</button>
+                    <p style="color: #fff;">Pexo is fully online and ready for deployment.</p>
+                    <button onclick="loadDashboard()" style="margin-top: 1rem;">ENTER TERMINAL</button>
                 </div>
             </div>
         </div>
@@ -166,7 +164,9 @@
     </div>
 
     <script>
-        let questionsData = null;
+        let allQuestions = [];
+        let currentQIndex = 0;
+        let userAnswers = { personality: {}, scripting: {} };
 
         async function checkStatus() {
             try {
@@ -185,54 +185,66 @@
 
         async function loadQuestions() {
             const res = await fetch('/profile/questions');
-            questionsData = await res.json();
+            const data = await res.json();
             
-            const pDiv = document.getElementById('wiz-personality');
-            pDiv.innerHTML = questionsData.personality.map(q => `
-                <div class="question-group">
-                    <label>${q.id}. ${q.text}</label>
-                    <select id="ans-${q.id}">
-                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
-                    </select>
-                </div>
-            `).join('');
-
-            const sDiv = document.getElementById('wiz-scripting');
-            sDiv.innerHTML = questionsData.scripting.map(q => `
-                <div class="question-group">
-                    <label>${q.id}. ${q.text}</label>
-                    <select id="ans-${q.id}">
-                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
-                    </select>
-                </div>
-            `).join('');
+            allQuestions = [
+                ...data.personality.map(q => ({...q, category: 'personality'})),
+                ...data.scripting.map(q => ({...q, category: 'scripting'}))
+            ];
+            renderQuestion();
         }
 
-        function nextStep(step) {
-            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
-            document.getElementById(`step-${step}`).classList.add('active');
+        function renderQuestion() {
+            if (currentQIndex >= allQuestions.length) {
+                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                document.getElementById('step-2').classList.add('active');
+                return;
+            }
+            
+            const q = allQuestions[currentQIndex];
+            document.getElementById('wiz-progress').innerText = `> PROFILING STEP ${currentQIndex + 1} OF ${allQuestions.length} [${q.category.toUpperCase()}]`;
+            document.getElementById('wiz-q-text').innerText = q.text;
+            
+            const optsDiv = document.getElementById('wiz-q-options');
+            optsDiv.innerHTML = Object.entries(q.options).map(([k,v]) => 
+                `<button class="interactive-opt" onclick="answerQuestion('${q.category}', '${q.id}', '${k}')">> ${v}</button>`
+            ).join('');
+        }
+
+        function answerQuestion(category, id, valKey) {
+            userAnswers[category][id] = valKey;
+            currentQIndex++;
+            renderQuestion();
         }
 
         async function submitWizard() {
-            const backup = document.getElementById('wiz-backup').value;
+            const backup = document.getElementById('wiz-backup').value.trim();
+            if(!backup) {
+                document.getElementById('wiz-backup-error').innerText = "> ERROR: BACKUP PATH IS REQUIRED.";
+                return;
+            }
             
             const payload = {
                 name: "default_user",
                 backup_path: backup,
-                personality_answers: {},
-                scripting_answers: {}
+                personality_answers: userAnswers.personality,
+                scripting_answers: userAnswers.scripting
             };
 
-            questionsData.personality.forEach(q => { payload.personality_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
-            questionsData.scripting.forEach(q => { payload.scripting_answers[q.id] = document.getElementById(`ans-${q.id}`).value; });
-
-            await fetch('/profile/', {
+            const res = await fetch('/profile/', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
             });
+            
+            if(!res.ok) {
+                const errData = await res.json();
+                document.getElementById('wiz-backup-error').innerText = `> ERROR: ${errData.detail}`;
+                return;
+            }
 
-            nextStep(3); // Show green checkmark
+            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+            document.getElementById('step-3').classList.add('active'); // Show green checkmark
         }
 
         function loadDashboard() {

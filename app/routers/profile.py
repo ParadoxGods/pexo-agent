@@ -58,6 +58,12 @@ def get_profile(name: str, db: Session = Depends(get_db)):
 def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_db)):
     """Maps the numbered answers to the actual text preferences and saves to DB."""
     
+    if answers.backup_path:
+        try:
+            os.makedirs(answers.backup_path, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid backup path. Could not create directory '{answers.backup_path}': {str(e)}")
+
     profile = db.query(Profile).filter(Profile.name == answers.name).first()
     
     # Determine what to update
