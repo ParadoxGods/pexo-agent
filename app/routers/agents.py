@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ..database import get_db
 from ..models import AgentProfile
 
@@ -11,7 +11,7 @@ class AgentCreate(BaseModel):
     name: str
     role: str
     system_prompt: str
-    capabilities: list[str] = []
+    capabilities: list[str] = Field(default_factory=list)
 
 class AgentResponse(AgentCreate):
     id: int

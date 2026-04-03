@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Optional
-import os
 from ..database import get_db
 from ..models import Profile
+from ..paths import normalize_user_path
 
 router = APIRouter()
 
@@ -36,8 +36,8 @@ SCRIPTING_QUESTIONS = [
 
 class ProfileAnswers(BaseModel):
     name: str = "default_user"
-    personality_answers: Dict[str, str] = {}
-    scripting_answers: Dict[str, str] = {}
+    personality_answers: Dict[str, str] = Field(default_factory=dict)
+    scripting_answers: Dict[str, str] = Field(default_factory=dict)
     backup_path: str = ""
 
 @router.get("/questions")
@@ -58,12 +58,12 @@ def get_profile(name: str, db: Session = Depends(get_db)):
 @router.post("/")
 def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_db)):
     """Maps the numbered answers to the actual text preferences and saves to DB."""
-    
-    if answers.backup_path:
+    normalized_backup_path = normalize_user_path(answers.backup_path)
+    if normalized_backup_path:
         try:
-            os.makedirs(answers.backup_path, exist_ok=True)
+            normalized_backup_path.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid backup path. Could not create directory '{answers.backup_path}': {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid backup path. Could not create directory '{normalized_backup_path}': {str(e)}")
 
     profile = db.query(Profile).filter(Profile.name == answers.name).first()
     
@@ -90,15 +90,15 @@ def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_
             profile.personality_prompt = full_personality_prompt
         if scripting_prefs:
             profile.scripting_preferences = scripting_prefs
-        if answers.backup_path:
-            profile.backup_path = answers.backup_path
+        if normalized_backup_path:
+            profile.backup_path = str(normalized_backup_path)
     else:
         # Create new
         profile = Profile(
             name=answers.name,
             personality_prompt=full_personality_prompt,
             scripting_preferences=scripting_prefs,
-            backup_path=answers.backup_path if answers.backup_path else None
+            backup_path=str(normalized_backup_path) if normalized_backup_path else None
         )
         db.add(profile)
     
