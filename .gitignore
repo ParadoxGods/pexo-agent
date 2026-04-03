@@ -14,6 +14,7 @@ __pycache__/
 # Pexo Local Databases & Memory
 pexo.db
 chroma_db/
+AI_NOTES.md
 
 # Dynamic Tools (Keep the folder and init, ignore generated scripts)
 app/dynamic_tools/*.py
