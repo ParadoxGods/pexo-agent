@@ -98,4 +98,3 @@ def create_or_update_profile(answers: ProfileAnswers, db: Session = Depends(get_
     db.commit()
     db.refresh(profile)
     return {"status": "success", "message": "Profile updated successfully.", "profile_id": profile.id}
-updated successfully.", "profile_id": profile.id}
