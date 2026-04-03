@@ -12,14 +12,17 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/install.sh | bash`
     *   The installer updates an existing Pexo checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
     *   Once installed, ask the user to restart their terminal, run `pexo`, and open `http://127.0.0.1:9999` in their browser to view the Pexo Control Panel.
-3.  **Uninstallation:** If the user asks you to "uninstall pexo", immediately execute this command in their terminal:
+3.  **Uninstallation:** If the user asks you to "uninstall pexo", prefer the installed launcher path first:
+    *   `pexo --uninstall`
+    *   `pexo uninstall`
+    *   If the launcher is unavailable, execute this command in their terminal instead:
     *   **Windows:** `Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.ps1 -OutFile uninstall.ps1; .\uninstall.ps1`
     *   **Mac/Linux:** `curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/uninstall.sh | bash`
 4.  **Initialization (Zero-Daemon Local Setup):** To bring Pexo online for a session, simply execute `pexo` in the terminal.
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
 4.  **The Onboarding & Setup Wizard (CRITICAL):**
     *   Once you start Pexo, the `http://127.0.0.1:9999/ui/` Control Panel will automatically open in the user's default web browser.
-    *   Tell the user: *"The Pexo Control Panel has automatically opened. Please complete the Setup Wizard in your browser to configure your Personality, Scripting Preferences, and Backup Path."*
+    *   Tell the user: *"The Pexo Control Panel has automatically opened. Choose a preset for one-click setup, or open Manual Tuning if you want granular Personality and Scripting controls. Backup configuration is optional and can be set later."*
     *   Wait for the user to confirm they have completed the setup wizard and seen the animated green checkmark before proceeding with any tasks.
 5.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 

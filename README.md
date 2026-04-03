@@ -31,10 +31,19 @@ Pexo is designed for frictionless ingestion by LLMs. Users do not need to clone 
 The AI will execute the global installation script, establish the isolated Python environment, and append the `pexo` executable to the system PATH. If Pexo is already installed, rerunning the installer updates the existing checkout in place and preserves the local brain (`pexo.db`, `chroma_db/`, and dynamic tools).
 
 Upon completion, executing `pexo` in the terminal will initialize the local server and automatically launch the administrative interface in the default web browser for initial configuration.
+The onboarding flow now defaults to one-click profile presets, with granular tuning and backup configuration available only when needed.
 
 ### Uninstallation
 
-To completely remove Pexo and all associated local data from your system, execute the following command:
+If Pexo is already installed, the fastest removal path is:
+
+```bash
+pexo --uninstall
+```
+
+`pexo uninstall` is also supported.
+
+If you need a raw script-driven uninstall, execute the following command:
 
 **Windows:**
 ```powershell

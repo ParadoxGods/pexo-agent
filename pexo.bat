@@ -6,6 +6,8 @@ cd /d "%~dp0"
 if "%~1"=="--version" goto version
 if "%~1"=="--help" goto help
 if "%~1"=="--mcp" goto mcp
+if "%~1"=="--uninstall" goto uninstall
+if /I "%~1"=="uninstall" goto uninstall
 
 :: Auto-Update: Pull latest changes from GitHub silently
 echo Checking for updates...
@@ -61,6 +63,12 @@ echo.
 echo Usage:
 echo   pexo           Starts the Pexo API and Control Panel
 echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
+echo   pexo --uninstall ^| pexo uninstall
+echo                  Removes the local Pexo installation and saved state
 echo   pexo --version Displays the current version
 echo   pexo --help    Displays this help menu
 exit /b 0
+
+:uninstall
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
+exit /b %ERRORLEVEL%
