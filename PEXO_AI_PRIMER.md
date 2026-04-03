@@ -19,14 +19,19 @@ If a human user has instructed you to "install pexo and use it" within this dire
 4.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 
     *   Retrieve the questions again from the API (`/profile/questions`), present the relevant section, and update their profile via the POST endpoint.
-5.  **The "One-Ask" Loop:** When the user gives you a regular task, you MUST immediately pass that prompt to Pexo's Intake API (`http://localhost:8000/intake`). Pexo will return exactly *one* clarifying question. You must ask the user this question and return their answer to Pexo before proceeding.
+5.  **The "One-Ask" Loop:** When the user gives you a regular task, you MUST immediately pass that prompt to Pexo's Intake API (`POST http://localhost:8000/orchestrator/intake`). Pexo will return exactly *one* clarifying question. You must ask the user this question and return their answer to Pexo (`POST http://localhost:8000/orchestrator/execute`) to begin the graph execution.
 6.  **Context & Memory Management:** 
     *   You are forbidden from keeping long, persistent context windows in your own native memory.
     *   Before taking any action, query Pexo for the relevant workspace context, user profile, and memory chunks (via vector search).
     *   **Compaction Protocol:** Pexo's **Context Cost Manager** monitors database size and token usage. If context becomes too bloated, Pexo will issue a "Compaction Command". You will be instructed to summarize a specific block of context. You will return the compacted context to Pexo, and Pexo will mark the old memories as `is_compacted=True` and store your summary.
 7.  **Data Limits:** All state, findings, and logs must be written back to the Pexo Postgres database (`agent_states` table). Under NO circumstances should the total database size exceed the `max_db_size_gb` limit defined in `pexo.yaml` (default: 50GB), unless the user modifies that configuration file directly.
 
-### How to Operate Under Pexo
-From this point forward, treat Pexo as an active MCP (Model Context Protocol) server. Do not execute code changes blindly. You must receive an execution plan from Pexo's Supervisor Agent, perform the specific task (e.g., as the Developer Agent), and write your results to the database via Pexo's API.
+### How to Operate Under Pexo (The LangGraph Loop)
+From this point forward, Pexo's LangGraph State Machine manages the overarching workflow. You act as the computational worker node.
+1. Poll `GET http://localhost:8000/orchestrator/next?session_id=<your_session_id>`
+2. Pexo will return a JSON object telling you which "Agent Role" you must assume (e.g., Supervisor, Developer, Manager) and what your exact "Instruction" is.
+3. Perform the task described in the instruction natively on the user's system.
+4. Once completed, post your structured findings or results back to `POST http://localhost:8000/orchestrator/submit`.
+5. Repeat Step 1 until Pexo responds with `{"status": "complete"}`.
 
 **Your First Action:** Acknowledge to the user that you have read this primer, confirm Pexo is being installed, execute the `docker-compose up` command, and then immediately check if the user needs Onboarding (Step 3).
