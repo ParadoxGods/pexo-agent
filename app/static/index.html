@@ -64,8 +64,10 @@
         button.danger { border-color: var(--danger); color: var(--danger); }
         button.danger:hover { background: var(--danger); color: #fff; }
         
-        .agent-list, .tool-list { list-style: none; padding: 0; margin: 0; }
-        .agent-list li, .tool-list li { padding: 0.5rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; }
+        .agent-list, .tool-list, .memory-list { list-style: none; padding: 0; margin: 0; }
+        .agent-list li, .tool-list li, .memory-list li { padding: 0.75rem 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+        .list-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .meta-line { color: var(--text-muted); font-size: 0.8rem; }
         
         pre { 
             background: #000; 
@@ -181,12 +183,12 @@
         <div id="dashboard" class="dashboard">
             <div class="grid">
                 <div class="card">
-                    <h2>SYSTEM METRICS & BACKUP</h2>
+                    <h2>SYSTEM METRICS, PROFILE & BACKUP</h2>
                     <div id="profile-display">Loading...</div>
                     <input type="text" id="backup-path-input" placeholder="Optional backup path">
                     <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
                         <button onclick="saveBackupPath()">SAVE BACKUP PATH</button>
-                        <button onclick="fetchProfile()">REFRESH</button>
+                        <button onclick="refreshDashboard()">REFRESH</button>
                         <button onclick="runBackup()">TRIGGER BACKUP</button>
                     </div>
                     <p id="backup-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
@@ -196,10 +198,16 @@
                     <h2>SWARM AGENT REGISTRY</h2>
                     <ul class="agent-list" id="agent-list"></ul>
                     <div style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                        <input type="hidden" id="agent-edit-id">
                         <input type="text" id="new-agent-name" placeholder="AGENT_NAME">
                         <input type="text" id="new-agent-role" placeholder="AGENT_ROLE">
-                        <textarea id="new-agent-prompt" placeholder="SYSTEM_PROMPT" rows="3"></textarea>
-                        <button onclick="createAgent()">DEPLOY AGENT</button>
+                        <input type="text" id="new-agent-capabilities" placeholder="CAPABILITIES (comma-separated)">
+                        <textarea id="new-agent-prompt" placeholder="SYSTEM_PROMPT" rows="5"></textarea>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button onclick="saveAgent()" id="agent-save-button">DEPLOY AGENT</button>
+                            <button onclick="resetAgentForm()" id="agent-cancel-button" style="display:none;">CANCEL EDIT</button>
+                        </div>
+                        <p id="agent-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
                     </div>
                 </div>
 
@@ -208,8 +216,30 @@
                     <div style="display: flex; gap: 1rem;">
                         <input type="text" id="memory-search-query" placeholder="QUERY VECTOR DATABASE...">
                         <button onclick="searchMemory()" style="width: auto;">SEARCH</button>
+                        <button onclick="refreshDashboard()" style="width: auto;">REFRESH</button>
                     </div>
                     <div id="memory-results" style="margin-top: 1rem;"></div>
+                    <div class="grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 1rem; margin-top: 1.5rem;">
+                        <div>
+                            <h3 style="color:#fff; border-bottom: 1px solid #222;">RECENT MEMORIES</h3>
+                            <ul class="memory-list" id="memory-list"></ul>
+                        </div>
+                        <div>
+                            <h3 style="color:#fff; border-bottom: 1px solid #222;">MEMORY EDITOR</h3>
+                            <input type="hidden" id="memory-edit-id">
+                            <input type="text" id="memory-task-context" placeholder="TASK_CONTEXT">
+                            <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:var(--text-muted);">
+                                <input type="checkbox" id="memory-is-compacted" style="width:auto; margin:0;">
+                                MARK AS COMPACTED
+                            </label>
+                            <textarea id="memory-content" placeholder="SELECT A MEMORY TO EDIT" rows="9"></textarea>
+                            <div style="display:flex; gap:0.5rem;">
+                                <button onclick="saveMemory()" id="memory-save-button" disabled>SAVE MEMORY</button>
+                                <button onclick="resetMemoryForm()">CLEAR</button>
+                            </div>
+                            <p id="memory-status" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="card full-width">
@@ -224,20 +254,116 @@
         let questionsData = null;
         let presetData = null;
         let manualSetupEnabled = false;
+        let dashboardData = { profile: null, agents: [], tools: [], recent_memories: [], stats: {} };
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function truncateText(value, maxLength = 180) {
+            const text = String(value ?? '');
+            return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+        }
+
+        function parseCapabilities(rawValue) {
+            return rawValue.split(',').map(value => value.trim()).filter(Boolean);
+        }
+
+        async function fetchSnapshot() {
+            const res = await fetch('/admin/snapshot?memory_limit=15');
+            if (!res.ok) {
+                throw new Error('Failed to load admin snapshot.');
+            }
+            return res.json();
+        }
+
+        function renderProfile(profile, stats) {
+            const scriptingPreferences = profile?.scripting_preferences || {};
+            const scriptingText = Object.keys(scriptingPreferences).length
+                ? Object.entries(scriptingPreferences).map(([key, value]) => `${key}: ${value}`).join('\n')
+                : 'NO SCRIPTING PREFERENCES SET.';
+            const personalityText = profile?.personality_prompt || 'NO PROFILE PROMPT SET.';
+            const backupPath = profile?.backup_path || 'NOT SET';
+
+            document.getElementById('profile-display').innerHTML = `
+                <p><strong>BACKUP PATH:</strong> ${escapeHtml(backupPath)}</p>
+                <p><strong>AGENTS:</strong> ${stats.agent_count || 0} | <strong>TOOLS:</strong> ${stats.tool_count || 0} | <strong>MEMORIES:</strong> ${stats.memory_count || 0}</p>
+                <pre>PERSONALITY\n${escapeHtml(personalityText)}\n\nSCRIPTING\n${escapeHtml(scriptingText)}</pre>
+            `;
+            document.getElementById('backup-path-input').value = profile?.backup_path || '';
+        }
+
+        function renderAgents(agents) {
+            const list = document.getElementById('agent-list');
+            list.innerHTML = agents.length ? agents.map(agent => `
+                <li>
+                    <div style="flex:1;">
+                        <div><strong>${escapeHtml(agent.name)}</strong> [${escapeHtml(agent.role || 'NO ROLE')}] ${agent.is_core ? '<span style="color:#fff;">[CORE]</span>' : ''}</div>
+                        <div class="meta-line">${escapeHtml((agent.capabilities || []).join(', ') || 'No explicit capabilities')}</div>
+                    </div>
+                    <div class="list-actions">
+                        <button onclick="editAgent(${agent.id})">EDIT</button>
+                        ${!agent.is_core ? `<button class="danger" onclick="deleteAgent(${agent.id})">TERMINATE</button>` : ''}
+                    </div>
+                </li>
+            `).join('') : '<li>NO AGENTS REGISTERED.</li>';
+        }
+
+        function renderTools(tools) {
+            const list = document.getElementById('tool-list');
+            list.innerHTML = tools.length
+                ? tools.map(tool => `<li><div><strong>> ${escapeHtml(tool.name)}</strong><br><span class="meta-line">${escapeHtml(tool.description || '')}</span></div></li>`).join('')
+                : '<li>NO DYNAMIC TOOLS ASSIMILATED.</li>';
+        }
+
+        function renderMemories(memories) {
+            const list = document.getElementById('memory-list');
+            list.innerHTML = memories.length ? memories.map(memory => `
+                <li>
+                    <div style="flex:1;">
+                        <div><strong>${escapeHtml(memory.task_context || 'NO CONTEXT')}</strong> ${memory.is_compacted ? '<span style="color:#fff;">[COMPACTED]</span>' : ''}</div>
+                        <div class="meta-line">${escapeHtml(memory.created_at || '')}</div>
+                        <div class="meta-line">${escapeHtml(truncateText(memory.content, 220))}</div>
+                    </div>
+                    <div class="list-actions">
+                        <button onclick="editMemory(${memory.id})">EDIT</button>
+                        <button class="danger" onclick="deleteMemory(${memory.id})">DELETE</button>
+                    </div>
+                </li>
+            `).join('') : '<li>NO MEMORIES STORED.</li>';
+        }
+
+        function applyDashboardSnapshot(snapshot) {
+            dashboardData = snapshot;
+            renderProfile(snapshot.profile, snapshot.stats || {});
+            renderAgents(snapshot.agents || []);
+            renderTools(snapshot.tools || []);
+            renderMemories(snapshot.recent_memories || []);
+        }
+
+        async function refreshDashboard() {
+            const snapshot = await fetchSnapshot();
+            applyDashboardSnapshot(snapshot);
+        }
 
         async function checkStatus() {
             try {
-                const res = await fetch('/profile/default_user');
-                if (res.status === 404) {
+                const snapshot = await fetchSnapshot();
+                if (!snapshot.configured) {
                     document.getElementById('wizard').classList.add('active');
                     loadQuestions();
                 } else {
                     document.getElementById('dashboard').classList.add('active');
-                    fetchProfile();
-                    fetchAgents();
-                    fetchTools();
+                    applyDashboardSnapshot(snapshot);
                 }
-            } catch(e) { console.error(e); }
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         async function loadQuestions() {
@@ -259,7 +385,7 @@
                 <div class="question-row">
                     <div class="question-label">${q.text}</div>
                     <select id="ans-${q.id}" class="question-select">
-                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+                        ${Object.entries(q.options).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
                     </select>
                 </div>
             `).join('');
@@ -268,7 +394,7 @@
                 <div class="question-row">
                     <div class="question-label">${q.text}</div>
                     <select id="ans-${q.id}" class="question-select">
-                        ${Object.entries(q.options).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+                        ${Object.entries(q.options).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
                     </select>
                 </div>
             `).join('');
@@ -281,7 +407,7 @@
 
         function buildManualPayload(backupPath = '') {
             const payload = {
-                name: "default_user",
+                name: 'default_user',
                 backup_path: backupPath,
                 personality_answers: {},
                 scripting_answers: {}
@@ -300,7 +426,7 @@
                 body: JSON.stringify({name: 'default_user'})
             });
 
-            if(!res.ok) {
+            if (!res.ok) {
                 const errData = await res.json();
                 document.getElementById('wizard-status').innerText = `> ERROR: ${errData.detail}`;
                 return;
@@ -325,31 +451,19 @@
                 body: JSON.stringify(payload)
             });
             
-            if(!res.ok) {
+            if (!res.ok) {
                 const errData = await res.json();
                 document.getElementById('wiz-backup-error').innerText = `> ERROR: ${errData.detail}`;
                 return;
             }
 
-            nextStep(3); // Show green checkmark
+            nextStep(3);
         }
 
-        function loadDashboard() {
+        async function loadDashboard() {
             document.getElementById('wizard').classList.remove('active');
             document.getElementById('dashboard').classList.add('active');
-            fetchProfile();
-            fetchAgents();
-            fetchTools();
-        }
-
-        async function fetchProfile() {
-            const res = await fetch('/profile/default_user');
-            const data = await res.json();
-            document.getElementById('profile-display').innerHTML = `
-                <p><strong>BACKUP PATH:</strong> ${data.backup_path || 'NOT SET'}</p>
-                <pre>${data.personality_prompt || 'NO PROFILE PROMPT SET.'}</pre>
-            `;
-            document.getElementById('backup-path-input').value = data.backup_path || '';
+            await refreshDashboard();
         }
 
         async function saveBackupPath() {
@@ -362,77 +476,172 @@
             const data = await res.json();
             document.getElementById('backup-status').innerText = res.ok ? `> ${backupPath ? 'BACKUP PATH SAVED.' : 'BACKUP PATH CLEARED.'}` : `> ERROR: ${data.detail}`;
             if (res.ok) {
-                fetchProfile();
+                await refreshDashboard();
             }
         }
 
-        async function fetchAgents() {
-            const res = await fetch('/agents/');
-            const data = await res.json();
-            const list = document.getElementById('agent-list');
-            list.innerHTML = data.map(a => `
-                <li>
-                    <span>[${a.role}] <strong>${a.name}</strong></span>
-                    ${!a.is_core ? `<button class="danger" onclick="deleteAgent(${a.id})">TERMINATE</button>` : '<i>[CORE]</i>'}
-                </li>
-            `).join('');
-        }
-
-        async function createAgent() {
-            const name = document.getElementById('new-agent-name').value;
-            const role = document.getElementById('new-agent-role').value;
-            const prompt = document.getElementById('new-agent-prompt').value;
-            if(!name || !role) return alert('PARAMETERS REQUIRED');
-            
-            await fetch('/agents/', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name, role, system_prompt: prompt, capabilities: []})
-            });
+        function resetAgentForm() {
+            document.getElementById('agent-edit-id').value = '';
             document.getElementById('new-agent-name').value = '';
             document.getElementById('new-agent-role').value = '';
+            document.getElementById('new-agent-capabilities').value = '';
             document.getElementById('new-agent-prompt').value = '';
-            fetchAgents();
+            document.getElementById('agent-save-button').innerText = 'DEPLOY AGENT';
+            document.getElementById('agent-cancel-button').style.display = 'none';
+            document.getElementById('agent-status').innerText = '';
+        }
+
+        function editAgent(id) {
+            const agent = (dashboardData.agents || []).find(candidate => candidate.id === id);
+            if (!agent) return;
+            document.getElementById('agent-edit-id').value = String(agent.id);
+            document.getElementById('new-agent-name').value = agent.name || '';
+            document.getElementById('new-agent-role').value = agent.role || '';
+            document.getElementById('new-agent-capabilities').value = (agent.capabilities || []).join(', ');
+            document.getElementById('new-agent-prompt').value = agent.system_prompt || '';
+            document.getElementById('agent-save-button').innerText = 'SAVE AGENT';
+            document.getElementById('agent-cancel-button').style.display = 'inline-block';
+            document.getElementById('agent-status').innerText = `> EDITING ${agent.name.toUpperCase()}`;
+        }
+
+        async function saveAgent() {
+            const id = document.getElementById('agent-edit-id').value;
+            const name = document.getElementById('new-agent-name').value.trim();
+            const role = document.getElementById('new-agent-role').value.trim();
+            const capabilities = parseCapabilities(document.getElementById('new-agent-capabilities').value);
+            const prompt = document.getElementById('new-agent-prompt').value.trim();
+            if (!name || !role) {
+                document.getElementById('agent-status').innerText = '> ERROR: NAME AND ROLE ARE REQUIRED.';
+                return;
+            }
+
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/agents/${id}` : '/agents/';
+            const res = await fetch(url, {
+                method,
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, role, system_prompt: prompt, capabilities})
+            });
+            const data = await res.json();
+            document.getElementById('agent-status').innerText = res.ok
+                ? `> ${id ? 'AGENT UPDATED.' : 'AGENT DEPLOYED.'}`
+                : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                resetAgentForm();
+                await refreshDashboard();
+            }
         }
 
         async function deleteAgent(id) {
-            if(!confirm('TERMINATE AGENT?')) return;
-            await fetch(`/agents/${id}`, {method: 'DELETE'});
-            fetchAgents();
+            if (!confirm('TERMINATE AGENT?')) return;
+            const res = await fetch(`/agents/${id}`, {method: 'DELETE'});
+            const data = await res.json();
+            document.getElementById('agent-status').innerText = res.ok ? `> ${data.message}` : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                resetAgentForm();
+                await refreshDashboard();
+            }
         }
 
-        async function fetchTools() {
-            const res = await fetch('/tools/');
+        function resetMemoryForm() {
+            document.getElementById('memory-edit-id').value = '';
+            document.getElementById('memory-task-context').value = '';
+            document.getElementById('memory-content').value = '';
+            document.getElementById('memory-is-compacted').checked = false;
+            document.getElementById('memory-save-button').disabled = true;
+            document.getElementById('memory-status').innerText = '';
+        }
+
+        async function editMemory(id) {
+            let memory = (dashboardData.recent_memories || []).find(candidate => candidate.id === id);
+            if (!memory) {
+                const res = await fetch(`/memory/${id}`);
+                if (!res.ok) {
+                    const data = await res.json();
+                    document.getElementById('memory-status').innerText = `> ERROR: ${data.detail}`;
+                    return;
+                }
+                memory = await res.json();
+            }
+            document.getElementById('memory-edit-id').value = String(memory.id);
+            document.getElementById('memory-task-context').value = memory.task_context || '';
+            document.getElementById('memory-content').value = memory.content || '';
+            document.getElementById('memory-is-compacted').checked = Boolean(memory.is_compacted);
+            document.getElementById('memory-save-button').disabled = false;
+            document.getElementById('memory-status').innerText = `> EDITING MEMORY ${memory.id}`;
+        }
+
+        async function saveMemory() {
+            const id = document.getElementById('memory-edit-id').value;
+            if (!id) {
+                document.getElementById('memory-status').innerText = '> ERROR: SELECT A MEMORY FIRST.';
+                return;
+            }
+            const taskContext = document.getElementById('memory-task-context').value.trim();
+            const content = document.getElementById('memory-content').value.trim();
+            const isCompacted = document.getElementById('memory-is-compacted').checked;
+            if (!taskContext || !content) {
+                document.getElementById('memory-status').innerText = '> ERROR: TASK CONTEXT AND CONTENT ARE REQUIRED.';
+                return;
+            }
+
+            const res = await fetch(`/memory/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_context: taskContext, content, is_compacted: isCompacted})
+            });
             const data = await res.json();
-            const list = document.getElementById('tool-list');
-            list.innerHTML = data.length ? data.map(t => `<li><strong>> ${t.name}</strong><br><span style="color:var(--text-muted)">${t.description}</span></li>`).join('') : '<li>NO DYNAMIC TOOLS ASSIMILATED.</li>';
+            document.getElementById('memory-status').innerText = res.ok ? '> MEMORY UPDATED.' : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                await refreshDashboard();
+                await editMemory(Number(id));
+            }
+        }
+
+        async function deleteMemory(id) {
+            if (!confirm('DELETE MEMORY?')) return;
+            const res = await fetch(`/memory/${id}`, {method: 'DELETE'});
+            const data = await res.json();
+            document.getElementById('memory-status').innerText = res.ok ? `> ${data.message}` : `> ERROR: ${data.detail}`;
+            if (res.ok) {
+                if (document.getElementById('memory-edit-id').value === String(id)) {
+                    resetMemoryForm();
+                }
+                await refreshDashboard();
+            }
         }
 
         async function searchMemory() {
-            const query = document.getElementById('memory-search-query').value;
-            if(!query) return;
+            const query = document.getElementById('memory-search-query').value.trim();
+            if (!query) return;
             const res = await fetch('/memory/search', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({query, n_results: 3})
+                body: JSON.stringify({query, n_results: 5})
             });
             const data = await res.json();
             const resultsDiv = document.getElementById('memory-results');
-            if(!data.results || data.results.length === 0) {
+            if (!data.results || data.results.length === 0) {
                 resultsDiv.innerHTML = '<p>NO MEMORY FOUND.</p>';
                 return;
             }
-            resultsDiv.innerHTML = data.results.map(r => `
-                <pre>> CONTEXT: ${r.metadata.task_context}\n\n${r.content}</pre>
+            resultsDiv.innerHTML = data.results.map(result => `
+                <div style="border:1px solid var(--border); padding:1rem; margin-bottom:0.75rem; background:#000;">
+                    <div style="display:flex; justify-content:space-between; gap:1rem; margin-bottom:0.5rem;">
+                        <strong>${escapeHtml(result.metadata?.task_context || 'NO CONTEXT')}</strong>
+                        ${result.memory_id ? `<button onclick="editMemory(${result.memory_id})">EDIT</button>` : ''}
+                    </div>
+                    <div class="meta-line">${escapeHtml(result.created_at || '')}</div>
+                    <pre>${escapeHtml(result.content)}</pre>
+                </div>
             `).join('');
         }
 
         async function runBackup() {
-            document.getElementById('backup-status').innerText = "> EXECUTING BACKUP PROTOCOL...";
+            document.getElementById('backup-status').innerText = '> EXECUTING BACKUP PROTOCOL...';
             const res = await fetch('/backup/run', {method: 'POST'});
             const data = await res.json();
-            if(res.ok) document.getElementById('backup-status').innerText = "> " + data.message;
-            else document.getElementById('backup-status').innerText = "> ERROR: " + data.detail;
+            document.getElementById('backup-status').innerText = res.ok ? `> ${data.message}` : `> ERROR: ${data.detail}`;
         }
 
         checkStatus();

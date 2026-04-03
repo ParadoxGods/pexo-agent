@@ -2,8 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import uuid
-import json
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
 
 from ..database import get_db
 from ..models import AgentState, Memory
@@ -45,7 +44,8 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         "waiting_for_ai": False,
         "final_response": "",
         "user_profile": "",
-        "available_agents": ""
+        "available_agents": "",
+        "available_tools": "",
     }
     
     db_state = AgentState(
