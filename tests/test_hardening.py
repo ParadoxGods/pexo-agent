@@ -337,7 +337,7 @@ class HardeningTests(unittest.TestCase):
         bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
         bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
 
-        self.assertIn('[string]$Ref = "v1.0.7"', bootstrap_ps)
+        self.assertIn('[string]$Ref = "v1.0.8"', bootstrap_ps)
         self.assertIn('throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($ArgumentList -join \' \')"', bootstrap_ps)
         self.assertNotIn('throw "Command failed with exit code $LASTEXITCODE:', bootstrap_ps)
         self.assertIn('[string]$ConnectClients = "all"', bootstrap_ps)
@@ -347,7 +347,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"', bootstrap_ps)
         self.assertIn('Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients', bootstrap_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
-        self.assertIn('REF="v1.0.7"', bootstrap_sh)
+        self.assertIn('REF="v1.0.8"', bootstrap_sh)
         self.assertIn('CONNECT_CLIENTS="all"', bootstrap_sh)
         self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
@@ -410,8 +410,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", readme)
         self.assertIn("pexo-install-windows.zip", readme)
         self.assertIn("pexo-install-unix.tar.gz", readme)
-        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.7"', readme)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.7"', readme)
+        self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.8"', readme)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.8"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
@@ -430,7 +430,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", agents_doc)
         self.assertIn("pexo-install-windows.zip", agents_doc)
         self.assertIn("pexo-install-unix.tar.gz", agents_doc)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.7"', agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.8"', agents_doc)
         self.assertIn("pexo connect all --scope user", agents_doc)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
@@ -455,6 +455,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn(".pexo-install.json", install_sh)
         self.assertIn("Resetting managed runtime environment", install_ps)
         self.assertIn("Resetting managed runtime environment", install_sh)
+        self.assertIn(".pexo-deps-profile", install_ps)
+        self.assertIn(".pexo-deps-profile", install_sh)
 
     def test_doctor_report_surfaces_guidance_and_install_health(self):
         report = build_doctor_report()
@@ -902,6 +904,24 @@ class HardeningTests(unittest.TestCase):
     def test_runtime_module_availability_handles_missing_optional_parents(self):
         with patch("app.runtime.find_spec", side_effect=ModuleNotFoundError("mcp")):
             self.assertFalse(runtime_module._module_available("mcp.server.fastmcp"))
+
+    def test_runtime_status_reconciles_stale_marker_to_installed_profile(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marker_path = Path(tmpdir) / ".pexo-deps-profile"
+            marker_path.write_text("full", encoding="utf-8")
+
+            with patch.object(runtime_module, "RUNTIME_MARKER_PATH", marker_path):
+                with patch("app.runtime._profile_install_matrix", return_value={
+                    "core": True,
+                    "mcp": True,
+                    "full": False,
+                    "vector": False,
+                }):
+                    status = build_runtime_status()
+
+            self.assertEqual(status["active_profile"], "mcp")
+            self.assertEqual(status["marker_profile"], "mcp")
+            self.assertEqual(marker_path.read_text(encoding="utf-8"), "mcp")
 
     @patch("app.routers.runtime.promote_runtime")
     def test_mcp_runtime_tools_expose_status_and_promotion(self, mock_promote_runtime):

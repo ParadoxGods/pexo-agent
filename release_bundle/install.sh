@@ -154,6 +154,7 @@ else
         print_step 16 "Resetting managed runtime environment"
         rm -rf "$VENV_PATH"
     fi
+    rm -f "$INSTALL_METADATA_PATH" "$STATE_ROOT/.pexo-deps-profile"
     print_step 20 "Creating isolated Python environment"
     "$PYTHON_CMD" -m venv "$VENV_PATH"
     print_step 35 "Ensuring pip is available"

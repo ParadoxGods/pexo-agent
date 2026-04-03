@@ -31,11 +31,15 @@ def get_runtime_marker_profile() -> str:
     return RUNTIME_MARKER_PATH.read_text(encoding="utf-8").strip().lower()
 
 
+def _write_runtime_marker_profile(profile: str) -> None:
+    RUNTIME_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RUNTIME_MARKER_PATH.write_text(profile, encoding="utf-8")
+
+
 def set_runtime_marker_profile(profile: str) -> None:
     current = get_runtime_marker_profile()
     effective = profile if get_profile_rank(profile) >= get_profile_rank(current) else current
-    RUNTIME_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RUNTIME_MARKER_PATH.write_text(effective, encoding="utf-8")
+    _write_runtime_marker_profile(effective)
 
 
 def _module_available(module_name: str) -> bool:
@@ -45,20 +49,6 @@ def _module_available(module_name: str) -> bool:
         return False
 
 
-def detect_runtime_profile() -> str:
-    marker_profile = get_runtime_marker_profile()
-    if get_profile_rank(marker_profile):
-        return marker_profile
-
-    if _module_available("chromadb"):
-        return "vector"
-    if _module_available("langgraph.graph") and _module_available("uvicorn"):
-        return "full"
-    if _module_available("mcp.server.fastmcp"):
-        return "mcp"
-    return "core"
-
-
 def _profile_install_matrix() -> dict[str, bool]:
     return {
         "core": True,
@@ -66,6 +56,25 @@ def _profile_install_matrix() -> dict[str, bool]:
         "full": _module_available("uvicorn") and _module_available("langgraph.graph"),
         "vector": _module_available("chromadb"),
     }
+
+
+def _highest_installed_profile(installed_profiles: dict[str, bool]) -> str:
+    for profile in ("vector", "full", "mcp", "core"):
+        if installed_profiles.get(profile):
+            return profile
+    return "core"
+
+
+def reconcile_runtime_marker_profile(installed_profiles: dict[str, bool] | None = None) -> str:
+    matrix = installed_profiles or _profile_install_matrix()
+    effective = _highest_installed_profile(matrix)
+    if get_runtime_marker_profile() != effective:
+        _write_runtime_marker_profile(effective)
+    return effective
+
+
+def detect_runtime_profile() -> str:
+    return _highest_installed_profile(_profile_install_matrix())
 
 
 def get_system_setting(db: Session, key: str, default=None):
@@ -112,7 +121,8 @@ def maybe_issue_vector_promotion_offer(db: Session | None = None) -> dict | None
 
 def build_runtime_status(db: Session | None = None) -> dict:
     installed_profiles = _profile_install_matrix()
-    active_profile = detect_runtime_profile()
+    marker_profile = reconcile_runtime_marker_profile(installed_profiles)
+    active_profile = _highest_installed_profile(installed_profiles)
     vector_offer_available = not installed_profiles["vector"]
     vector_offer_pending = vector_offer_available and not bool(
         get_system_setting(db, VECTOR_PROMOTION_NOTICE_KEY, False) if db is not None else False
@@ -120,7 +130,7 @@ def build_runtime_status(db: Session | None = None) -> dict:
 
     return {
         "active_profile": active_profile,
-        "marker_profile": get_runtime_marker_profile() or None,
+        "marker_profile": marker_profile or None,
         "installed_profiles": installed_profiles,
         "vector_embeddings_available": installed_profiles["vector"],
         "project_root": str(PROJECT_ROOT),

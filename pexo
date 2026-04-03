@@ -256,7 +256,7 @@ promote_runtime() {
 }
 
 if [ "${1:-}" = "--version" ]; then
-    echo "Pexo v1.0.7"
+    echo "Pexo v1.0.8"
     exit 0
 fi
 
