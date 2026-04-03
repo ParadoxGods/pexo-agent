@@ -37,6 +37,22 @@ IF NOT EXIST "venv" (
     call venv\Scripts\activate.bat
 )
 
+if "%~1"=="--version" (
+    echo Pexo v1.0.0-stable
+    exit /b
+)
+
+if "%~1"=="--help" (
+    echo Pexo: Primary EXecution Operator
+    echo.
+    echo Usage:
+    echo   pexo           Starts the Pexo API and Control Panel
+    echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
+    echo   pexo --version Displays the current version
+    echo   pexo --help    Displays this help menu
+    exit /b
+)
+
 if "%~1"=="--mcp" (
     :: Run the FastMCP server over stdio (Silent stdout, only MCP protocol output allowed)
     python -c "from app.database import init_db; init_db(); from app.mcp_server import start_mcp_server; start_mcp_server()"
