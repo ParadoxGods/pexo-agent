@@ -162,6 +162,10 @@ else {
     $venvPexo = Join-Path $venvBin "pexo.exe"
     $venvMcp = Join-Path $venvBin "pexo-mcp.exe"
     New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
+    if (Test-Path $venvPath) {
+        Write-Step -Percent 16 -Status "Resetting managed runtime environment"
+        Remove-Item -Recurse -Force -LiteralPath $venvPath
+    }
     Invoke-Checked -Percent 20 -Status "Creating isolated Python environment" -FilePath $pythonExe -ArgumentList ($pythonArgs + @("-m", "venv", $venvPath))
     Invoke-Checked -Percent 35 -Status "Ensuring pip is available" -FilePath $venvPython -ArgumentList @("-m", "ensurepip", "--upgrade")
     Invoke-Checked -Percent 50 -Status "Installing the Pexo wheel" -FilePath $venvPython -ArgumentList @("-m", "pip", "install", "--disable-pip-version-check", "--force-reinstall", $wheelPath)

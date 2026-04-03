@@ -3,7 +3,7 @@ param(
     [string]$ProfileName = "default_user",
     [string]$BackupPath = "",
     [string]$Repository = "ParadoxGods/pexo-agent",
-    [string]$Ref = "v1.0.6",
+    [string]$Ref = "v1.0.7",
     [string]$InstallDir = "",
     [string]$RepoPath = "",
     [switch]$UseCurrentCheckout,

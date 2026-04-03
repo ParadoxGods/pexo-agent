@@ -150,6 +150,10 @@ else
     COMMAND_PATH="$VENV_BIN/pexo"
     MCP_COMMAND="$VENV_BIN/pexo-mcp"
     mkdir -p "$STATE_ROOT"
+    if [ -d "$VENV_PATH" ]; then
+        print_step 16 "Resetting managed runtime environment"
+        rm -rf "$VENV_PATH"
+    fi
     print_step 20 "Creating isolated Python environment"
     "$PYTHON_CMD" -m venv "$VENV_PATH"
     print_step 35 "Ensuring pip is available"
