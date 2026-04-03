@@ -1,12 +1,17 @@
+import json
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import inspect
 
+from app.cli import headless_setup, list_presets
 from app.database import SessionLocal, engine, init_db
+from app.models import Profile
 from app.paths import PEXO_DB_PATH
 from app.routers.backup import create_backup_archive
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, upsert_profile
@@ -81,6 +86,26 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("fonts.googleapis.com", html)
         self.assertNotIn("fonts.gstatic.com", html)
 
+    def test_install_scripts_report_progress_percentages(self):
+        powershell_installer = Path("install.ps1").read_text(encoding="utf-8")
+        shell_installer = Path("install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("Show-InstallProgress", powershell_installer)
+        self.assertIn("HeadlessSetup", powershell_installer)
+        self.assertIn("Installing Python dependencies... still working", powershell_installer)
+        self.assertIn("--headless-setup", shell_installer)
+        self.assertIn("print_progress 100", shell_installer)
+        self.assertIn("Installing Python dependencies... still working", shell_installer)
+
+    def test_launchers_expose_headless_setup_commands(self):
+        shell_launcher = Path("pexo").read_text(encoding="utf-8")
+        batch_launcher = Path("pexo.bat").read_text(encoding="utf-8")
+
+        self.assertIn("--list-presets", shell_launcher)
+        self.assertIn("--headless-setup", shell_launcher)
+        self.assertIn("--list-presets", batch_launcher)
+        self.assertIn("--headless-setup", batch_launcher)
+
     def test_profile_preset_builds_expected_answers(self):
         answers = build_profile_from_preset("efficient_operator")
 
@@ -115,6 +140,32 @@ class HardeningTests(unittest.TestCase):
                     db,
                 )
                 self.assertIsNone(cleared.backup_path)
+        finally:
+            db.close()
+
+    def test_list_presets_json_contains_efficient_operator(self):
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = list_presets(as_json=True)
+
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(output.getvalue())
+        self.assertTrue(any(preset["id"] == "efficient_operator" for preset in payload))
+
+    def test_headless_setup_creates_profile_without_ui(self):
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = headless_setup(preset="strict_engineer", name="cli_user")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Headless profile setup complete", output.getvalue())
+
+        init_db()
+        db = SessionLocal()
+        try:
+            profile = db.query(Profile).filter(Profile.name == "cli_user").first()
+            self.assertIsNotNone(profile)
+            self.assertIn("Communication Style: Direct & Concise", profile.personality_prompt)
         finally:
             db.close()
 

@@ -20,6 +20,11 @@ ensure_venv() {
     fi
 }
 
+run_cli() {
+    ensure_venv
+    "$(venv_python)" -m app.cli "$@"
+}
+
 if [ "$1" = "--version" ]; then
     echo "Pexo v1.0.0-stable"
     exit 0
@@ -30,6 +35,10 @@ if [ "$1" = "--help" ]; then
     echo ""
     echo "Usage:"
     echo "  pexo           Starts the Pexo API and Control Panel"
+    echo "  pexo --list-presets | pexo list-presets"
+    echo "                 Lists available profile presets for terminal-first setup"
+    echo "  pexo --headless-setup | pexo headless-setup [--preset PRESET] [--name NAME] [--backup-path PATH]"
+    echo "                 Initializes the local profile without opening the web UI"
     echo "  pexo --mcp     Starts Pexo as a native MCP server (stdio)"
     echo "  pexo --uninstall | pexo uninstall"
     echo "                 Removes the local Pexo installation and saved state"
@@ -41,6 +50,18 @@ fi
 if [ "$1" = "--mcp" ]; then
     ensure_venv
     "$(venv_python)" -c "from app.mcp_server import start_mcp_server; start_mcp_server()"
+    exit $?
+fi
+
+if [ "$1" = "--list-presets" ] || [ "$1" = "list-presets" ]; then
+    shift
+    run_cli list-presets "$@"
+    exit $?
+fi
+
+if [ "$1" = "--headless-setup" ] || [ "$1" = "headless-setup" ]; then
+    shift
+    run_cli headless-setup "$@"
     exit $?
 fi
 

@@ -6,6 +6,10 @@ cd /d "%~dp0"
 if "%~1"=="--version" goto version
 if "%~1"=="--help" goto help
 if "%~1"=="--mcp" goto mcp
+if "%~1"=="--list-presets" goto listpresets
+if /I "%~1"=="list-presets" goto listpresets
+if "%~1"=="--headless-setup" goto headlesssetup
+if /I "%~1"=="headless-setup" goto headlesssetup
 if "%~1"=="--uninstall" goto uninstall
 if /I "%~1"=="uninstall" goto uninstall
 
@@ -62,12 +66,32 @@ echo Pexo: Primary EXecution Operator
 echo.
 echo Usage:
 echo   pexo           Starts the Pexo API and Control Panel
+echo   pexo --list-presets ^| pexo list-presets
+echo                  Lists available profile presets for terminal-first setup
+echo   pexo --headless-setup ^| pexo headless-setup [--preset PRESET] [--name NAME] [--backup-path PATH]
+echo                  Initializes the local profile without opening the web UI
 echo   pexo --mcp     Starts Pexo as a native MCP server (stdio)
 echo   pexo --uninstall ^| pexo uninstall
 echo                  Removes the local Pexo installation and saved state
 echo   pexo --version Displays the current version
 echo   pexo --help    Displays this help menu
 exit /b 0
+
+:listpresets
+IF NOT EXIST "venv\Scripts\python.exe" (
+    python -m venv venv 1>&2
+    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
+)
+venv\Scripts\python.exe -m app.cli list-presets %2 %3 %4 %5 %6 %7 %8 %9
+exit /b %ERRORLEVEL%
+
+:headlesssetup
+IF NOT EXIST "venv\Scripts\python.exe" (
+    python -m venv venv 1>&2
+    venv\Scripts\python.exe -m pip install -r requirements.txt 1>&2
+)
+venv\Scripts\python.exe -m app.cli headless-setup %2 %3 %4 %5 %6 %7 %8 %9
+exit /b %ERRORLEVEL%
 
 :uninstall
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
