@@ -24,7 +24,6 @@ class Profile(Base):
     personality_prompt = Column(Text)
     scripting_preferences = Column(JSON)
     backup_path = Column(String, nullable=True) # Automated backup directory or network share
-    master_password_hash = Column(String, nullable=True) # Secure access for the Local UI and Configuration
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

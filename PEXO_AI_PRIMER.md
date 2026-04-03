@@ -15,7 +15,7 @@ If a human user has instructed you to "install pexo and use it" within this dire
     *   **Windows ChromaDB Note:** If Pexo fails to boot due to missing C++ build tools for `chromadb`, alert the user to install Microsoft C++ Build Tools.
 4.  **The Onboarding & Setup Wizard (CRITICAL):**
     *   Once you start Pexo, the `http://127.0.0.1:9999/ui/` Control Panel will automatically open in the user's default web browser.
-    *   Tell the user: *"The Pexo Control Panel has automatically opened. Please complete the Setup Wizard in your browser to configure your Master Password, Personality, and Backup Path."*
+    *   Tell the user: *"The Pexo Control Panel has automatically opened. Please complete the Setup Wizard in your browser to configure your Personality, Scripting Preferences, and Backup Path."*
     *   Wait for the user to confirm they have completed the setup wizard and seen the animated green checkmark before proceeding with any tasks.
 5.  **The "/update" Command:** 
     *   If the user ever types `/update` in your chat interface, immediately ask them what they want to update (Personality, Scripting, or Both). 
