@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uuid
-from .routers import agents
+from .routers import agents, profile
 
 app = FastAPI(title="Pexo - Primary EXecution Officer")
 
-# Include the dynamic agents CRUD endpoints
+# Include dynamic agents CRUD endpoints
 app.include_router(agents.router, prefix="/agents", tags=["Agents"])
+# Include user profile and onboarding endpoints
+app.include_router(profile.router, prefix="/profile", tags=["Profile"])
 
 class PromptRequest(BaseModel):
     user_id: str
