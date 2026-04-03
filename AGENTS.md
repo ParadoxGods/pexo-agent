@@ -87,6 +87,7 @@ Useful commands:
 - `pexo promote full`
 - `pexo promote vector`
 - `pexo update`
+  Use this to update any existing Pexo install in place.
 - `pexo uninstall`
 
 ## Simple Task Flow

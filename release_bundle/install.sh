@@ -128,7 +128,7 @@ INSTALL_METHOD=""
 COMMAND_PATH=""
 MCP_COMMAND=""
 UNINSTALL_GUIDANCE=""
-UPDATE_GUIDANCE="Download the latest Pexo release bundle and run install.sh again."
+UPDATE_GUIDANCE="pexo --update"
 
 if command -v pipx >/dev/null 2>&1; then
     INSTALL_METHOD="release_bundle_pipx"

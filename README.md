@@ -121,7 +121,7 @@ For general context handling, use:
 - `pexo headless-setup --preset efficient_operator`: initialize the profile without the web UI
 - `pexo promote full`: install the full local UI/runtime profile
 - `pexo promote vector`: install local vector-memory dependencies
-- `pexo update`: refresh a checkout install
+- `pexo update`: update the current install
 - `pexo uninstall`: remove a checkout install
 
 Packaged installs keep mutable state in `~/.pexo` by default. Override it with `PEXO_HOME` if needed.

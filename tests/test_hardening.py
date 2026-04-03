@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -17,6 +18,7 @@ from sqlalchemy import inspect
 
 import app.routers.memory as memory_router
 import app.runtime as runtime_module
+import app.launcher as launcher_module
 from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
@@ -484,6 +486,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Resetting managed runtime environment", install_sh)
         self.assertIn(".pexo-deps-profile", install_ps)
         self.assertIn(".pexo-deps-profile", install_sh)
+        self.assertIn("pexo --update", install_ps)
+        self.assertIn("pexo --update", install_sh)
 
     def test_doctor_report_surfaces_guidance_and_install_health(self):
         report = build_doctor_report()
@@ -500,6 +504,38 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gemini", report["commands"])
         self.assertIsInstance(report["issues"], list)
         self.assertIn("install_metadata", report["paths"])
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    def test_packaged_doctor_guidance_uses_pexo_update(self, _mock_checkout):
+        report = launcher_module.build_doctor_report()
+        self.assertEqual(report["guidance"]["update"], "pexo --update")
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._exec_update_helper", return_value=0)
+    @patch("app.launcher._prepare_packaged_update_helper")
+    @patch("app.launcher._build_packaged_update_plan")
+    def test_run_update_executes_packaged_update_helper(
+        self,
+        mock_build_plan,
+        mock_prepare,
+        mock_exec,
+        _mock_checkout,
+    ):
+        mock_build_plan.return_value = {
+            "version": "1.0",
+            "release_url": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "wheel_name": "pexo_agent-1.0-py3-none-any.whl",
+            "wheel_url": "https://example.invalid/pexo_agent-1.0-py3-none-any.whl",
+            "checksum_url": "https://example.invalid/SHA256SUMS.txt",
+            "target_python": sys.executable,
+            "install_metadata_path": "C:/Users/dustin/.pexo/.pexo-install.json",
+            "update_stamp_path": "C:/Users/dustin/.pexo/.pexo-update-check",
+        }
+        mock_prepare.return_value = (Path("C:/temp/pexo_update_helper.py"), Path("C:/temp/update-plan.json"))
+
+        self.assertEqual(launcher_module.run_update(), 0)
+        mock_prepare.assert_called_once_with(mock_build_plan.return_value)
+        mock_exec.assert_called_once()
 
     @patch("app.client_connect.running_from_repo_checkout", return_value=False)
     @patch("app.client_connect.which")

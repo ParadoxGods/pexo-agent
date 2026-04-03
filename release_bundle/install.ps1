@@ -136,7 +136,7 @@ $commandPath = ""
 $mcpCommand = ""
 $installMethod = ""
 $uninstallGuidance = ""
-$updateGuidance = "Download the latest Pexo release bundle and run install.cmd again."
+$updateGuidance = "pexo --update"
 
 if (Test-CommandAvailable "pipx") {
     $installMethod = "release_bundle_pipx"

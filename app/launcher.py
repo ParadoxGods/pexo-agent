@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.request
+from pathlib import Path
 
 from .client_connect import SUPPORTED_CLIENTS, SUPPORTED_SCOPES, connect_clients
 from .cli import build_parser as build_cli_parser
@@ -26,6 +30,121 @@ from .runtime import build_runtime_status, promote_runtime
 from .version import __version__
 
 UPDATE_INTERVAL_SECONDS = 12 * 60 * 60
+GITHUB_API_ROOT = "https://api.github.com/repos"
+RELEASE_WHEEL_PREFIX = "pexo_agent-"
+RELEASE_WHEEL_SUFFIX = "-py3-none-any.whl"
+RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
+PACKAGE_UPDATE_COMMAND = "pexo --update"
+PACKAGED_UPDATE_HELPER = r"""
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+
+def _request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "pexo-updater",
+        },
+    )
+
+
+def _download(url: str, destination: Path) -> None:
+    with urllib.request.urlopen(_request(url), timeout=60) as response, destination.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_metadata(metadata_path: Path, *, version: str, release_url: str) -> None:
+    if not metadata_path.exists():
+        return
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        metadata = {}
+    guidance = metadata.get("guidance") or {}
+    guidance["update"] = "pexo --update"
+    metadata["guidance"] = guidance
+    metadata["version"] = version
+    metadata["release"] = release_url
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def main() -> int:
+    plan_path = Path(sys.argv[1]).resolve()
+    temp_root = plan_path.parent
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        wheel_path = temp_root / plan["wheel_name"]
+        checksum_path = temp_root / "SHA256SUMS.txt"
+
+        print(f"Updating Pexo to {plan['version']}...")
+        print("Downloading release assets...")
+        _download(plan["wheel_url"], wheel_path)
+        _download(plan["checksum_url"], checksum_path)
+
+        expected = None
+        for line in checksum_path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[-1] == plan["wheel_name"]:
+                expected = parts[0].strip().lower()
+                break
+        if not expected:
+            print(f"Unable to verify checksum for {plan['wheel_name']}.", file=sys.stderr)
+            return 1
+
+        actual = _sha256(wheel_path)
+        if actual != expected:
+            print(f"Checksum mismatch for {plan['wheel_name']}.", file=sys.stderr)
+            return 1
+
+        target_python = plan["target_python"]
+        subprocess.run(
+            [target_python, "-m", "ensurepip", "--upgrade"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        print("Installing update...")
+        completed = subprocess.run(
+            [target_python, "-m", "pip", "install", "--disable-pip-version-check", "--force-reinstall", str(wheel_path)],
+            check=False,
+        )
+
+        if completed.returncode == 0:
+            _write_metadata(
+                Path(plan["install_metadata_path"]),
+                version=plan["version"],
+                release_url=plan["release_url"],
+            )
+            Path(plan["update_stamp_path"]).write_text(str(int(time.time())), encoding="utf-8")
+            print(f"Pexo updated to {plan['version']}.")
+
+        return int(completed.returncode)
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
 
 
 def _read_install_metadata() -> dict | None:
@@ -42,16 +161,7 @@ def _coerce_repo_source() -> str:
 
 
 def _package_update_guidance() -> str:
-    metadata = _read_install_metadata()
-    if metadata:
-        guidance = metadata.get("guidance", {}).get("update")
-        if guidance:
-            return str(guidance)
-    if shutil_which("uv"):
-        return "uv tool upgrade pexo-agent"
-    if shutil_which("pipx"):
-        return "pipx upgrade pexo-agent"
-    return "Reinstall the packaged tool from GitHub"
+    return PACKAGE_UPDATE_COMMAND
 
 
 def _package_uninstall_guidance() -> str:
@@ -65,6 +175,68 @@ def _package_uninstall_guidance() -> str:
     if shutil_which("pipx"):
         return "pipx uninstall pexo-agent"
     return "Uninstall the packaged tool with your Python tool manager"
+
+
+def _github_api_request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"pexo/{__version__}",
+        },
+    )
+
+
+def _fetch_latest_release(repo_source: str | None = None) -> dict:
+    source = repo_source or _coerce_repo_source()
+    with urllib.request.urlopen(
+        _github_api_request(f"{GITHUB_API_ROOT}/{source}/releases/latest"),
+        timeout=20,
+    ) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _select_release_asset(release: dict, *, exact_name: str | None = None, suffix: str | None = None) -> dict:
+    for asset in release.get("assets", []):
+        name = str(asset.get("name") or "")
+        if exact_name and name == exact_name:
+            return asset
+        if suffix and name.startswith(RELEASE_WHEEL_PREFIX) and name.endswith(suffix):
+            return asset
+    raise RuntimeError("Required release asset is missing from the latest GitHub release.")
+
+
+def _build_packaged_update_plan() -> dict:
+    release = _fetch_latest_release()
+    wheel_asset = _select_release_asset(release, suffix=RELEASE_WHEEL_SUFFIX)
+    checksum_asset = _select_release_asset(release, exact_name=RELEASE_CHECKSUM_ASSET)
+    version = str(release.get("tag_name") or "").lstrip("v") or __version__
+    release_url = str(release.get("html_url") or f"https://github.com/{_coerce_repo_source()}/releases/tag/v{version}")
+
+    return {
+        "version": version,
+        "release_url": release_url,
+        "wheel_name": str(wheel_asset["name"]),
+        "wheel_url": str(wheel_asset["browser_download_url"]),
+        "checksum_url": str(checksum_asset["browser_download_url"]),
+        "target_python": sys.executable,
+        "install_metadata_path": str(INSTALL_METADATA_PATH),
+        "update_stamp_path": str(UPDATE_STAMP_PATH),
+    }
+
+
+def _prepare_packaged_update_helper(plan: dict) -> tuple[Path, Path]:
+    temp_root = Path(tempfile.mkdtemp(prefix="pexo-update-"))
+    helper_path = temp_root / "pexo_update_helper.py"
+    plan_path = temp_root / "update-plan.json"
+    helper_path.write_text(PACKAGED_UPDATE_HELPER, encoding="utf-8")
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    return helper_path, plan_path
+
+
+def _exec_update_helper(helper_path: Path, plan_path: Path) -> int:
+    os.execv(sys.executable, [sys.executable, str(helper_path), str(plan_path)])
+    return 0
 
 
 def _update_stamp_is_fresh() -> bool:
@@ -144,8 +316,15 @@ def run_update() -> int:
             _write_update_stamp()
         return completed.returncode
 
-    print(f"Installed package detected. Run `{_package_update_guidance()}` to refresh this tool installation.")
-    return 0
+    try:
+        plan = _build_packaged_update_plan()
+    except Exception as exc:
+        print(f"Unable to prepare a packaged update: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Installed package detected. Preparing update to v{plan['version']}...")
+    helper_path, plan_path = _prepare_packaged_update_helper(plan)
+    return _exec_update_helper(helper_path, plan_path)
 
 
 def shutil_which(command_name: str) -> str | None:
@@ -230,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--offline", action="store_true", help="Skip automatic repository update checks.")
     parser.add_argument("--skip-update", action="store_true", help="Skip automatic repository update checks.")
     parser.add_argument("--mcp", action="store_true", help="Start Pexo in native MCP stdio mode.")
-    parser.add_argument("--update", action="store_true", help="Pull the latest repository changes when running from a checkout.")
+    parser.add_argument("--update", action="store_true", help="Update the current Pexo installation.")
     parser.add_argument(
         "--promote",
         nargs="?",
@@ -240,7 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("mcp", help="Start Pexo in native MCP stdio mode.")
-    subparsers.add_parser("update", help="Update the local checkout or print package upgrade guidance.")
+    subparsers.add_parser("update", help="Update the current Pexo installation.")
     promote_parser = subparsers.add_parser("promote", help="Install or upgrade a runtime dependency profile.")
     promote_parser.add_argument("profile", nargs="?", default="full", choices=["core", "mcp", "full", "vector"])
     subparsers.add_parser("list-presets", help="List available profile presets.")
@@ -269,7 +448,7 @@ def print_help() -> None:
     print("  pexo list-presets    Lists available profile presets for terminal-first setup")
     print("  pexo headless-setup  Initializes the local profile without opening the web UI")
     print("  pexo promote [full]  Installs or upgrades the local runtime dependency profile")
-    print("  pexo update          Pulls the latest repository changes or prints package upgrade guidance")
+    print("  pexo update          Updates the current Pexo installation")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
     print("  pexo connect all     Connects Codex, Claude, and Gemini to pexo-mcp when installed")
     print("  pexo --mcp           Starts Pexo as a native MCP server (stdio)")
