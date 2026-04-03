@@ -31,19 +31,43 @@ Pexo now supports two installation models:
 1.  **GitHub-native packaged install (preferred):** install the `pexo` and `pexo-mcp` entrypoints directly from GitHub with a Python tool manager such as `uv`.
 2.  **Repo-local checkout install (fallback / contributor mode):** clone the checkout, create a local venv, and run the legacy launchers from that checkout.
 
-### Preferred Install Path: GitHub Packaged Tool
+### Canonical AI Install Path
 
-The cleanest path is to install Pexo directly from GitHub instead of cloning the repository into `~/.pexo`.
+If the goal is to tell an AI agent to "install Pexo" and have it succeed with minimal judgment, use the standalone bootstrap command. The bootstrap path is designed to reduce decisions:
+
+*   it prefers packaged GitHub install automatically
+*   it tries `uv` first, then `pipx`
+*   it falls back to a safe checkout install only when needed
+*   it completes `headless-setup --preset efficient_operator`
+*   it runs `pexo doctor`
+*   it emits a machine-readable `PEXO_INSTALL_SUMMARY_JSON=...` line at the end
+
+This is the shortest path to a sub-minute install on a normal machine because it avoids clone-first setup when a packaged tool manager is already available.
+
+**Windows AI-safe bootstrap:**
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.ps1 -OutFile bootstrap.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+```
+
+**macOS/Linux AI-safe bootstrap:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.sh | bash
+```
+
+The bootstrap path installs into the safe user-local state root by default and does not touch the current repository checkout unless you explicitly use a repo-local install command from a checkout.
+
+### Direct Packaged Install Path
+
+If you want the packaged route without the bootstrap wrapper, use one of the following:
 
 **Recommended with `uv`:**
 ```bash
 uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 ```
 
-Prefer a stable tag such as `v1.0.1` for end-user installs instead of `master`:
-
+**Fallback with `pipx`:**
 ```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 ```
 
 Then initialize the local profile entirely from the terminal:
@@ -60,6 +84,8 @@ Use the dashboard later only when needed:
 pexo
 ```
 
+The packaged runtime is intentionally light on first install. `pexo` auto-promotes the full UI runtime on first launch, and `pexo --mcp` or `pexo-mcp` keeps the MCP path lean.
+
 The packaged install keeps all mutable local state under `~/.pexo` by default:
 
 *   `~/.pexo/pexo.db`
@@ -73,7 +99,7 @@ You can override the state directory with `PEXO_HOME`.
 
 If you want another AI to perform the install for you, use:
 
-**"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the packaged GitHub install path, then run headless setup with the efficient_operator preset."**
+**"Install Pexo from https://github.com/ParadoxGods/pexo-agent using the standalone bootstrap path. Do not install into the current repo unless I explicitly ask for a repo-local node. Complete headless setup with the efficient_operator preset, run pexo doctor, and do not open the web UI unless I ask."**
 
 That instruction is now preferable to clone-first installation.
 If the assistant has to fall back to a checkout-based installer, tell it not to target the current repo unless you explicitly want a repo-local node.

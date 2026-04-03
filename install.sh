@@ -217,6 +217,17 @@ resolve_package_source() {
     exit 1
 }
 
+packaged_install_tool() {
+    if command -v uv >/dev/null 2>&1; then
+        echo "uv"
+        return
+    fi
+    if command -v pipx >/dev/null 2>&1; then
+        echo "pipx"
+        return
+    fi
+}
+
 should_use_packaged_install() {
     if [ "$USING_EXISTING_CHECKOUT" -eq 1 ]; then
         return 1
@@ -224,7 +235,48 @@ should_use_packaged_install() {
     if [ -n "$INSTALL_DIR" ]; then
         return 1
     fi
-    command -v uv >/dev/null 2>&1
+    [ -n "$(packaged_install_tool)" ]
+}
+
+pipx_bin_dir() {
+    if ! command -v pipx >/dev/null 2>&1; then
+        return
+    fi
+    if pipx environment --value PIPX_BIN_DIR >/dev/null 2>&1; then
+        pipx environment --value PIPX_BIN_DIR
+        return
+    fi
+    printf '%s\n' "$HOME/.local/bin"
+}
+
+append_session_path() {
+    local entry="$1"
+    if [ -z "$entry" ]; then
+        return
+    fi
+    case ":$PATH:" in
+        *":$entry:"*) ;;
+        *) export PATH="$PATH:$entry" ;;
+    esac
+}
+
+emit_install_summary_json() {
+    python - "$@" <<'PY'
+import json
+import sys
+
+payload = {}
+for item in sys.argv[1:]:
+    key, value = item.split("=", 1)
+    if value == "__NULL__":
+        payload[key] = None
+    elif value.startswith("[") and value.endswith("]"):
+        payload[key] = [part for part in value[1:-1].split("||") if part]
+    else:
+        payload[key] = value
+
+print("PEXO_INSTALL_SUMMARY_JSON=" + json.dumps(payload, separators=(",", ":")))
+PY
 }
 
 print_packaged_mcp_snippet() {
@@ -454,26 +506,37 @@ assert_preflight "$PEXO_DIR" "$USING_EXISTING_CHECKOUT"
 
 if should_use_packaged_install; then
     PACKAGE_SOURCE=$(resolve_package_source "$REPOSITORY")
-    run_tracked 20 "Installing packaged Pexo tool from GitHub..." "Installing packaged Pexo tool... still working" uv tool install --reinstall "$PACKAGE_SOURCE"
-    uv tool update-shell >/dev/null 2>&1 || true
+    PACKAGED_TOOL=$(packaged_install_tool)
+    PACKAGED_MODE_LABEL=""
+    UNINSTALL_COMMAND=""
+    if [ "$PACKAGED_TOOL" = "uv" ]; then
+        run_tracked 20 "Installing packaged Pexo tool from GitHub..." "Installing packaged Pexo tool... still working" uv tool install --reinstall "$PACKAGE_SOURCE"
+        uv tool update-shell >/dev/null 2>&1 || true
 
-    UV_BIN_DIR=""
-    if uv tool dir --bin >/dev/null 2>&1; then
-        UV_BIN_DIR=$(uv tool dir --bin)
-    fi
-    if [ -n "$UV_BIN_DIR" ]; then
-        export PATH="$PATH:$UV_BIN_DIR"
+        UV_BIN_DIR=""
+        if uv tool dir --bin >/dev/null 2>&1; then
+            UV_BIN_DIR=$(uv tool dir --bin)
+        fi
+        append_session_path "$UV_BIN_DIR"
+        PACKAGED_MODE_LABEL="packaged GitHub tool via uv"
+        UNINSTALL_COMMAND="uv tool uninstall pexo-agent"
+    else
+        run_tracked 20 "Installing packaged Pexo tool from GitHub..." "Installing packaged Pexo tool... still working" pipx install --force "$PACKAGE_SOURCE"
+        pipx ensurepath >/dev/null 2>&1 || true
+        append_session_path "$(pipx_bin_dir)"
+        PACKAGED_MODE_LABEL="packaged GitHub tool via pipx"
+        UNINSTALL_COMMAND="pipx uninstall pexo-agent"
     fi
 
     if ! command -v pexo >/dev/null 2>&1; then
-        echo "Packaged install completed, but the 'pexo' command is not visible in this shell. Run 'uv tool update-shell' and reopen the terminal." >&2
+        echo "Packaged install completed, but the 'pexo' command is not visible in this shell. Reopen the terminal or invoke the tool from the packaged tool bin directory directly." >&2
         exit 1
     fi
 
-    FINAL_PROFILE="full"
-    if [ "$REQUESTED_PROFILE" = "vector" ]; then
-        run_tracked 85 "Promoting packaged install to the vector runtime..." "Promoting packaged install... still working" pexo promote vector
-        FINAL_PROFILE="vector"
+    FINAL_PROFILE="mcp"
+    if [ "$REQUESTED_PROFILE" = "full" ] || [ "$REQUESTED_PROFILE" = "vector" ]; then
+        run_tracked 85 "Promoting packaged install to the $REQUESTED_PROFILE runtime..." "Promoting packaged install... still working" pexo promote "$REQUESTED_PROFILE"
+        FINAL_PROFILE="$REQUESTED_PROFILE"
     fi
 
     if [ "$HEADLESS_SETUP" -eq 1 ]; then
@@ -504,7 +567,7 @@ if should_use_packaged_install; then
     print_progress 100 "Installation complete"
     echo "=================================================="
     echo "Pexo installed successfully!"
-    echo "Install mode: packaged GitHub tool via uv"
+    echo "Install mode: $PACKAGED_MODE_LABEL"
     echo "Package source: $PACKAGE_SOURCE"
     if [ -n "$PROTECTED_CHECKOUT_PATH" ]; then
         echo "Protected checkout left untouched: $PROTECTED_CHECKOUT_PATH"
@@ -522,7 +585,7 @@ if should_use_packaged_install; then
     echo "Ready-to-paste MCP config:"
     print_packaged_mcp_snippet
     echo "To uninstall the packaged tool later:"
-    echo "  uv tool uninstall pexo-agent"
+    echo "  $UNINSTALL_COMMAND"
     echo "To remove local state as well:"
     echo "  rm -rf \"$STATE_ROOT\""
     if [ "$HEADLESS_SETUP" -eq 1 ]; then
@@ -533,6 +596,20 @@ if should_use_packaged_install; then
         echo "  pexo headless-setup --preset $PRESET"
         echo "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
     fi
+    emit_install_summary_json \
+      "status=ok" \
+      "install_mode=packaged" \
+      "packaged_tool=$PACKAGED_TOOL" \
+      "package_source=$PACKAGE_SOURCE" \
+      "install_directory=__NULL__" \
+      "state_directory=$STATE_ROOT" \
+      "active_profile=$FINAL_PROFILE" \
+      "profile_initialized=$PROFILE_SUMMARY" \
+      "backup_path=$BACKUP_SUMMARY" \
+      "launcher_command=pexo" \
+      "mcp_command=pexo-mcp" \
+      "uninstall_command=$UNINSTALL_COMMAND" \
+      "next=[pexo doctor||pexo]"
     echo "=================================================="
     exit 0
 fi
@@ -683,4 +760,18 @@ echo "If you want native Chroma vector embeddings installed as well:"
 echo "  \"$PEXO_DIR/pexo\" --promote vector"
 echo "Ready-to-paste MCP config:"
 print_mcp_snippet "$PEXO_DIR/pexo"
+emit_install_summary_json \
+  "status=ok" \
+  "install_mode=checkout" \
+  "packaged_tool=__NULL__" \
+  "package_source=__NULL__" \
+  "install_directory=$PEXO_DIR" \
+  "state_directory=$PEXO_DIR" \
+  "active_profile=$FINAL_PROFILE" \
+  "profile_initialized=$PROFILE_SUMMARY" \
+  "backup_path=$BACKUP_SUMMARY" \
+  "launcher_command=$PEXO_DIR/pexo" \
+  "mcp_command=$PEXO_DIR/pexo --mcp" \
+  "uninstall_command=pexo uninstall" \
+  "next=[\"$PEXO_DIR/pexo\" --version||\"$PEXO_DIR/pexo\" doctor]"
 echo "=================================================="

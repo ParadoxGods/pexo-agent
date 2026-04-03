@@ -134,6 +134,16 @@ def shutil_which(command_name: str) -> str | None:
 
 
 def run_server(no_browser: bool = False) -> int:
+    status = build_runtime_status()
+    if not status["installed_profiles"].get("full", False):
+        promotion_result = promote_runtime("full")
+        if promotion_result["status"] != "success":
+            print(
+                promotion_result.get("stderr") or promotion_result.get("stdout") or "Failed to prepare the full runtime.",
+                file=sys.stderr,
+            )
+            return 1
+
     import uvicorn
 
     if no_browser:
@@ -143,6 +153,16 @@ def run_server(no_browser: bool = False) -> int:
 
 
 def run_mcp() -> int:
+    status = build_runtime_status()
+    if not status["installed_profiles"].get("mcp", False):
+        promotion_result = promote_runtime("mcp")
+        if promotion_result["status"] != "success":
+            print(
+                promotion_result.get("stderr") or promotion_result.get("stdout") or "Failed to prepare the MCP runtime.",
+                file=sys.stderr,
+            )
+            return 1
+
     from .mcp_server import start_mcp_server
 
     start_mcp_server()

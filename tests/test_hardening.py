@@ -250,16 +250,22 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("[SAFE] Existing checkout protection is enabled", powershell_installer)
         self.assertIn("Running installer preflight checks", powershell_installer)
         self.assertIn("Running installer preflight checks", shell_installer)
+        self.assertIn("Get-PackagedInstallTool", powershell_installer)
         self.assertIn('@("tool", "install", "--reinstall", $packageSource)', powershell_installer)
+        self.assertIn('@("install", "--force", $packageSource)', powershell_installer)
         self.assertIn("uv tool install --reinstall", shell_installer)
+        self.assertIn("pipx install --force", shell_installer)
         self.assertIn("uv tool update-shell", powershell_installer)
         self.assertIn("uv tool update-shell", shell_installer)
+        self.assertIn("& pipx ensurepath", powershell_installer)
+        self.assertIn("pipx ensurepath", shell_installer)
         self.assertIn("pexo-mcp", powershell_installer)
         self.assertIn("pexo-mcp", shell_installer)
         self.assertIn("Installing Python dependencies (", powershell_installer)
         self.assertIn("still working", powershell_installer)
         self.assertIn("Same-shell PATH activation verified", powershell_installer)
         self.assertIn("Ready-to-paste Windows MCP config", powershell_installer)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", powershell_installer)
         self.assertIn("--headless-setup", shell_installer)
         self.assertIn("--skip-update", shell_installer)
         self.assertIn("gh auth status -h github.com", shell_installer)
@@ -271,6 +277,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Installing Python dependencies (", shell_installer)
         self.assertIn("still working", shell_installer)
         self.assertIn("Ready-to-paste MCP config", shell_installer)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", shell_installer)
 
     def test_launchers_expose_headless_setup_commands(self):
         shell_launcher = Path("pexo").read_text(encoding="utf-8")
@@ -313,11 +320,31 @@ class HardeningTests(unittest.TestCase):
     def test_windows_wrappers_bypass_execution_policy(self):
         install_wrapper = Path("install.cmd").read_text(encoding="utf-8")
         uninstall_wrapper = Path("uninstall.cmd").read_text(encoding="utf-8")
+        bootstrap_wrapper = Path("bootstrap.cmd").read_text(encoding="utf-8")
 
         self.assertIn("ExecutionPolicy Bypass", install_wrapper)
         self.assertIn("install.ps1", install_wrapper)
         self.assertIn("ExecutionPolicy Bypass", uninstall_wrapper)
         self.assertIn("uninstall.ps1", uninstall_wrapper)
+        self.assertIn("ExecutionPolicy Bypass", bootstrap_wrapper)
+        self.assertIn("bootstrap.ps1", bootstrap_wrapper)
+
+    def test_bootstrap_scripts_provide_standalone_ai_install_path(self):
+        bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
+        bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
+
+        self.assertIn('[string]$Ref = "v1.0.1"', bootstrap_ps)
+        self.assertIn('Invoke-External -Percent 20 -Message "Installing packaged Pexo tool" -FilePath "uv"', bootstrap_ps)
+        self.assertIn('Invoke-External -Percent 20 -Message "Installing packaged Pexo tool" -FilePath "pipx"', bootstrap_ps)
+        self.assertIn('Standalone bootstrap does not support repo-local install', bootstrap_ps)
+        self.assertIn('Invoke-DoctorCommand -Percent 95 -CommandPath "pexo"', bootstrap_ps)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
+        self.assertIn('REF="v1.0.1"', bootstrap_sh)
+        self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
+        self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
+        self.assertIn("Standalone bootstrap does not support repo-local install", bootstrap_sh)
+        self.assertIn('run_doctor 95 pexo', bootstrap_sh)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_sh)
 
     def test_dependency_profiles_split_core_mcp_and_full_runtime(self):
         requirements = Path("requirements.txt").read_text(encoding="utf-8")
@@ -349,10 +376,10 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('name = "pexo-agent"', pyproject)
         self.assertIn('pexo = "app.launcher:main"', pyproject)
         self.assertIn('pexo-mcp = "app.launcher:mcp_main"', pyproject)
-        self.assertIn('langgraph==0.2.0', pyproject)
-        self.assertNotIn('chromadb==0.4.24"\n]', pyproject)
+        self.assertIn('"mcp==1.27.0"', pyproject)
         self.assertIn("[project.optional-dependencies]", pyproject)
-        self.assertIn('vector = ["chromadb==0.4.24"]', pyproject)
+        self.assertIn('full = ["uvicorn==0.32.0", "langgraph==0.2.0"]', pyproject)
+        self.assertIn('vector = ["uvicorn==0.32.0", "langgraph==0.2.0", "chromadb==0.4.24"]', pyproject)
 
     def test_release_workflow_builds_and_publishes_package_assets(self):
         workflow = Path(".github/workflows/release-package.yml").read_text(encoding="utf-8")
@@ -365,10 +392,14 @@ class HardeningTests(unittest.TestCase):
 
     def test_readme_documents_packaged_install_and_pexo_mcp(self):
         readme = Path("README.md").read_text(encoding="utf-8")
+        self.assertIn("bootstrap.ps1", readme)
+        self.assertIn("bootstrap.sh", readme)
         self.assertIn('uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', readme)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON", readme)
         self.assertIn("Existing Git checkouts are protected by default", readme)
         self.assertIn(".\\install.cmd", readme)
         self.assertIn("-AllowRepoInstall", readme)
@@ -377,6 +408,10 @@ class HardeningTests(unittest.TestCase):
     def test_agents_file_documents_safe_windows_install_path(self):
         agents_doc = Path("AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("## Default behavior", agents_doc)
+        self.assertIn("bootstrap.ps1", agents_doc)
+        self.assertIn("bootstrap.sh", agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"', agents_doc)
+        self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
         self.assertIn(".\\install.cmd", agents_doc)
         self.assertIn("-AllowRepoInstall", agents_doc)

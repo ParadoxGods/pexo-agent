@@ -222,6 +222,16 @@ function Resolve-PackageSource {
     throw "Unsupported repository source '$Repository' for packaged installation."
 }
 
+function Get-PackagedInstallTool {
+    if (Test-CommandAvailable "uv") {
+        return "uv"
+    }
+    if (Test-CommandAvailable "pipx") {
+        return "pipx"
+    }
+    return ""
+}
+
 function Should-UsePackagedInstall {
     param([bool]$UsingExistingCheckout)
 
@@ -231,7 +241,50 @@ function Should-UsePackagedInstall {
     if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
         return $false
     }
-    return (Test-CommandAvailable "uv")
+    return -not [string]::IsNullOrWhiteSpace((Get-PackagedInstallTool))
+}
+
+function Get-PipxBinDirectory {
+    if (-not (Test-CommandAvailable "pipx")) {
+        return ""
+    }
+
+    try {
+        $binDir = [string](& pipx environment --value PIPX_BIN_DIR 2>$null | Out-String)
+        if ($null -ne $binDir) {
+            $binDir = $binDir.Trim()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($binDir)) {
+            return $binDir
+        }
+    }
+    catch {
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".local\bin"))
+}
+
+function Add-ToSessionPath {
+    param([string]$Entry)
+
+    if ([string]::IsNullOrWhiteSpace($Entry)) {
+        return
+    }
+
+    $sessionEntries = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:Path)) {
+        $sessionEntries = $env:Path.Split(";") | Where-Object { $_ }
+    }
+    if ($sessionEntries -notcontains $Entry) {
+        $env:Path = (($sessionEntries + $Entry) -join ";")
+    }
+}
+
+function Write-InstallSummaryJson {
+    param([hashtable]$Summary)
+
+    $json = ($Summary | ConvertTo-Json -Compress -Depth 6)
+    Write-Host "PEXO_INSTALL_SUMMARY_JSON=$json"
 }
 
 function Format-PackagedWindowsMcpSnippet {
@@ -503,39 +556,48 @@ Assert-Preflight -ResolvedInstallDir $PexoDir -UsingExistingCheckout $UsingExist
 
 if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     $packageSource = Resolve-PackageSource -Repository $Repository
-    Invoke-TrackedProcess -Percent 20 -StartMessage "Installing packaged Pexo tool from GitHub..." -HeartbeatMessage "Installing packaged Pexo tool... still working" -FilePath "uv" -ArgumentList @("tool", "install", "--reinstall", $packageSource)
-    try {
-        & uv tool update-shell *> $null
-    }
-    catch {
-    }
+    $packagedTool = Get-PackagedInstallTool
+    $packagedModeLabel = ""
 
-    $uvBinDir = ""
-    try {
-        $uvBinDir = (& uv tool dir --bin 2>$null | Out-String).Trim()
-    }
-    catch {
+    if ($packagedTool -eq "uv") {
+        Invoke-TrackedProcess -Percent 20 -StartMessage "Installing packaged Pexo tool from GitHub..." -HeartbeatMessage "Installing packaged Pexo tool... still working" -FilePath "uv" -ArgumentList @("tool", "install", "--reinstall", $packageSource)
+        try {
+            & uv tool update-shell *> $null
+        }
+        catch {
+        }
+
         $uvBinDir = ""
+        try {
+            $uvBinDir = (& uv tool dir --bin 2>$null | Out-String).Trim()
+        }
+        catch {
+            $uvBinDir = ""
+        }
+        Add-ToSessionPath -Entry $uvBinDir
+        $packagedModeLabel = "packaged GitHub tool via uv"
+        $uninstallCommand = "uv tool uninstall pexo-agent"
     }
-
-    if (-not [string]::IsNullOrWhiteSpace($uvBinDir)) {
-        $sessionEntries = @()
-        if (-not [string]::IsNullOrWhiteSpace($env:Path)) {
-            $sessionEntries = $env:Path.Split(";") | Where-Object { $_ }
+    else {
+        Invoke-TrackedProcess -Percent 20 -StartMessage "Installing packaged Pexo tool from GitHub..." -HeartbeatMessage "Installing packaged Pexo tool... still working" -FilePath "pipx" -ArgumentList @("install", "--force", $packageSource)
+        try {
+            & pipx ensurepath *> $null
         }
-        if ($sessionEntries -notcontains $uvBinDir) {
-            $env:Path = (($sessionEntries + $uvBinDir) -join ";")
+        catch {
         }
+        Add-ToSessionPath -Entry (Get-PipxBinDirectory)
+        $packagedModeLabel = "packaged GitHub tool via pipx"
+        $uninstallCommand = "pipx uninstall pexo-agent"
     }
 
     if (-not (Get-Command pexo -ErrorAction SilentlyContinue)) {
-        throw "Packaged install completed, but the 'pexo' command is not visible in this shell. Run 'uv tool update-shell' and reopen the terminal, or invoke the tool from the uv tool bin directory directly."
+        throw "Packaged install completed, but the 'pexo' command is not visible in this shell. Reopen the terminal or invoke the tool from the packaged tool bin directory directly."
     }
 
-    $finalProfile = "full"
-    if ($RequestedProfile -eq "vector") {
-        Invoke-TrackedProcess -Percent 85 -StartMessage "Promoting packaged install to the vector runtime..." -HeartbeatMessage "Promoting packaged install... still working" -FilePath "pexo" -ArgumentList @("promote", "vector")
-        $finalProfile = "vector"
+    $finalProfile = "mcp"
+    if ($RequestedProfile -eq "full" -or $RequestedProfile -eq "vector") {
+        Invoke-TrackedProcess -Percent 85 -StartMessage "Promoting packaged install to the $RequestedProfile runtime..." -HeartbeatMessage "Promoting packaged install... still working" -FilePath "pexo" -ArgumentList @("promote", $RequestedProfile)
+        $finalProfile = $RequestedProfile
     }
 
     if ($HeadlessSetup) {
@@ -558,7 +620,7 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     Write-Progress -Activity "Installing Pexo" -Completed -Status "Installation complete"
     Write-Host "=================================================="
     Write-Host "Pexo installed successfully!"
-    Write-Host "Install mode: packaged GitHub tool via uv"
+    Write-Host "Install mode: $packagedModeLabel"
     Write-Host "Package source: $packageSource"
     if (-not [string]::IsNullOrWhiteSpace($ProtectedCheckoutPath)) {
         Write-Host "Protected checkout left untouched: $ProtectedCheckoutPath"
@@ -576,7 +638,7 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     Write-Host "Ready-to-paste Windows MCP config:"
     Write-Host (Format-PackagedWindowsMcpSnippet)
     Write-Host "To uninstall the packaged tool later:"
-    Write-Host "  uv tool uninstall pexo-agent"
+    Write-Host "  $uninstallCommand"
     Write-Host "To remove local state as well:"
     Write-Host "  Remove-Item -Recurse -Force `"$stateRoot`""
     if ($HeadlessSetup) {
@@ -587,6 +649,21 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
         Write-Host "Preferred terminal-first setup path:"
         Write-Host "  pexo headless-setup --preset $Preset"
         Write-Host "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+    }
+    Write-InstallSummaryJson -Summary @{
+        status = "ok"
+        install_mode = "packaged"
+        packaged_tool = $packagedTool
+        package_source = $packageSource
+        install_directory = $null
+        state_directory = $stateRoot
+        active_profile = $finalProfile
+        profile_initialized = $profileSummary
+        backup_path = $effectiveBackupPath
+        launcher_command = "pexo"
+        mcp_command = "pexo-mcp"
+        uninstall_command = $uninstallCommand
+        next = @("pexo doctor", "pexo")
     }
     Write-Host "=================================================="
     return
@@ -755,5 +832,20 @@ if ($HeadlessSetup) {
 }
 else {
     Write-Host "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
+}
+Write-InstallSummaryJson -Summary @{
+    status = "ok"
+    install_mode = "checkout"
+    packaged_tool = $null
+    package_source = $null
+    install_directory = $PexoDir
+    state_directory = $PexoDir
+    active_profile = $finalProfile
+    profile_initialized = $profileSummary
+    backup_path = $effectiveBackupPath
+    launcher_command = $launcherPath
+    mcp_command = "$launcherPath --mcp"
+    uninstall_command = "pexo uninstall"
+    next = @("& `"$launcherPath`" --version", "& `"$launcherPath`" doctor")
 }
 Write-Host "=================================================="

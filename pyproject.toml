@@ -14,12 +14,11 @@ dependencies = [
     "pydantic==2.12.5",
     "sqlalchemy==2.0.29",
     "mcp==1.27.0",
-    "uvicorn==0.32.0",
-    "langgraph==0.2.0",
 ]
 
 [project.optional-dependencies]
-vector = ["chromadb==0.4.24"]
+full = ["uvicorn==0.32.0", "langgraph==0.2.0"]
+vector = ["uvicorn==0.32.0", "langgraph==0.2.0", "chromadb==0.4.24"]
 
 [project.urls]
 Homepage = "https://github.com/ParadoxGods/pexo-agent"

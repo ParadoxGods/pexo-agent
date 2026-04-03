@@ -7,7 +7,7 @@ If a user tells you to install or use Pexo, follow this file exactly.
 ## Default behavior
 
 1. Treat Pexo as the orchestration layer, memory layer, and MCP control plane for this repository.
-2. Prefer the packaged GitHub install path first.
+2. Prefer the standalone bootstrap path first because it removes the most installer decisions.
 3. Do not install into the current repository checkout unless the user explicitly asks for a repo-local node.
 4. Complete first-run setup in the terminal. Do not force the browser UI during install.
 5. Run `pexo doctor` after setup to verify the install.
@@ -15,12 +15,46 @@ If a user tells you to install or use Pexo, follow this file exactly.
 
 ## Install rules
 
-### Preferred install
+### Canonical install
 
-Use the packaged GitHub install path when `uv` is available:
+Use the standalone bootstrap path first. It is the default install path because it:
+
+- prefers packaged GitHub install automatically
+- tries `uv` first, then `pipx`
+- falls back to a safe checkout install only when needed
+- completes headless setup automatically
+- runs `pexo doctor`
+- emits `PEXO_INSTALL_SUMMARY_JSON=...` for machine-readable confirmation
+
+Windows:
+
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.ps1 -OutFile bootstrap.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+```
+
+macOS/Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/v1.0.1/bootstrap.sh | bash
+```
+
+### Direct packaged install
+
+If the bootstrap path is unavailable but a packaged tool manager is present, use a packaged install directly.
+
+With `uv`:
 
 ```bash
 uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
+pexo headless-setup --preset efficient_operator
+pexo doctor
+```
+
+With `pipx`:
+
+```bash
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0.1"
 pexo headless-setup --preset efficient_operator
 pexo doctor
 ```
@@ -34,7 +68,7 @@ Packaged installs keep mutable state under `~/.pexo` by default:
 
 ### Checkout installer fallback
 
-If `uv` is unavailable, or the user explicitly wants a checkout-based install, use the platform installer.
+If packaged install is unavailable, or the user explicitly wants a checkout-based install, use the platform installer.
 
 Windows:
 
@@ -88,14 +122,15 @@ Never write `.pexo-deps-profile` manually. It is only a runtime marker and is no
 2. If the user wants all optional runtime pieces installed immediately:
    - `pexo promote full`
    - `pexo promote vector`
-3. The web UI is optional. Use it later for:
+3. The packaged install is intentionally light. `pexo` will auto-promote the full runtime on first UI launch.
+4. The web UI is optional. Use it later for:
    - memory inspection and correction
    - agent editing
    - profile and backup configuration
    - telemetry review
-4. To start the local server without opening the browser:
+5. To start the local server without opening the browser:
    - `pexo --no-browser`
-5. To start MCP:
+6. To start MCP:
    - `pexo --mcp`
    - or `pexo-mcp` for packaged installs
 
@@ -147,9 +182,10 @@ curl -fsSL https://raw.githubusercontent.com/ParadoxGods/pexo-agent/master/unins
 
 If the user says to install Pexo, do this:
 
-1. Use the packaged GitHub install path if available.
-2. Fall back to the platform installer only if needed.
-3. Do not touch the current repo unless the user explicitly asked for a repo-local node.
-4. Complete `headless-setup --preset efficient_operator`.
-5. Run `pexo doctor`.
-6. Do not launch the browser UI unless the user asks for it.
+1. Use the standalone bootstrap path if possible.
+2. Fall back to direct packaged install only if the bootstrap path is unavailable.
+3. Fall back to the platform installer only if needed.
+4. Do not touch the current repo unless the user explicitly asked for a repo-local node.
+5. Complete `headless-setup --preset efficient_operator`.
+6. Run `pexo doctor`.
+7. Do not launch the browser UI unless the user asks for it.
