@@ -26,7 +26,12 @@ If a human user has instructed you to "install pexo and use it" within this dire
 7.  **Self-Evolution (The Epiphany Component):** 
     *   Pexo agents learn. If you make a mistake, encounter a bug, or the user corrects your code during a task, you MUST extract the core "lesson learned".
     *   POST this lesson to `POST http://localhost:8000/evolve` (e.g., `{"agent_name": "Developer", "lesson_learned": "Never use any type 'any' in TypeScript for this project; always write a strict interface."}`). Pexo will permanently mutate the agent's base system prompt. Next time, the agent will not make the same mistake.
-8.  **Data Limits & Compaction:** All state, findings, and logs must be written back to the Pexo SQLite database. If context gets too large, Pexo will issue a compaction command.
+8.  **The Genesis Engine (Dynamic Tool Creation):**
+    *   If you are assigned a task but realize you lack the physical capability to do it (e.g., you need to parse a complex PDF, scrape a specific website, or hit a proprietary API), **you are authorized to write your own tool.**
+    *   Write a Python script that accomplishes the task.
+    *   POST the script to `POST http://localhost:8000/tools/register` with a `name`, `description`, and the `python_code`.
+    *   Pexo will permanently assimilate this tool into the swarm's capabilities, allowing you to use it in this session and all future sessions.
+9.  **Data Limits & Compaction:** All state, findings, and logs must be written back to the Pexo SQLite database. If context gets too large, Pexo will issue a compaction command.
 
 ### How to Operate Under Pexo (The LangGraph Loop)
 From this point forward, Pexo's LangGraph State Machine manages the overarching workflow. You act as the computational worker node.

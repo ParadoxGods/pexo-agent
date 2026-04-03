@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from .database import init_db
-from .routers import agents, profile, orchestrator, memory, evolve
+from .routers import agents, profile, orchestrator, memory, evolve, tools
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,3 +21,5 @@ app.include_router(orchestrator.router, prefix="/orchestrator", tags=["Orchestra
 app.include_router(memory.router, prefix="/memory", tags=["Global Memory"])
 # Include the Self-Evolving Agents API
 app.include_router(evolve.router, prefix="/evolve", tags=["Evolution"])
+# Include the Genesis Engine (Dynamic Tool Creation)
+app.include_router(tools.router, prefix="/tools", tags=["Genesis Engine"])

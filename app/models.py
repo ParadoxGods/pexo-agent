@@ -47,6 +47,17 @@ class Memory(Base):
     is_compacted = Column(Boolean, default=False) # True if this memory is a high-level summary/compaction
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class DynamicTool(Base):
+    """
+    The Genesis Engine: Stores metadata for tools that the AI swarm writes for itself.
+    """
+    __tablename__ = "dynamic_tools"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    description = Column(Text)
+    python_code = Column(Text) # The actual code of the tool
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class AgentState(Base):
     """
     Persistence table for all agents (Supervisor, Developer, TimeManager, etc.)

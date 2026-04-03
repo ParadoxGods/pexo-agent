@@ -1,7 +1,7 @@
 from typing import TypedDict, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from ..database import SessionLocal
-from ..models import Profile, AgentProfile
+from ..models import Profile, AgentProfile, DynamicTool
 
 class PexoState(TypedDict):
     session_id: str
@@ -15,12 +15,14 @@ class PexoState(TypedDict):
     final_response: str
     user_profile: str
     available_agents: str
+    available_tools: str
 
 def _get_context():
     db = SessionLocal()
     try:
         profile = db.query(Profile).filter(Profile.name == "default_user").first()
         agents = db.query(AgentProfile).all()
+        tools = db.query(DynamicTool).all()
         
         prof_text = "No profile set."
         if profile:
@@ -30,13 +32,17 @@ def _get_context():
         if not agent_text:
             agent_text = "No custom agents registered."
             
-        return prof_text, agent_text
+        tool_text = ", ".join([f"{t.name}: {t.description}" for t in tools])
+        if not tool_text:
+            tool_text = "No dynamic tools generated yet. The swarm must rely on native capabilities or create new tools via /tools/register."
+            
+        return prof_text, agent_text, tool_text
     finally:
         db.close()
 
 def supervisor_node(state: PexoState):
     if not state.get("tasks"):
-        prof_text, agent_text = _get_context()
+        prof_text, agent_text, tool_text = _get_context()
         
         instruction = (
             f"You are the SUPERVISOR AGENT. Your job is to break the user's prompt into discrete tasks.\n\n"
@@ -48,8 +54,10 @@ def supervisor_node(state: PexoState):
             f"--- AVAILABLE WORKER AGENTS ---\n"
             f"Core: Developer, Code Organization Manager\n"
             f"Custom: {agent_text}\n\n"
+            f"--- AVAILABLE SWARM TOOLS (THE GENESIS ENGINE) ---\n"
+            f"{tool_text}\n\n"
             f"ACTION REQUIRED:\n"
-            f"Return a raw JSON array of tasks. Each task MUST have: 'id', 'description', and an 'assigned_agent' (chosen from the available list above based on the task's needs)."
+            f"Return a raw JSON array of tasks. Each task MUST have: 'id', 'description', and an 'assigned_agent' (chosen from the available list above based on the task's needs). If a task requires a capability you lack, assign a task to write and register a new tool to Pexo's Genesis Engine."
         )
         
         return {
@@ -57,7 +65,8 @@ def supervisor_node(state: PexoState):
             "current_instruction": instruction,
             "waiting_for_ai": True,
             "user_profile": prof_text,
-            "available_agents": agent_text
+            "available_agents": agent_text,
+            "available_tools": tool_text
         }
     return {"waiting_for_ai": False}
 
