@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Dict, Optional
+from ..cache import invalidate_surface_caches
 from ..database import get_db
 from ..models import Profile
+from ..orchestration_context import invalidate_session_context_snapshot
 from ..paths import normalize_user_path
 
 router = APIRouter()
@@ -255,6 +257,8 @@ def upsert_profile(answers: ProfileAnswers, db: Session) -> Profile:
 
     db.commit()
     db.refresh(profile)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return profile
 
 

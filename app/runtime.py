@@ -8,6 +8,7 @@ from importlib.util import find_spec
 
 from sqlalchemy.orm import Session
 
+from .cache import cached_value, invalidate_runtime_caches
 from .dependency_profiles import PROFILE_DEPENDENCIES, PROFILE_ORDER
 from .models import SystemSetting
 from .paths import CODE_ROOT, PROJECT_ROOT, RUNTIME_MARKER_PATH, running_from_repo_checkout
@@ -34,6 +35,7 @@ def get_runtime_marker_profile() -> str:
 def _write_runtime_marker_profile(profile: str) -> None:
     RUNTIME_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
     RUNTIME_MARKER_PATH.write_text(profile, encoding="utf-8")
+    invalidate_runtime_caches()
 
 
 def set_runtime_marker_profile(profile: str) -> None:
@@ -93,6 +95,7 @@ def set_system_setting(db: Session, key: str, value) -> SystemSetting:
         setting.value = value
     db.commit()
     db.refresh(setting)
+    invalidate_runtime_caches()
     return setting
 
 
@@ -120,30 +123,34 @@ def maybe_issue_vector_promotion_offer(db: Session | None = None) -> dict | None
 
 
 def build_runtime_status(db: Session | None = None) -> dict:
-    installed_profiles = _profile_install_matrix()
-    marker_profile = reconcile_runtime_marker_profile(installed_profiles)
-    active_profile = _highest_installed_profile(installed_profiles)
-    vector_offer_available = not installed_profiles["vector"]
-    vector_offer_pending = vector_offer_available and not bool(
-        get_system_setting(db, VECTOR_PROMOTION_NOTICE_KEY, False) if db is not None else False
-    )
+    notice_issued = bool(get_system_setting(db, VECTOR_PROMOTION_NOTICE_KEY, False) if db is not None else False)
+    marker_key = get_runtime_marker_profile()
 
-    return {
-        "active_profile": active_profile,
-        "marker_profile": marker_profile or None,
-        "installed_profiles": installed_profiles,
-        "vector_embeddings_available": installed_profiles["vector"],
-        "project_root": str(PROJECT_ROOT),
-        "code_root": str(CODE_ROOT),
-        "install_mode": "checkout" if running_from_repo_checkout() else "packaged",
-        "recommended_promotions": [
-            profile
-            for profile in ("mcp", "full", "vector")
-            if not installed_profiles[profile]
-        ],
-        "vector_promotion_offer_pending": vector_offer_pending,
-        "vector_promotion_offer": build_vector_promotion_offer() if vector_offer_available else None,
-    }
+    def loader():
+        installed_profiles = _profile_install_matrix()
+        marker_profile = reconcile_runtime_marker_profile(installed_profiles)
+        active_profile = _highest_installed_profile(installed_profiles)
+        vector_offer_available = not installed_profiles["vector"]
+        vector_offer_pending = vector_offer_available and not notice_issued
+
+        return {
+            "active_profile": active_profile,
+            "marker_profile": marker_profile or None,
+            "installed_profiles": installed_profiles,
+            "vector_embeddings_available": installed_profiles["vector"],
+            "project_root": str(PROJECT_ROOT),
+            "code_root": str(CODE_ROOT),
+            "install_mode": "checkout" if running_from_repo_checkout() else "packaged",
+            "recommended_promotions": [
+                profile
+                for profile in ("mcp", "full", "vector")
+                if not installed_profiles[profile]
+            ],
+            "vector_promotion_offer_pending": vector_offer_pending,
+            "vector_promotion_offer": build_vector_promotion_offer() if vector_offer_available else None,
+        }
+
+    return cached_value("runtime_status", (notice_issued, marker_key), 5.0, loader)
 
 
 def promote_runtime(profile: str) -> dict:

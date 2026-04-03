@@ -7,10 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..cache import invalidate_surface_caches
 from ..database import get_db
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
 from ..runtime import build_runtime_status, build_vector_promotion_offer, maybe_issue_vector_promotion_offer, promote_runtime
+from ..search_index import delete_memory_search_document, search_memory_ids, upsert_memory_search_document
 
 try:
     import chromadb
@@ -198,6 +200,22 @@ def _resolve_vector_runtime(
 
 
 def _search_memories_without_embeddings(request: "MemorySearchRequest", db: Session) -> dict:
+    fts_memory_ids = search_memory_ids(request.query, request.n_results)
+    if fts_memory_ids:
+        matched_records = db.query(Memory).filter(Memory.id.in_(fts_memory_ids)).all()
+        memory_by_id = {memory.id: memory for memory in matched_records}
+        ordered_records = [memory_by_id[memory_id] for memory_id in fts_memory_ids if memory_id in memory_by_id]
+        metadata_by_id = {
+            memory.id: {
+                "session_id": memory.session_id,
+                "task_context": memory.task_context,
+                "search_mode": "keyword_fallback",
+                "retrieval_backend": "sqlite_fts",
+            }
+            for memory in ordered_records
+        }
+        return _format_memory_search_results(ordered_records, metadata_by_id=metadata_by_id)
+
     query_text = (request.query or "").strip().lower()
     if not query_text:
         return {"results": []}
@@ -294,13 +312,24 @@ def compact_memories_for_context(db: Session, task_context: str | None) -> dict:
 
     _upsert_memory_embedding(summary_memory)
 
+    archived_memory_ids: list[int] = []
     for memory in source_memories:
         memory.is_archived = True
         memory.compacted_into_id = summary_memory.id
+        archived_memory_ids.append(memory.id)
 
     _delete_memory_embeddings([memory.chroma_id for memory in source_memories])
     db.commit()
     db.refresh(summary_memory)
+    upsert_memory_search_document(
+        summary_memory.id,
+        content=summary_memory.content,
+        task_context=summary_memory.task_context,
+        session_id=summary_memory.session_id,
+    )
+    for memory_id in archived_memory_ids:
+        delete_memory_search_document(memory_id)
+    invalidate_surface_caches()
     return {"compacted_count": len(source_memories), "summary_memory_id": summary_memory.id}
 
 
@@ -319,11 +348,15 @@ def apply_memory_retention(db: Session) -> int:
         return 0
 
     stale_memories = active_raw_memories[MAX_ACTIVE_RAW_MEMORIES_GLOBAL:]
+    stale_memory_ids = [memory.id for memory in stale_memories]
     for memory in stale_memories:
         memory.is_archived = True
 
     _delete_memory_embeddings([memory.chroma_id for memory in stale_memories])
     db.commit()
+    for memory_id in stale_memory_ids:
+        delete_memory_search_document(memory_id)
+    invalidate_surface_caches()
     return len(stale_memories)
 
 
@@ -389,7 +422,14 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(new_memory)
+    upsert_memory_search_document(
+        new_memory.id,
+        content=new_memory.content,
+        task_context=new_memory.task_context,
+        session_id=new_memory.session_id,
+    )
     maintenance = maintain_memory_health(db, task_context=request.task_context)
+    invalidate_surface_caches()
 
     return _with_runtime_metadata({
         "status": "Memory permanently embedded into Pexo's global brain.",
@@ -521,6 +561,15 @@ def update_memory(memory_id: int, request: MemoryUpdateRequest, db: Session = De
 
     db.commit()
     db.refresh(memory)
+    if memory.is_archived:
+        delete_memory_search_document(memory.id)
+    else:
+        upsert_memory_search_document(
+            memory.id,
+            content=memory.content,
+            task_context=memory.task_context,
+            session_id=memory.session_id,
+        )
 
     task_contexts_to_maintain = {context for context in [previous_task_context, memory.task_context] if context}
     maintenance = {"compacted_count": 0, "summary_memory_id": None, "archived_count": 0}
@@ -529,6 +578,7 @@ def update_memory(memory_id: int, request: MemoryUpdateRequest, db: Session = De
         maintenance["compacted_count"] += result["compacted_count"]
         maintenance["archived_count"] += result["archived_count"]
         maintenance["summary_memory_id"] = maintenance["summary_memory_id"] or result["summary_memory_id"]
+    invalidate_surface_caches()
 
     return {"status": "success", "memory": serialize_memory(memory), "maintenance": maintenance}
 
@@ -540,6 +590,8 @@ def delete_memory(memory_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Memory not found")
 
     _delete_memory_embeddings([memory.chroma_id])
+    delete_memory_search_document(memory.id)
     db.delete(memory)
     db.commit()
+    invalidate_surface_caches()
     return {"status": "success", "message": f"Memory {memory_id} deleted successfully"}

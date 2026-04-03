@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel, Field
+from ..cache import invalidate_surface_caches
 from ..database import get_db
 from ..models import AgentProfile
+from ..orchestration_context import invalidate_session_context_snapshot
 
 router = APIRouter()
 
@@ -30,6 +32,8 @@ def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
     db.add(new_agent)
     db.commit()
     db.refresh(new_agent)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return new_agent
 
 @router.get("/", response_model=List[AgentResponse])
@@ -59,6 +63,8 @@ def update_agent(agent_id: int, agent: AgentCreate, db: Session = Depends(get_db
         
     db.commit()
     db.refresh(db_agent)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return db_agent
 
 @router.delete("/{agent_id}")
@@ -71,4 +77,6 @@ def delete_agent(agent_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Cannot delete core agents")
     db.delete(db_agent)
     db.commit()
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return {"status": "success", "message": f"Agent {db_agent.name} deleted successfully"}

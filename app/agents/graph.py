@@ -6,8 +6,7 @@ except ImportError:  # pragma: no cover - exercised by lightweight runtime paths
     StateGraph = None
     END = "__end__"
 
-from ..database import SessionLocal
-from ..models import Profile, AgentProfile, DynamicTool
+from ..orchestration_context import build_session_context_snapshot
 
 class PexoState(TypedDict):
     session_id: str
@@ -22,52 +21,13 @@ class PexoState(TypedDict):
     user_profile: str
     available_agents: str
     available_tools: str
+    context_snapshot: Dict[str, Any]
 
-def _get_context():
-    db = SessionLocal()
-    try:
-        profile = db.query(Profile).filter(Profile.name == "default_user").first()
-        agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
-        tools = db.query(DynamicTool).all()
-        
-        prof_text = "No profile set."
-        if profile:
-            prof_text = f"Personality: {profile.personality_prompt}\nScripting: {profile.scripting_preferences}"
 
-        agent_registry = {
-            agent.name: {
-                "name": agent.name,
-                "role": agent.role,
-                "system_prompt": agent.system_prompt or "",
-                "capabilities": list(agent.capabilities or []),
-                "is_core": bool(agent.is_core),
-            }
-            for agent in agents
-        }
-
-        core_agents = [agent for agent in agents if agent.is_core]
-        custom_agents = [agent for agent in agents if not agent.is_core]
-
-        core_agent_text = ", ".join(
-            [f"{agent.name} (Role: {agent.role})" for agent in core_agents]
-        ) or "No core agents registered."
-        custom_agent_text = ", ".join(
-            [f"{agent.name} (Role: {agent.role})" for agent in custom_agents]
-        ) or "No custom agents registered."
-            
-        tool_text = ", ".join([f"{t.name}: {t.description}" for t in tools])
-        if not tool_text:
-            tool_text = "No dynamic tools generated yet. The swarm must rely on native capabilities or create new tools via /tools/register."
-            
-        return {
-            "profile_text": prof_text,
-            "agent_registry": agent_registry,
-            "core_agent_text": core_agent_text,
-            "custom_agent_text": custom_agent_text,
-            "tool_text": tool_text,
-        }
-    finally:
-        db.close()
+def _get_context(state: PexoState | None = None):
+    if state and state.get("context_snapshot"):
+        return state["context_snapshot"]
+    return build_session_context_snapshot()
 
 
 def _resolve_agent_context(agent_registry: Dict[str, Dict[str, Any]], agent_name: str, fallback_name: str) -> Dict[str, Any]:
@@ -86,7 +46,7 @@ def _format_capabilities(agent: Dict[str, Any]) -> str:
 
 def supervisor_node(state: PexoState):
     if not state.get("tasks"):
-        context = _get_context()
+        context = _get_context(state)
         supervisor = _resolve_agent_context(context["agent_registry"], "Supervisor", "Supervisor")
         
         instruction = (
@@ -126,7 +86,7 @@ def developer_node(state: PexoState):
     if len(completed) < len(tasks):
         next_task = tasks[len(completed)]
         assigned = next_task.get('assigned_agent', 'Developer')
-        context = _get_context()
+        context = _get_context(state)
         assigned_agent = _resolve_agent_context(context["agent_registry"], assigned, "Developer")
         
         instruction = (
@@ -153,7 +113,7 @@ def developer_node(state: PexoState):
 
 def manager_node(state: PexoState):
     if state.get("current_agent") != "Code Organization Manager":
-        context = _get_context()
+        context = _get_context(state)
         manager = _resolve_agent_context(context["agent_registry"], "Code Organization Manager", "Code Organization Manager")
         instruction = (
             f"{manager['system_prompt']}\n\n"

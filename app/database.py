@@ -19,24 +19,41 @@ MEMORY_TABLE_MIGRATIONS = {
     "updated_at": "ALTER TABLE memories ADD COLUMN updated_at DATETIME",
 }
 
+ARTIFACT_TABLE_MIGRATIONS = {
+    "text_extraction_status": "ALTER TABLE artifacts ADD COLUMN text_extraction_status VARCHAR DEFAULT 'ready'",
+}
+
 
 def run_schema_migrations() -> None:
-    inspector = inspect(engine)
-    if "memories" not in inspector.get_table_names():
-        return
+    from .search_index import ensure_search_indexes
 
-    existing_columns = {column["name"] for column in inspector.get_columns("memories")}
-    statements = [
-        ddl
-        for column_name, ddl in MEMORY_TABLE_MIGRATIONS.items()
-        if column_name not in existing_columns
-    ]
+    inspector = inspect(engine)
+    statements = []
+
+    if "memories" in inspector.get_table_names():
+        existing_memory_columns = {column["name"] for column in inspector.get_columns("memories")}
+        statements.extend(
+            ddl
+            for column_name, ddl in MEMORY_TABLE_MIGRATIONS.items()
+            if column_name not in existing_memory_columns
+        )
+
+    if "artifacts" in inspector.get_table_names():
+        existing_artifact_columns = {column["name"] for column in inspector.get_columns("artifacts")}
+        statements.extend(
+            ddl
+            for column_name, ddl in ARTIFACT_TABLE_MIGRATIONS.items()
+            if column_name not in existing_artifact_columns
+        )
+
     if not statements:
+        ensure_search_indexes()
         return
 
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+    ensure_search_indexes()
 
 def init_db():
     """Initializes the local SQLite database."""

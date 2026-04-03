@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..cache import invalidate_surface_caches, invalidate_telemetry_caches
 from ..database import get_db
 from ..models import AgentState, DynamicTool
+from ..orchestration_context import invalidate_session_context_snapshot
 from ..paths import DYNAMIC_TOOLS_DIR, PROJECT_ROOT, normalize_user_path
 
 router = APIRouter()
@@ -189,6 +191,7 @@ def _log_tool_execution(
         )
     )
     db.commit()
+    invalidate_telemetry_caches()
 
 
 def _run_tool_subprocess(tool_path: Path, request: ToolExecutionRequest, working_directory: Path) -> tuple[dict, int]:
@@ -373,6 +376,8 @@ def register_tool(request: ToolRegistrationRequest, db: Session = Depends(get_db
         db.rollback()
         tool_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Failed to register tool metadata: {str(exc)}")
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
 
     return {
         "status": "Success. Genesis Engine has assimilated the new tool.",
@@ -422,6 +427,8 @@ def update_tool(tool_name: str, request: ToolUpdateRequest, db: Session = Depend
 
     db.commit()
     db.refresh(tool)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return {
         "status": "success",
         "message": f"Tool '{safe_tool_name}' updated successfully.",
@@ -440,6 +447,8 @@ def delete_tool(tool_name: str, db: Session = Depends(get_db)):
     db.delete(tool)
     db.commit()
     tool_path.unlink(missing_ok=True)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     return {
         "status": "success",
         "message": f"Tool '{safe_tool_name}' deleted successfully.",

@@ -8,6 +8,8 @@ from typing import Any, Optional
 from ..database import get_db
 from ..models import AgentState, Memory
 from ..agents.graph import pexo_app, PexoState
+from ..cache import invalidate_telemetry_caches
+from ..orchestration_context import build_session_context_snapshot
 
 router = APIRouter()
 
@@ -157,6 +159,7 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         "user_profile": "",
         "available_agents": "",
         "available_tools": "",
+        "context_snapshot": build_session_context_snapshot(db),
     }
     
     db_state = AgentState(
@@ -168,6 +171,7 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
     )
     db.add(db_state)
     db.commit()
+    invalidate_telemetry_caches()
 
     return ClarificationResponse(session_id=session_id, clarification_question=clarification_question)
 
@@ -196,6 +200,7 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
         },
     )
     db.commit()
+    invalidate_telemetry_caches()
     
     return {"status": "Execution started. External AI should poll /orchestrator/next", "session_id": request.session_id}
 
@@ -278,6 +283,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
             },
         )
     db.commit()
+    invalidate_telemetry_caches()
     
     return {"status": "Result accepted. Graph advanced."}
 

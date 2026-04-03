@@ -73,6 +73,7 @@ class Artifact(Base):
     task_context = Column(String, index=True)
     sha256 = Column(String, index=True)
     size_bytes = Column(Integer, default=0)
+    text_extraction_status = Column(String, default="ready")
     details = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

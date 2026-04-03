@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..cache import cached_value, invalidate_many
 from ..client_connect import connect_clients
 from ..database import get_db
 from ..models import AgentProfile, AgentState, Artifact, DynamicTool, Memory, Profile
@@ -16,7 +17,12 @@ router = APIRouter()
 
 
 def build_client_surface(scope: str = "user") -> dict:
-    return connect_clients(target="all", scope=scope, dry_run=True, verify_existing=False)
+    return cached_value(
+        "client_surface",
+        scope,
+        10.0,
+        lambda: connect_clients(target="all", scope=scope, dry_run=True, verify_existing=False),
+    )
 
 
 def serialize_profile(profile: Profile | None) -> dict | None:
@@ -65,7 +71,7 @@ def serialize_agent_state(state: AgentState) -> dict:
     }
 
 
-def build_telemetry_payload(db: Session) -> dict:
+def _build_telemetry_payload(db: Session) -> dict:
     total_sessions = db.query(func.count(func.distinct(AgentState.session_id))).scalar() or 0
     total_actions = db.query(func.count(AgentState.id)).scalar() or 0
     total_tokens = db.query(func.sum(AgentState.context_size_tokens)).scalar() or 0
@@ -130,44 +136,62 @@ def build_telemetry_payload(db: Session) -> dict:
     }
 
 
+def build_telemetry_payload(db: Session) -> dict:
+    telemetry_stamp = db.query(
+        func.count(AgentState.id),
+        func.max(AgentState.id),
+    ).one()
+    cache_key = (
+        int(telemetry_stamp[0] or 0),
+        int(telemetry_stamp[1] or 0),
+    )
+    return cached_value("telemetry", cache_key, 2.0, lambda: _build_telemetry_payload(db))
+
+
 @router.get("/snapshot")
 def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
     safe_limit = max(1, min(memory_limit, 100))
-    memory_recency = func.coalesce(Memory.updated_at, Memory.created_at)
-    artifact_recency = func.coalesce(Artifact.updated_at, Artifact.created_at)
 
-    profile = db.query(Profile).filter(Profile.name == "default_user").first()
-    agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
-    tools = db.query(DynamicTool).order_by(DynamicTool.name.asc()).all()
-    recent_memories = db.query(Memory).order_by(memory_recency.desc(), Memory.id.desc()).limit(safe_limit).all()
-    recent_artifacts = db.query(Artifact).order_by(artifact_recency.desc(), Artifact.id.desc()).limit(safe_limit).all()
+    def loader():
+        memory_recency = func.coalesce(Memory.updated_at, Memory.created_at)
+        artifact_recency = func.coalesce(Artifact.updated_at, Artifact.created_at)
 
-    return {
-        "configured": profile is not None,
-        "profile": serialize_profile(profile),
-        "profile_answers": derive_profile_answers(profile),
-        "agents": [serialize_agent(agent) for agent in agents],
-        "tools": [{"name": tool.name, "description": tool.description} for tool in tools],
-        "recent_memories": [serialize_memory(memory) for memory in recent_memories],
-        "recent_artifacts": [serialize_artifact(artifact) for artifact in recent_artifacts],
-        "stats": {
-            "agent_count": db.query(func.count(AgentProfile.id)).scalar() or 0,
-            "tool_count": db.query(func.count(DynamicTool.id)).scalar() or 0,
-            "memory_count": db.query(func.count(Memory.id)).scalar() or 0,
-            "artifact_count": db.query(func.count(Artifact.id)).scalar() or 0,
-            "archived_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_archived.is_(True)).scalar() or 0,
-            "pinned_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_pinned.is_(True)).scalar() or 0,
-            "compacted_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_compacted.is_(True)).scalar() or 0,
-        },
-        "runtime": build_runtime_status(db),
-        "clients": build_client_surface(),
-        "telemetry": build_telemetry_payload(db),
-    }
+        profile = db.query(Profile).filter(Profile.name == "default_user").first()
+        agents = db.query(AgentProfile).order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc()).all()
+        tools = db.query(DynamicTool).order_by(DynamicTool.name.asc()).all()
+        recent_memories = db.query(Memory).order_by(memory_recency.desc(), Memory.id.desc()).limit(safe_limit).all()
+        recent_artifacts = db.query(Artifact).order_by(artifact_recency.desc(), Artifact.id.desc()).limit(safe_limit).all()
+
+        return {
+            "configured": profile is not None,
+            "profile": serialize_profile(profile),
+            "profile_answers": derive_profile_answers(profile),
+            "agents": [serialize_agent(agent) for agent in agents],
+            "tools": [{"name": tool.name, "description": tool.description} for tool in tools],
+            "recent_memories": [serialize_memory(memory) for memory in recent_memories],
+            "recent_artifacts": [serialize_artifact(artifact) for artifact in recent_artifacts],
+            "stats": {
+                "agent_count": db.query(func.count(AgentProfile.id)).scalar() or 0,
+                "tool_count": db.query(func.count(DynamicTool.id)).scalar() or 0,
+                "memory_count": db.query(func.count(Memory.id)).scalar() or 0,
+                "artifact_count": db.query(func.count(Artifact.id)).scalar() or 0,
+                "archived_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_archived.is_(True)).scalar() or 0,
+                "pinned_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_pinned.is_(True)).scalar() or 0,
+                "compacted_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_compacted.is_(True)).scalar() or 0,
+            },
+            "runtime": build_runtime_status(db),
+            "clients": build_client_surface(),
+            "telemetry": build_telemetry_payload(db),
+        }
+
+    return cached_value("admin_snapshot", safe_limit, 2.0, loader)
 
 
 @router.post("/connect/{target}")
 def connect_ai_clients(target: str, scope: str = "user"):
     try:
-        return connect_clients(target=target, scope=scope, dry_run=False)
+        result = connect_clients(target=target, scope=scope, dry_run=False)
+        invalidate_many("client_surface", "admin_snapshot")
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

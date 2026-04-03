@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from ..cache import invalidate_surface_caches
 from ..database import get_db
 from ..models import AgentProfile
+from ..orchestration_context import invalidate_session_context_snapshot
 
 router = APIRouter()
 
@@ -33,6 +35,8 @@ def evolve_agent(request: EvolutionRequest, db: Session = Depends(get_db)):
         
     db.commit()
     db.refresh(db_agent)
+    invalidate_surface_caches()
+    invalidate_session_context_snapshot()
     
     return {
         "status": "Evolution complete.",
