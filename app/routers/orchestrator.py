@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from ..database import get_db
 from ..models import AgentState, Memory
-from ..agents.graph import pexo_app, PexoState
+from ..agents.graph import PexoState, invoke_pexo_graph
 from ..cache import invalidate_telemetry_caches
 from ..orchestration_context import build_session_context_snapshot
 
@@ -182,7 +182,7 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
     state["clarification_answer"] = request.clarification_answer
     
     # Run the graph to get the first pending task
-    new_state = pexo_app.invoke(state)
+    new_state = invoke_pexo_graph(state)
     
     db_state.data = new_state
     db_state.status = "running"
@@ -268,7 +268,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     db.add(agent_log)
     
     # Resume the LangGraph to compute the next node
-    new_state = pexo_app.invoke(state)
+    new_state = invoke_pexo_graph(state)
     db_state.data = new_state
     db_state.context_size_tokens = estimate_context_tokens(new_state)
     if new_state.get("final_response"):

@@ -103,3 +103,26 @@ class AgentState(Base):
     data = Column(JSON) # The actual findings, generated code, or metric logs
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, index=True)
+    backend = Column(String, index=True)
+    workspace_path = Column(String, nullable=True)
+    pexo_session_id = Column(String, index=True, nullable=True)
+    status = Column(String, default="idle")
+    details = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    chat_session_id = Column(String, index=True)
+    role = Column(String, index=True)
+    content = Column(Text, nullable=False)
+    details = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -277,6 +277,8 @@ if [ "${1:-}" = "--help" ]; then
     echo "                 Prints local installation and runtime diagnostics"
     echo "  pexo --connect | pexo connect [all|codex|claude|gemini] [--scope user|project]"
     echo "                 Connects supported AI clients to Pexo MCP"
+    echo "  pexo --chat | pexo chat [--backend auto|codex|claude|gemini] [--workspace PATH]"
+    echo "                 Starts a direct terminal chat with Pexo"
     echo "  pexo --no-browser"
     echo "                 Starts the API without opening the dashboard automatically"
     echo "  pexo --offline | pexo --skip-update"
@@ -308,6 +310,15 @@ if [ "${1:-}" = "--connect" ] || [ "${1:-}" = "connect" ]; then
     fi
     ensure_runtime_profile core
     "$(venv_python)" -m app.launcher connect "$@"
+    exit $?
+fi
+
+if [ "${1:-}" = "--chat" ] || [ "${1:-}" = "chat" ]; then
+    if [ "${1:-}" = "--chat" ]; then
+        shift
+    fi
+    ensure_venv
+    "$(venv_python)" -m app.launcher chat "$@"
     exit $?
 fi
 

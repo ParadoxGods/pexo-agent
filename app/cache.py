@@ -45,6 +45,7 @@ def invalidate_many(*namespaces: str) -> None:
 def invalidate_surface_caches() -> None:
     invalidate_many(
         "admin_snapshot",
+        "chat_sessions",
         "telemetry",
         "client_surface",
         "runtime_status",
@@ -53,7 +54,7 @@ def invalidate_surface_caches() -> None:
 
 
 def invalidate_telemetry_caches() -> None:
-    invalidate_many("admin_snapshot", "telemetry")
+    invalidate_many("admin_snapshot", "chat_sessions", "telemetry")
 
 
 def invalidate_runtime_caches() -> None:
@@ -61,4 +62,4 @@ def invalidate_runtime_caches() -> None:
 
 
 def invalidate_context_caches() -> None:
-    invalidate_many("admin_snapshot", "session_context_seed")
+    invalidate_many("admin_snapshot", "chat_sessions", "session_context_seed")

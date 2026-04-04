@@ -30,6 +30,8 @@ if "%~1"=="--doctor" goto doctor
 if /I "%~1"=="doctor" goto doctor
 if "%~1"=="--connect" goto connect
 if /I "%~1"=="connect" goto connect
+if "%~1"=="--chat" goto chat
+if /I "%~1"=="chat" goto chat
 if "%~1"=="--update" goto update
 if /I "%~1"=="update" goto update
 if "%~1"=="--promote" goto promote
@@ -243,6 +245,8 @@ echo   pexo --doctor ^| pexo doctor [--json]
 echo                  Prints local installation and runtime diagnostics
 echo   pexo --connect ^| pexo connect [all^|codex^|claude^|gemini] [--scope user^|project]
 echo                  Connects supported AI clients to Pexo MCP
+echo   pexo --chat ^| pexo chat [--backend auto^|codex^|claude^|gemini] [--workspace PATH]
+echo                  Starts a direct terminal chat with Pexo
 echo   pexo --no-browser
 echo                  Starts the API without opening the dashboard automatically
 echo   pexo --offline ^| pexo --skip-update
@@ -267,6 +271,13 @@ if errorlevel 1 exit /b %ERRORLEVEL%
 powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value ([DateTime]::UtcNow.Ticks) -Encoding Ascii"
 echo Pexo is up to date.
 exit /b 0
+
+:chat
+if "%~1"=="--chat" shift
+call :ensure_venv
+if errorlevel 1 exit /b %ERRORLEVEL%
+venv\Scripts\python.exe -m app.launcher chat %*
+exit /b %ERRORLEVEL%
 
 :promote
 shift

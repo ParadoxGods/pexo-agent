@@ -40,7 +40,8 @@ pexo doctor
 Most users should not need to think about Pexo after install.
 
 - If Pexo is connected to the AI client, the model should use it automatically as the default local brain.
-- If you want the local dashboard, run `pexo`.
+- If you want to talk to Pexo directly in the browser, run `pexo`.
+- If you want to talk to Pexo directly in the terminal, run `pexo --chat`.
 - If you want the MCP server only, use `pexo-mcp` or `pexo --mcp`.
 
 Packaged installs expose this MCP entrypoint:
@@ -61,6 +62,7 @@ Repository-level AI usage rules live in `AGENTS.md`.
 ## Commands
 
 - `pexo`: start the local API and dashboard
+- `pexo --chat`: start direct terminal chat with Pexo
 - `pexo --no-browser`: start the local API without opening the browser
 - `pexo-mcp` or `pexo --mcp`: start the MCP server over stdio
 - `pexo --update`: update the current install

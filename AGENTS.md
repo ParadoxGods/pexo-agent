@@ -69,6 +69,7 @@ The release bundle already runs setup, client connection, and `pexo doctor`. Do 
 Useful commands:
 
 - `pexo`
+- `pexo --chat`
 - `pexo --no-browser`
 - `pexo --mcp`
 - `pexo-mcp`
@@ -126,6 +127,15 @@ Behavior rules:
 5. Continue the task through Pexo instead of making the user drive each internal step manually.
 6. Use `pexo_recall_context` before asking the user to restate prior context.
 7. Use `pexo_remember_context` and `pexo_attach_context` to keep Pexo useful across sessions.
+
+## Direct Chat
+
+Pexo also has first-party direct chat surfaces for users who do not want to work inside Codex, Claude, or Gemini directly:
+
+- Browser control plane: `pexo`
+- Terminal chat: `pexo --chat`
+
+These direct chat modes still use the installed local AI workers behind the scenes when Pexo needs model execution, but the user should not need to manage those consoles manually.
 
 ## Uninstall
 

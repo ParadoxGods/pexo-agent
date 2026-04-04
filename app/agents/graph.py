@@ -156,25 +156,38 @@ def router(state: PexoState):
     return END
 
 
+def _resolve_start_node(state: PexoState) -> str:
+    current_agent = state.get("current_agent")
+    if current_agent == "Code Organization Manager":
+        return "manager"
+    if current_agent and current_agent != "Supervisor":
+        return "developer"
+    return "supervisor"
+
+
+def _advance_state_machine(state: PexoState) -> PexoState:
+    current_state = dict(state)
+    next_node = _resolve_start_node(current_state)
+
+    while True:
+        if next_node == "supervisor":
+            current_state.update(supervisor_node(current_state))
+        elif next_node == "developer":
+            current_state.update(developer_node(current_state))
+        elif next_node == "manager":
+            current_state.update(manager_node(current_state))
+        else:
+            return current_state
+
+        route = router(current_state)
+        if route == END:
+            return current_state
+        next_node = route
+
+
 class FallbackPexoApp:
     def invoke(self, state: PexoState):
-        current_state = dict(state)
-        next_node = "supervisor"
-
-        while True:
-            if next_node == "supervisor":
-                current_state.update(supervisor_node(current_state))
-            elif next_node == "developer":
-                current_state.update(developer_node(current_state))
-            elif next_node == "manager":
-                current_state.update(manager_node(current_state))
-            else:
-                return current_state
-
-            route = router(current_state)
-            if route == END:
-                return current_state
-            next_node = route
+        return _advance_state_machine(state)
 
 
 if StateGraph is None:
@@ -191,3 +204,11 @@ else:
     workflow.add_conditional_edges("manager", router, {END: END})
 
     pexo_app = workflow.compile()
+
+
+def invoke_pexo_graph(state: PexoState):
+    try:
+        return _advance_state_machine(state)
+    except Exception:
+        fallback = FallbackPexoApp()
+        return fallback.invoke(state)

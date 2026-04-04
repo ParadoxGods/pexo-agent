@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..cache import cached_value, invalidate_many
 from ..client_connect import connect_clients
 from ..database import get_db
-from ..models import AgentProfile, AgentState, Artifact, DynamicTool, Memory, Profile
+from ..models import AgentProfile, AgentState, Artifact, ChatMessage, ChatSession, DynamicTool, Memory, Profile
 from ..runtime import build_runtime_status
 from .artifacts import serialize_artifact
 from .memory import serialize_memory
@@ -250,6 +250,45 @@ def build_telemetry_payload(db: Session) -> dict:
     return cached_value("telemetry", cache_key, 2.0, lambda: _build_telemetry_payload(db))
 
 
+def build_recent_chat_payload(db: Session, limit: int = 10) -> list[dict]:
+    safe_limit = max(1, min(limit, 50))
+    sessions = (
+        db.query(ChatSession)
+        .order_by(ChatSession.updated_at.desc().nullslast(), ChatSession.created_at.desc(), ChatSession.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    if not sessions:
+        return []
+    counts = {
+        session_id: count
+        for session_id, count in (
+            db.query(ChatMessage.chat_session_id, func.count(ChatMessage.id))
+            .filter(ChatMessage.chat_session_id.in_([session.id for session in sessions]))
+            .group_by(ChatMessage.chat_session_id)
+            .all()
+        )
+    }
+    payload = []
+    for session in sessions:
+        details = session.details or {}
+        payload.append(
+            {
+                "id": session.id,
+                "short_id": session.id[:8],
+                "title": session.title or f"Chat {session.id[:8]}",
+                "backend": session.backend,
+                "status": session.status,
+                "workspace_path": session.workspace_path,
+                "message_count": counts.get(session.id, 0),
+                "last_assistant_message": _truncate(details.get("last_assistant_message"), 120),
+                "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+            }
+        )
+    return payload
+
+
 @router.get("/snapshot")
 def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
     safe_limit = max(1, min(memory_limit, 100))
@@ -277,6 +316,7 @@ def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
                 "tool_count": db.query(func.count(DynamicTool.id)).scalar() or 0,
                 "memory_count": db.query(func.count(Memory.id)).scalar() or 0,
                 "artifact_count": db.query(func.count(Artifact.id)).scalar() or 0,
+                "chat_count": db.query(func.count(ChatSession.id)).scalar() or 0,
                 "archived_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_archived.is_(True)).scalar() or 0,
                 "pinned_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_pinned.is_(True)).scalar() or 0,
                 "compacted_memory_count": db.query(func.count(Memory.id)).filter(Memory.is_compacted.is_(True)).scalar() or 0,
@@ -284,6 +324,7 @@ def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
             "runtime": build_runtime_status(db),
             "clients": build_client_surface(),
             "telemetry": build_telemetry_payload(db),
+            "recent_chats": build_recent_chat_payload(db),
         }
 
     return cached_value("admin_snapshot", safe_limit, 2.0, loader)

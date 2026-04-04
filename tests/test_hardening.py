@@ -25,6 +25,7 @@ from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
 from app.main import app
 from app.database import SessionLocal, engine, init_db
+from app.direct_chat import create_chat_session, get_chat_session_payload, send_chat_message
 from app.mcp_server import (
     mcp,
     pexo,
@@ -75,7 +76,7 @@ from app.mcp_server import (
     pexo_update_profile,
     pexo_update_tool,
 )
-from app.models import AgentProfile, AgentState, Memory, Profile
+from app.models import AgentProfile, AgentState, ChatMessage, ChatSession, Memory, Profile
 from app.paths import ARTIFACTS_DIR, CHROMA_DB_DIR, CODE_ROOT, PEXO_DB_PATH, PROJECT_ROOT, looks_like_repo_checkout, resolve_state_root
 from app.routers.admin import build_telemetry_payload, get_admin_snapshot
 from app.routers.artifacts import (
@@ -147,7 +148,7 @@ class HardeningTests(unittest.TestCase):
         inspector = inspect(engine)
         table_names = set(inspector.get_table_names())
         self.assertTrue(
-            {"profiles", "agent_profiles", "memories", "dynamic_tools", "agent_states", "workspaces", "artifacts", "system_settings"}.issubset(table_names)
+            {"profiles", "agent_profiles", "memories", "dynamic_tools", "agent_states", "workspaces", "artifacts", "system_settings", "chat_sessions", "chat_messages"}.issubset(table_names)
         )
 
     def test_init_db_seeds_core_agents(self):
@@ -229,14 +230,16 @@ class HardeningTests(unittest.TestCase):
     def test_admin_ui_supports_agent_editing_and_memory_admin(self):
         html = Path("app/static/index.html").read_text(encoding="utf-8")
         self.assertIn("saveAgent()", html)
-        self.assertIn("editAgent(", html)
-        self.assertIn("saveMemory()", html)
+        self.assertIn("sendChat()", html)
+        self.assertIn("saveMemory(", html)
         self.assertIn("deleteMemory(", html)
-        self.assertIn("saveProfileSettings()", html)
+        self.assertIn("saveProfile()", html)
         self.assertIn("runMemoryMaintenance()", html)
-        self.assertIn("telemetry-summary", html)
-        self.assertIn("artifact-list", html)
-        self.assertIn("promoteRuntime(", html)
+        self.assertIn("/chat/sessions", html)
+        self.assertIn("Direct Chat", html)
+        self.assertIn("pexo --chat", html)
+        self.assertIn("artifactList", html)
+        self.assertIn("promote(", html)
         self.assertIn("/admin/snapshot", html)
 
     def test_install_scripts_report_progress_percentages(self):
@@ -446,6 +449,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
+        self.assertIn("pexo --chat", readme)
         self.assertIn("use it automatically", readme)
         self.assertIn("default local brain", readme)
         self.assertIn("Repository-level AI usage rules live in `AGENTS.md`", readme)
@@ -475,6 +479,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Do not touch the current repo", agents_doc)
         self.assertIn("Do not execute raw remote scripts", agents_doc)
         self.assertIn("Do not repeat those steps unless the user asks for verification", agents_doc)
+        self.assertIn("pexo --chat", agents_doc)
         self.assertIn("## Simple Task Flow", agents_doc)
         self.assertIn('even when the user does not explicitly say "use Pexo"', agents_doc)
         self.assertIn("`pexo`", agents_doc)
@@ -487,6 +492,22 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("pexo_remember_context", agents_doc)
         self.assertIn("pexo_attach_context", agents_doc)
         self.assertIn("user_message", agents_doc)
+
+    def test_launcher_help_mentions_terminal_chat_mode(self):
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            launcher_module.print_help()
+        output = buffer.getvalue()
+        self.assertIn("pexo --chat", output)
+        self.assertIn("Starts a direct terminal chat with Pexo", output)
+
+    def test_checkout_wrappers_advertise_terminal_chat_mode(self):
+        windows_wrapper = Path("pexo.bat").read_text(encoding="utf-8")
+        unix_wrapper = Path("pexo").read_text(encoding="utf-8")
+        self.assertIn("pexo --chat", windows_wrapper)
+        self.assertIn("python.exe -m app.launcher chat", windows_wrapper)
+        self.assertIn("pexo --chat", unix_wrapper)
+        self.assertIn('-m app.launcher chat "$@"', unix_wrapper)
 
     def test_release_bundle_installers_exist_and_emit_summary(self):
         install_ps = Path("release_bundle/install.ps1").read_text(encoding="utf-8")
@@ -1283,6 +1304,77 @@ class HardeningTests(unittest.TestCase):
                     self.assertEqual(len(snapshot["recent_artifacts"]), 1)
         finally:
             db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_service_round_trip(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            self.assertEqual(session["backend"], "gemini")
+
+            first_reply = send_chat_message(db, session_id=session["id"], message="Design a futuristic landing page.")
+            self.assertEqual(first_reply["reply"]["status"], "clarification_required")
+
+            mock_run_backend.side_effect = [
+                json.dumps([{"id": "task-1", "description": "Build the landing page", "assigned_agent": "Developer"}]),
+                "Implemented the landing page.",
+                "Reviewed the landing page and verified the result.",
+            ]
+
+            second_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Keep it responsive, minimal, and high-contrast.",
+            )
+            self.assertEqual(second_reply["reply"]["status"], "complete")
+            self.assertIn("All tasks completed", second_reply["reply"]["user_message"])
+
+            payload = get_chat_session_payload(db, session["id"])
+            self.assertEqual(payload["session"]["status"], "complete")
+            self.assertGreaterEqual(len(payload["messages"]), 4)
+
+            self.assertEqual(db.query(ChatSession).count(), 1)
+            self.assertGreaterEqual(db.query(ChatMessage).count(), 4)
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_chat_api_and_snapshot_include_direct_chat(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        mock_run_backend.side_effect = [
+            json.dumps([{"id": "task-1", "description": "Create the plan", "assigned_agent": "Developer"}]),
+            "Completed the plan.",
+            "Verified the plan and finalized it.",
+        ]
+
+        client = TestClient(app)
+        create_response = client.post("/chat/sessions", json={"backend": "auto", "workspace_path": str(PROJECT_ROOT)})
+        self.assertEqual(create_response.status_code, 200)
+        session_id = create_response.json()["id"]
+
+        first_message = client.post(f"/chat/sessions/{session_id}/messages", json={"message": "Create a website launch plan."})
+        self.assertEqual(first_message.status_code, 200)
+        self.assertEqual(first_message.json()["reply"]["status"], "clarification_required")
+
+        second_message = client.post(
+            f"/chat/sessions/{session_id}/messages",
+            json={"message": "Keep it local-first and very simple."},
+        )
+        self.assertEqual(second_message.status_code, 200)
+        self.assertEqual(second_message.json()["reply"]["status"], "complete")
+
+        snapshot = client.get("/admin/snapshot")
+        self.assertEqual(snapshot.status_code, 200)
+        payload = snapshot.json()
+        self.assertGreaterEqual(payload["stats"]["chat_count"], 1)
+        self.assertGreaterEqual(len(payload["recent_chats"]), 1)
 
     def test_artifact_upload_endpoint_accepts_file_content(self):
         os.environ["PEXO_NO_BROWSER"] = "1"

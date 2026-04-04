@@ -15,6 +15,8 @@ from pathlib import Path
 
 from .client_connect import SUPPORTED_CLIENTS, SUPPORTED_SCOPES, connect_clients
 from .cli import build_parser as build_cli_parser
+from .database import SessionLocal
+from .direct_chat import create_chat_session, get_chat_session_payload, send_chat_message, update_chat_session
 from .paths import (
     ARTIFACTS_DIR,
     CHROMA_DB_DIR,
@@ -510,12 +512,169 @@ def run_connect(target: str = "all", scope: str = "user", dry_run: bool = False,
     return 0
 
 
+def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> int:
+    status = build_runtime_status()
+    if not status["installed_profiles"].get("mcp", False):
+        promotion_result = promote_runtime("mcp")
+        if promotion_result["status"] != "success":
+            print(
+                promotion_result.get("stderr") or promotion_result.get("stdout") or "Failed to prepare the MCP runtime.",
+                file=sys.stderr,
+            )
+            return 1
+        print("MCP runtime installed. Restarting Pexo chat to activate the new environment...")
+        return _restart_launcher_process()
+
+    _print_start_banner()
+    print("")
+    print("PEXO Direct Chat | terminal mode")
+    print("Commands: /new  /status  /backend <name>  /workspace <path>  /exit")
+
+    try:
+        db = SessionLocal()
+        try:
+            session_payload = create_chat_session(
+                db,
+                backend=backend,
+                workspace_path=workspace_path,
+                title="Terminal Chat",
+            )
+        finally:
+            db.close()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    session_id = session_payload["id"]
+    current_backend = session_payload["backend"]
+    current_workspace = session_payload["workspace_path"]
+    print(f"Backend: {current_backend}")
+    print(f"Workspace: {current_workspace}")
+    print("")
+
+    while True:
+        try:
+            raw_input_text = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            print("Exiting Pexo chat.")
+            return 0
+
+        if not raw_input_text:
+            continue
+
+        if raw_input_text.lower() in {"exit", "quit", "/exit", "/quit"}:
+            print("Exiting Pexo chat.")
+            return 0
+
+        if raw_input_text.lower() in {"/new", "new"}:
+            try:
+                db = SessionLocal()
+                try:
+                    session_payload = create_chat_session(
+                        db,
+                        backend=current_backend,
+                        workspace_path=current_workspace,
+                        title="Terminal Chat",
+                    )
+                finally:
+                    db.close()
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                continue
+            session_id = session_payload["id"]
+            print(f"Started new chat session {session_id[:8]}.")
+            continue
+
+        if raw_input_text.lower() in {"/status", "status"}:
+            try:
+                db = SessionLocal()
+                try:
+                    payload = get_chat_session_payload(db, session_id)
+                finally:
+                    db.close()
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                continue
+            session = payload["session"]
+            reply_details = (payload["messages"][-1]["details"] if payload["messages"] else {}) or {}
+            print(f"Session: {session['title']} ({session['id'][:8]})")
+            print(f"Backend: {session['backend']}")
+            print(f"Workspace: {session['workspace_path']}")
+            print(f"Status: {session['status']}")
+            if reply_details.get("role"):
+                print(f"Last role: {reply_details['role']}")
+            continue
+
+        if raw_input_text.lower().startswith("/backend "):
+            requested_backend = raw_input_text.split(" ", 1)[1].strip() or "auto"
+            try:
+                db = SessionLocal()
+                try:
+                    session_payload = update_chat_session(
+                        db,
+                        session_id=session_id,
+                        backend=requested_backend,
+                    )
+                finally:
+                    db.close()
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                continue
+            current_backend = session_payload["backend"]
+            print(f"Backend set to {current_backend}.")
+            continue
+
+        if raw_input_text.lower().startswith("/workspace "):
+            requested_workspace = raw_input_text.split(" ", 1)[1].strip()
+            try:
+                db = SessionLocal()
+                try:
+                    session_payload = update_chat_session(
+                        db,
+                        session_id=session_id,
+                        workspace_path=requested_workspace,
+                    )
+                finally:
+                    db.close()
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                continue
+            current_workspace = session_payload["workspace_path"]
+            print(f"Workspace set to {current_workspace}.")
+            continue
+
+        try:
+            db = SessionLocal()
+            try:
+                payload = send_chat_message(
+                    db,
+                    session_id=session_id,
+                    message=raw_input_text,
+                )
+            finally:
+                db.close()
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            continue
+
+        session = payload["session"]
+        reply = payload["reply"]
+        session_id = session["id"]
+        current_backend = session["backend"]
+        current_workspace = session["workspace_path"]
+        print("")
+        print(f"pexo> {reply['user_message']}")
+        print("")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pexo", description="Pexo command launcher.")
     parser.add_argument("--version", action="store_true", help="Display the current Pexo version.")
     parser.add_argument("--no-browser", action="store_true", help="Start the API without opening the dashboard.")
     parser.add_argument("--offline", action="store_true", help="Skip automatic repository update checks.")
     parser.add_argument("--skip-update", action="store_true", help="Skip automatic repository update checks.")
+    parser.add_argument("--chat", action="store_true", help="Start Pexo direct chat in the terminal.")
     parser.add_argument("--mcp", action="store_true", help="Start Pexo in native MCP stdio mode.")
     parser.add_argument("--update", action="store_true", help="Update the current Pexo installation.")
     parser.add_argument(
@@ -545,6 +704,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect_parser.add_argument("--dry-run", action="store_true", help="Print the connection plan without changing client configuration.")
     connect_parser.add_argument("--json", action="store_true", help="Emit connection results as JSON.")
     subparsers.add_parser("uninstall", help="Show uninstall guidance for the current delivery mode.")
+    chat_parser = subparsers.add_parser("chat", help="Start Pexo direct chat in the terminal.")
+    chat_parser.add_argument("--backend", default="auto", choices=["auto", *SUPPORTED_CLIENTS])
+    chat_parser.add_argument("--workspace", default="", help="Workspace path to expose to the hidden AI worker.")
     return parser
 
 
@@ -555,6 +717,7 @@ def print_help() -> None:
     print("  pexo                 Starts the Pexo API and Control Panel")
     print("  pexo list-presets    Lists available profile presets for terminal-first setup")
     print("  pexo headless-setup  Initializes the local profile without opening the web UI")
+    print("  pexo --chat          Starts a direct terminal chat with Pexo")
     print("  pexo promote [full]  Installs or upgrades the local runtime dependency profile")
     print("  pexo update          Updates the current Pexo installation")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
@@ -777,6 +940,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_doctor(as_json="--json" in raw_args[1:])
     if raw_args and raw_args[0] == "--connect":
         raw_args = ["connect", *raw_args[1:]]
+    if raw_args and raw_args[0] == "--chat":
+        raw_args = ["chat", *raw_args[1:]]
 
     parser = build_parser()
     args, extras = parser.parse_known_args(raw_args)
@@ -785,6 +950,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.version:
         print(f"Pexo v{__version__}")
         return 0
+    if args.chat:
+        maybe_update(skip_update=skip_update)
+        return run_chat_mode()
     if args.mcp or args.command == "mcp":
         return run_mcp()
     if args.update or args.command == "update":
@@ -815,6 +983,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_connect(target=args.client, scope=args.scope, dry_run=args.dry_run, as_json=args.json)
     if args.command == "uninstall":
         return print_uninstall_guidance()
+    if args.command == "chat":
+        maybe_update(skip_update=skip_update)
+        return run_chat_mode(
+            backend=getattr(args, "backend", "auto"),
+            workspace_path=getattr(args, "workspace", "") or None,
+        )
 
     maybe_update(skip_update=skip_update)
     return run_server(no_browser=args.no_browser)

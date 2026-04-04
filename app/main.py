@@ -8,7 +8,7 @@ import threading
 import time
 from .database import init_db
 from .paths import STATIC_DIR
-from .routers import admin, agents, artifacts, profile, orchestrator, memory, evolve, runtime, tools, backup
+from .routers import admin, agents, artifacts, backup, chat, evolve, memory, orchestrator, profile, runtime, tools
 
 def open_browser():
     time.sleep(1.5)
@@ -51,3 +51,5 @@ app.include_router(runtime.router, prefix="/runtime", tags=["Runtime"])
 app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
 # Include admin dashboard snapshot API
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+# Include direct chat API
+app.include_router(chat.router, prefix="/chat", tags=["Chat"])
