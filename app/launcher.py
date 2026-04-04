@@ -348,8 +348,13 @@ def _exec_update_helper(helper_path: Path, plan_path: Path) -> int:
         target_python = str(plan.get("target_python") or _resolve_runtime_python_executable())
     except (OSError, ValueError, json.JSONDecodeError):
         target_python = _resolve_runtime_python_executable()
-    os.execv(target_python, [target_python, str(helper_path), str(plan_path)])
-    return 0
+    sys.stdout.flush()
+    sys.stderr.flush()
+    completed = subprocess.run(
+        [target_python, str(helper_path), str(plan_path)],
+        check=False,
+    )
+    return int(completed.returncode)
 
 
 def _restart_launcher_process(argv: list[str] | None = None) -> int:

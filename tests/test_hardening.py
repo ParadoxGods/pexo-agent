@@ -770,12 +770,17 @@ class HardeningTests(unittest.TestCase):
             target_python.write_text("", encoding="utf-8")
             plan_path.write_text(json.dumps({"target_python": str(target_python)}), encoding="utf-8")
 
-            with patch("app.launcher.os.execv") as mock_execv:
-                launcher_module._exec_update_helper(helper_path, plan_path)
+            with patch("app.launcher.subprocess.run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [str(target_python), str(helper_path), str(plan_path)],
+                    0,
+                )
+                result = launcher_module._exec_update_helper(helper_path, plan_path)
 
-            mock_execv.assert_called_once_with(
-                str(target_python),
+            self.assertEqual(result, 0)
+            mock_run.assert_called_once_with(
                 [str(target_python), str(helper_path), str(plan_path)],
+                check=False,
             )
 
     @patch("app.launcher._port_is_in_use", return_value=False)
