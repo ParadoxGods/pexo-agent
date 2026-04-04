@@ -2,17 +2,18 @@ import importlib
 from datetime import datetime
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..cache import invalidate_surface_caches
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
 from ..runtime import build_runtime_status, build_vector_promotion_offer, maybe_issue_vector_promotion_offer, promote_runtime
 from ..search_index import delete_memory_search_document, search_memory_ids, upsert_memory_search_document
+from ..direct_chat import run_direct_chat_backend, _adaptive_backend_order
 
 try:
     import chromadb
@@ -118,6 +119,24 @@ def _extract_summary_fragments(content: str) -> list[str]:
 
 
 def _build_compacted_summary(task_context: str, fragments: list[str]) -> str:
+    if not fragments:
+        return f"Compacted memory summary for {task_context or 'general context'}."
+    
+    bullet_block = "\n".join([f"- {fragment}" for fragment in fragments])
+    prompt = (
+        f"Summarize the following memory fragments into a dense, semantic summary for {task_context or 'general context'}. "
+        f"Keep it extremely concise and factual. Do not include conversational filler.\n\n{bullet_block}"
+    )
+    
+    for backend in _adaptive_backend_order():
+        try:
+            summary = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=15)
+            if summary and "Error:" not in summary:
+                return summary.strip()
+        except Exception:
+            continue
+
+    # Fallback to simple truncation
     unique_fragments: list[str] = []
     seen = set()
     for fragment in fragments:
@@ -133,10 +152,8 @@ def _build_compacted_summary(task_context: str, fragments: list[str]) -> str:
             break
 
     header = f"Compacted memory summary for {task_context or 'general context'}."
-    if not unique_fragments:
-        return header
-    bullet_block = "\n".join([f"- {fragment}" for fragment in unique_fragments])
-    return f"{header}\n{bullet_block}"
+    bullet_block_fallback = "\n".join([f"- {fragment}" for fragment in unique_fragments])
+    return f"{header}\n{bullet_block_fallback}"
 
 
 def _format_memory_search_results(memories: list[Memory], *, distance_by_id: dict[int, float | None] | None = None, metadata_by_id: dict[int, dict] | None = None) -> dict:
@@ -370,6 +387,14 @@ def maintain_memory_health(db: Session, task_context: str | None = None) -> dict
     }
 
 
+def maintain_memory_health_bg(task_context: str | None = None) -> None:
+    db = SessionLocal()
+    try:
+        maintain_memory_health(db, task_context)
+    finally:
+        db.close()
+
+
 class MemoryStoreRequest(BaseModel):
     session_id: str
     content: str
@@ -396,7 +421,7 @@ class MemoryMaintenanceRequest(BaseModel):
 
 
 @router.post("/store")
-def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
+def store_memory(request: MemoryStoreRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
     This acts as the global, persistent brain across all tasks.
@@ -428,7 +453,8 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
         task_context=new_memory.task_context,
         session_id=new_memory.session_id,
     )
-    maintenance = maintain_memory_health(db, task_context=request.task_context)
+    
+    background_tasks.add_task(maintain_memory_health_bg, request.task_context)
     invalidate_surface_caches()
 
     return _with_runtime_metadata({
@@ -436,7 +462,7 @@ def store_memory(request: MemoryStoreRequest, db: Session = Depends(get_db)):
         "memory_id": new_memory.id,
         "chroma_id": new_memory.chroma_id,
         "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
-        "maintenance": maintenance,
+        "maintenance": "Deferred to background task",
     }, db, promotion_offer=promotion_offer, promotion_result=promotion_result)
 
 

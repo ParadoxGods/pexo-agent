@@ -120,6 +120,7 @@ def _build_initial_state(session_id: str, prompt: str, clarification_question: s
         "clarification_answer": clarification_answer,
         "tasks": [],
         "completed_tasks": [],
+        "reviewed_tasks": [],
         "current_agent": "Supervisor",
         "current_instruction": "",
         "waiting_for_ai": False,
@@ -132,31 +133,8 @@ def _build_initial_state(session_id: str, prompt: str, clarification_question: s
 
 
 def should_require_clarification(prompt: str) -> bool:
-    text = " ".join((prompt or "").strip().lower().split())
-    if not text:
-        return True
-
-    words = re.findall(r"[a-z0-9']+", text)
-    if len(words) <= 3:
-        return True
-
-    if any(hint in text for hint in VAGUE_TASK_HINTS):
-        return True
-
-    has_action = any(hint in text for hint in SPECIFIC_TASK_HINTS)
-    has_object = any(hint in text for hint in TASK_OBJECT_HINTS)
-    has_constraint = any(token in text for token in (" with ", " using ", " for ", " in ", " keep it ", " include ", " without "))
-
-    if has_action and (has_object or has_constraint or len(words) >= 7):
-        return False
-
-    if text.endswith("?") and not has_action:
-        return True
-
-    if text.startswith(("can you help me", "help me ")) and not (has_action and has_object):
-        return True
-
-    return not (has_action and (has_object or len(words) >= 6))
+    # Deprecated: Clarification logic is now handled dynamically by the Supervisor node.
+    return False
 
 
 def log_agent_state(
@@ -196,6 +174,7 @@ def build_simple_user_message(role: str | None) -> str:
         "Time Manager": "Pexo is checking timing and sequencing for the work.",
         "Resource Manager": "Pexo is checking what resources are needed next.",
         "Code Organization Manager": "Pexo is organizing the resulting work into a clean structure.",
+        "Quality Assurance Manager": "Pexo is reviewing the completed work for correctness.",
     }
     if role in role_messages:
         return role_messages[role]
@@ -261,7 +240,7 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         clarification_question,
         "",
     )
-    initial_state["context_snapshot"] = build_session_context_snapshot(db)
+    initial_state["context_snapshot"] = build_session_context_snapshot(db, query=request.prompt)
     
     db_state = AgentState(
         session_id=session_id,
@@ -332,13 +311,55 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     current_agent = state.get("current_agent")
 
     if current_agent == "Supervisor":
-        # Expecting a list of tasks
-        state["tasks"] = result.result_data if isinstance(result.result_data, list) else []
+        # Expecting either a list of tasks, or a dict requesting clarification
+        if isinstance(result.result_data, dict) and "clarification_required" in result.result_data:
+            state["clarification_question"] = result.result_data["clarification_required"]
+            state["clarification_answer"] = ""
+            state["tasks"] = []
+            telemetry_data = {
+                "clarification_required": True,
+                "output_preview": build_output_preview(result.result_data),
+                "result_type": type(result.result_data).__name__,
+            }
+        else:
+            state["tasks"] = result.result_data if isinstance(result.result_data, list) else []
+            telemetry_data = {
+                "task_count": len(state["tasks"]),
+                "output_preview": build_output_preview(result.result_data),
+                "result_type": type(result.result_data).__name__,
+            }
+    elif current_agent == "Quality Assurance Manager":
+        reviewed = state.get("reviewed_tasks", [])
+        completed = state.get("completed_tasks", [])
         telemetry_data = {
-            "task_count": len(state["tasks"]),
             "output_preview": build_output_preview(result.result_data),
             "result_type": type(result.result_data).__name__,
         }
+        if len(reviewed) < len(completed):
+            last_completed = completed[len(reviewed)]
+            reviewed.append({"task": last_completed["task"], "review_result": result.result_data})
+            state["reviewed_tasks"] = reviewed
+            
+            result_text = str(result.result_data).strip()
+            if "FAIL" in result_text:
+                tasks = state.get("tasks", [])
+                tasks.append({
+                    "id": f"fix-{len(tasks) + 1}",
+                    "description": f"Fix issues found in previous step: {result_text}",
+                    "assigned_agent": last_completed["task"].get("assigned_agent", "Developer")
+                })
+                state["tasks"] = tasks
+
+                # Recursive Learning: Parse and store lesson learned
+                if "LESSON LEARNED:" in result_text:
+                    lesson_content = result_text.split("LESSON LEARNED:")[1].strip()
+                    if lesson_content:
+                        new_lesson = Memory(
+                            session_id=result.session_id,
+                            content=lesson_content,
+                            task_context="lesson_learned",
+                        )
+                        db.add(new_lesson)
     elif current_agent not in ["Supervisor", "Code Organization Manager"]:
         # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
         tasks = state.get("tasks", [])
@@ -417,7 +438,7 @@ def start_simple_task(request: PromptRequest, db: Session = Depends(get_db)):
         "",
         "No extra clarification required.",
     )
-    initial_state["context_snapshot"] = build_session_context_snapshot(db)
+    initial_state["context_snapshot"] = build_session_context_snapshot(db, query=request.prompt)
 
     db_state = AgentState(
         session_id=session_id,

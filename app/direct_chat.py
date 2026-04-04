@@ -1792,6 +1792,7 @@ def _advance_direct_chat_task(
     history_excerpt: str,
     timeout_seconds: int,
     stop_before_external_worker: bool = False,
+    progress_callback: Any | None = None,
 ) -> dict[str, Any]:
     task_payload = None
     last_worker_result: Any = None
@@ -1914,6 +1915,7 @@ def _advance_direct_chat_task(
                         chat_session.workspace_path or str(PROJECT_ROOT),
                         timeout_seconds=_task_worker_timeout_for_attempt(role, timeout_seconds, worker_attempt_index),
                         mode=worker_mode,
+                        progress_callback=progress_callback,
                     )
                     backend_elapsed_ms += int((time.monotonic() - worker_started_at) * 1000)
                     if isinstance(raw_worker_result, str) and _looks_like_generic_backend_filler(raw_worker_result):
@@ -1964,7 +1966,7 @@ def _advance_direct_chat_task(
     }
 
 
-def _task_run_heartbeat_loop(chat_session_id: str, run_id: str, stop_event: threading.Event) -> None:
+def _task_run_heartbeat_loop(chat_session_id: str, run_id: str, stop_event: threading.Event, shared_state: dict) -> None:
     while not stop_event.wait(TASK_RUN_HEARTBEAT_SECONDS):
         db = SessionLocal()
         try:
@@ -1979,6 +1981,8 @@ def _task_run_heartbeat_loop(chat_session_id: str, run_id: str, stop_event: thre
                 return
             details["task_run_last_heartbeat_at"] = _utc_now_iso()
             details["task_run_elapsed_seconds"] = _seconds_since_iso(str(details.get("task_run_started_at") or "")) or 0
+            if "progress" in shared_state and shared_state["progress"]:
+                details["task_run_progress_message"] = shared_state["progress"]
             session.details = details
             db.commit()
         except Exception:
@@ -2060,9 +2064,14 @@ def _run_background_task_worker(
     timeout_seconds: int,
     stop_event: threading.Event,
 ) -> None:
+    shared_state = {'progress': ''}
+
+    def on_progress(msg: str) -> None:
+        shared_state['progress'] = msg
+
     heartbeat_thread = threading.Thread(
         target=_task_run_heartbeat_loop,
-        args=(chat_session_id, run_id, stop_event),
+        args=(chat_session_id, run_id, stop_event, shared_state),
         daemon=True,
     )
     heartbeat_thread.start()
@@ -2081,6 +2090,7 @@ def _run_background_task_worker(
                 history_excerpt=history_excerpt,
                 timeout_seconds=timeout_seconds,
                 stop_before_external_worker=False,
+                progress_callback=on_progress,
             )
         finally:
             db.close()
@@ -2389,6 +2399,7 @@ def _run_command_with_timeout(
     *,
     cwd: str | None = None,
     timeout_seconds: int,
+    progress_callback: Any | None = None,
 ) -> subprocess.CompletedProcess[str]:
     popen_kwargs: dict[str, Any] = {
         "cwd": cwd,
@@ -2401,15 +2412,45 @@ def _run_command_with_timeout(
     if os.name == "nt":
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     process = subprocess.Popen(command, **popen_kwargs)
+    
+    stdout_chunks = []
+    stderr_chunks = []
+
+    def _read_stdout():
+        if process.stdout:
+            for line in process.stdout:
+                stdout_chunks.append(line)
+                if progress_callback and line.strip():
+                    progress_callback(line.strip())
+
+    def _read_stderr():
+        if process.stderr:
+            for line in process.stderr:
+                stderr_chunks.append(line)
+
+    t1 = threading.Thread(target=_read_stdout, daemon=True)
+    t2 = threading.Thread(target=_read_stderr, daemon=True)
+    t1.start()
+    t2.start()
+
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         _terminate_process_tree(process)
         try:
-            stdout, stderr = process.communicate(timeout=2)
+            process.wait(timeout=2)
         except Exception:
-            stdout, stderr = "", ""
+            pass
+        t1.join(timeout=1.0)
+        t2.join(timeout=1.0)
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
         raise subprocess.TimeoutExpired(command, timeout_seconds, output=stdout, stderr=stderr) from exc
+    
+    t1.join(timeout=1.0)
+    t2.join(timeout=1.0)
+    stdout = "".join(stdout_chunks)
+    stderr = "".join(stderr_chunks)
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
@@ -2671,7 +2712,7 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     return (completed.stdout or "").strip()
 
 
-def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
+def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
     args = []
     if model_override:
         args.extend(["--model", model_override])
@@ -2681,6 +2722,7 @@ def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_overri
         completed = _run_command_with_timeout(
             command,
             timeout_seconds=timeout_seconds,
+            progress_callback=progress_callback,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(

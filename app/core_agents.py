@@ -63,8 +63,17 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
             "for the user to inspect."
         ),
     },
+    {
+        "name": "Quality Assurance Manager",
+        "role": "Task Reviewer",
+        "capabilities": ["review", "test", "critique", "verify"],
+        "system_prompt": (
+            "You are the Quality Assurance Manager. Critically evaluate the implementation of the last completed task. "
+            "If the implementation meets all requirements and exhibits no errors, return a strict PASS. "
+            "If issues exist, return a FAIL and provide a clear, actionable description of the required fix so the Developer can correct it."
+        ),
+    },
 ]
-
 
 def ensure_core_agent_profiles(db: Session) -> None:
     existing_agents = {
