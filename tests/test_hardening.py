@@ -2083,16 +2083,86 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
             mock_run_backend.side_effect = RuntimeError("Codex direct chat timed out after 25 seconds.")
+            db_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
+            second_reply = direct_chat_module._advance_direct_chat_task(
+                db,
+                chat_session=db_session,
+                latest_user_message="continue",
+                backend_name="codex",
+                history_excerpt=direct_chat_module._history_excerpt(db, session["id"]),
+                timeout_seconds=300,
+                stop_before_external_worker=False,
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 1)
+            self.assertEqual(second_reply["response_path"], "task_session_blocked")
+            self.assertEqual(second_reply["attempted_backends"], ["codex"])
+            self.assertEqual(second_reply["backend_errors"]["codex"], "Codex direct chat timed out after 25 seconds.")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.threading.Thread.start", return_value=None)
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="codex")
+    def test_direct_chat_starts_background_task_worker_on_continue(self, mock_backend_name, mock_connect, _mock_thread_start):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            first_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product with a clean premium look.",
+            )
+            self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
+
             second_reply = send_chat_message(
                 db,
                 session_id=session["id"],
                 message="continue",
             )
 
-            self.assertEqual(mock_run_backend.call_count, 1)
-            self.assertEqual(second_reply["session"]["details"]["response_path"], "task_session_blocked")
-            self.assertEqual(second_reply["session"]["details"]["attempted_backends"], ["codex"])
-            self.assertEqual(second_reply["session"]["details"]["backend_errors"]["codex"], "Codex direct chat timed out after 25 seconds.")
+            self.assertEqual(second_reply["session"]["status"], "working")
+            self.assertEqual(second_reply["session"]["details"]["response_path"], "task_run_started")
+            self.assertEqual(second_reply["session"]["details"]["task_run_status"], "running")
+            self.assertIn("developer step is running", second_reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    def test_direct_chat_reports_active_background_run_status(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            db_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
+            details = dict(db_session.details or {})
+            details.update(
+                {
+                    "mode": "task",
+                    "task_run_status": "running",
+                    "task_run_role": "Developer",
+                    "task_run_backend": "codex",
+                    "task_run_started_at": "2026-04-04T10:00:00",
+                    "task_run_progress_message": "The Developer step is running.",
+                }
+            )
+            db_session.status = "working"
+            db_session.pexo_session_id = "pexo-task-1"
+            db_session.details = details
+            db.commit()
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="status",
+            )
+
+            self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("developer step is running", reply["reply"]["user_message"].lower())
+            self.assertIn("via codex", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -2303,17 +2373,21 @@ class HardeningTests(unittest.TestCase):
             )
             self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
-            reply = send_chat_message(
+            db_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
+            reply = direct_chat_module._advance_direct_chat_task(
                 db,
-                session_id=session["id"],
-                message="continue",
+                chat_session=db_session,
+                latest_user_message="continue",
+                backend_name="gemini",
+                history_excerpt=direct_chat_module._history_excerpt(db, session["id"]),
+                timeout_seconds=300,
+                stop_before_external_worker=False,
             )
 
             self.assertEqual(mock_run_backend.call_count, 2)
-            self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
-            self.assertIn("landing page structure and hero section", reply["reply"]["user_message"].lower())
-            self.assertNotIn("respond as pexo", reply["reply"]["user_message"].lower())
+            self.assertEqual(reply["task_payload"]["status"], "complete")
+            self.assertIn("landing page structure and hero section", reply["assistant_text"].lower())
+            self.assertNotIn("respond as pexo", reply["assistant_text"].lower())
         finally:
             db.close()
 
@@ -2339,16 +2413,20 @@ class HardeningTests(unittest.TestCase):
             )
             self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
-            reply = send_chat_message(
+            db_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
+            reply = direct_chat_module._advance_direct_chat_task(
                 db,
-                session_id=session["id"],
-                message="continue",
+                chat_session=db_session,
+                latest_user_message="continue",
+                backend_name="gemini",
+                history_excerpt=direct_chat_module._history_excerpt(db, session["id"]),
+                timeout_seconds=300,
+                stop_before_external_worker=False,
             )
 
             self.assertEqual(mock_run_backend.call_count, 2)
-            self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
-            self.assertIn("frontend design agent role and capabilities", reply["reply"]["user_message"].lower())
+            self.assertEqual(reply["task_payload"]["status"], "complete")
+            self.assertIn("frontend design agent role and capabilities", reply["assistant_text"].lower())
         finally:
             db.close()
 
@@ -2474,12 +2552,13 @@ class HardeningTests(unittest.TestCase):
                 message="The landing page layout is broken on desktop.",
             )
 
-            self.assertEqual(second_reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertEqual(second_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
+            self.assertEqual(second_reply["session"]["details"]["pexo_task_role"], "Developer")
             self.assertEqual(
                 first_reply["reply"]["pexo_session_id"],
                 second_reply["reply"]["pexo_session_id"],
             )
-            self.assertIn("adjusted the landing page layout", second_reply["reply"]["user_message"].lower())
+            self.assertIn("next developer step", second_reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

@@ -1025,8 +1025,21 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             print(f"Backend: {session['backend']}")
             print(f"Workspace: {session['workspace_path']}")
             print(f"Status: {session['status']}")
+            session_details = session.get("details") or {}
+            if str(session_details.get("task_run_status") or "").strip().lower() == "running":
+                role = str(session_details.get("task_run_role") or "worker").strip()
+                backend_label = str(session_details.get("task_run_backend") or session["backend"]).strip()
+                elapsed = session_details.get("task_run_elapsed_seconds")
+                progress = str(session_details.get("task_run_progress_message") or "").strip()
+                print(f"Active run: {role} via {backend_label}")
+                if elapsed is not None:
+                    print(f"Elapsed: {elapsed}s")
+                if progress:
+                    print(f"Progress: {progress}")
             if reply_details.get("role"):
                 print(f"Last role: {reply_details['role']}")
+            if session_details.get("last_assistant_message"):
+                print(f"Last reply: {session_details['last_assistant_message']}")
             continue
 
         if raw_input_text.lower().startswith("/backend "):
@@ -1096,6 +1109,8 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
         current_workspace = session["workspace_path"]
         print("")
         print(f"pexo> {reply['user_message']}")
+        if str((session.get("details") or {}).get("task_run_status") or "").strip().lower() == "running":
+            print("pexo> Background run is active. Use /status to check progress.")
         print("")
 
 
