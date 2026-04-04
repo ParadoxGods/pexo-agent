@@ -424,6 +424,12 @@ def _focus_fact_snippet(query: str, snippet: str) -> str:
     for hint in preferred_hints:
         for sentence in sentences:
             if hint in sentence.lower():
+                incumbent_match = re.search(
+                    r"(The incumbent [^.?!]*? is [A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,4})",
+                    sentence,
+                )
+                if incumbent_match:
+                    return f"{incumbent_match.group(1).rstrip('.') }."
                 return sentence
     query_terms = _fact_query_terms(query)
     for sentence in sentences:
