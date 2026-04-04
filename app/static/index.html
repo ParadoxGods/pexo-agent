@@ -3,171 +3,451 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pexo Control Plane</title>
+  <title>PEXO | Enterprise AI Orchestration</title>
   <style>
-    :root{color-scheme:dark;--bg:#081014;--bg2:#101c22;--card:#12222a;--line:rgba(130,182,191,.18);--text:#eef7f8;--muted:#9ab2bb;--accent:#33d0c6;--accent2:#8deeba;--warn:#f6c06b;--danger:#ff7d73;--speed:.125s;--font-ui:"Bahnschrift","Segoe UI Variable Display","Segoe UI",sans-serif;--font-body:"Segoe UI Variable Text","Segoe UI",sans-serif}
-    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:radial-gradient(circle at top right,rgba(51,208,198,.12),transparent 28%),linear-gradient(180deg,#081014,#060c10);color:var(--text);font-family:var(--font-body)}body{padding:24px}
-    .shell{max-width:1440px;margin:0 auto}.hero,.panel,.card,.item,.msg,.tab{border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,34,42,.96),rgba(10,19,24,.98))}.hero,.panel,.card{border-radius:14px}.hero{padding:24px 26px;margin-bottom:16px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,.8fr);gap:16px}.eyebrow{margin:0 0 10px;color:var(--accent2);font:11px var(--font-ui);letter-spacing:.26em;text-transform:uppercase}.hero h1{margin:0;font:clamp(30px,4vw,54px)/.94 var(--font-ui);letter-spacing:-.03em}.hero p{margin:14px 0 0;color:var(--muted);font-size:15px;line-height:1.6}
-    .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.metric{padding:14px;background:rgba(8,15,20,.58)}.metric b{display:block;font:26px/1 var(--font-ui);margin:8px 0}.metric span{color:var(--muted);font-size:13px}
-    .tabs{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}.tab{height:54px;min-width:108px;padding:0 16px;color:var(--muted);font:13px var(--font-ui);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:all var(--speed) ease}.tab.active{color:var(--text);border-color:rgba(51,208,198,.58);background:linear-gradient(180deg,rgba(51,208,198,.18),rgba(12,22,28,.98))}
-    .notice{display:none;margin:0 0 14px;padding:13px 15px;border-left:4px solid var(--accent);background:rgba(12,22,28,.94)}.notice.show{display:block}.notice.warn{border-left-color:var(--warn)}.notice.danger{border-left-color:var(--danger)}
-    .panel{padding:18px}.panel[hidden]{display:none}.panel.active{animation:fade-in var(--speed) ease forwards}.panel.leaving{animation:fade-out var(--speed) ease forwards}@keyframes fade-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}@keyframes fade-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-10px)}}
-    .card{padding:16px;min-width:0}.card h2,.card h3{margin:0 0 8px;font-family:var(--font-ui)}.muted{color:var(--muted)}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.grid{display:grid;gap:16px}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.split{display:grid;gap:16px;grid-template-columns:minmax(280px,.95fr) minmax(0,1.25fr)}
-    button,input,textarea,select{font:inherit}button{padding:11px 15px;border:1px solid var(--line);background:rgba(12,22,28,.94);color:var(--text);cursor:pointer;transition:all var(--speed) ease}button.primary{border-color:rgba(51,208,198,.46);background:linear-gradient(180deg,rgba(51,208,198,.18),rgba(12,22,28,.98))}button.danger{border-color:rgba(255,125,115,.3);color:#ffd3cf}button:disabled{opacity:.5;cursor:not-allowed}
-    input,textarea,select{width:100%;padding:12px 13px;border:1px solid rgba(130,182,191,.18);background:rgba(8,15,20,.96);color:var(--text)}label{display:grid;gap:7px;margin-bottom:12px;color:var(--muted);font-size:13px}textarea{min-height:120px;resize:vertical}.toolbar,.meta{display:flex;flex-wrap:wrap;gap:10px}.chip{padding:7px 10px;border:1px solid var(--line);background:rgba(8,15,20,.86);font-size:12px;text-transform:uppercase;letter-spacing:.1em}.chip.warn{color:var(--warn)}.chip.success{color:var(--accent2)}.chip.danger{color:var(--danger)}
-    .chat{display:grid;gap:16px;grid-template-columns:minmax(300px,.9fr) minmax(0,2fr);min-height:720px}.list,.activity{display:grid;gap:10px}.item{padding:13px;border-radius:10px;cursor:pointer;transition:all var(--speed) ease}.item.active{border-color:rgba(51,208,198,.56);background:linear-gradient(180deg,rgba(51,208,198,.14),rgba(10,18,23,.96))}.item strong{display:block;margin-bottom:6px;font-family:var(--font-ui)}.transcript{border:1px solid rgba(130,182,191,.14);background:linear-gradient(180deg,rgba(8,15,20,.94),rgba(6,12,16,.98));padding:14px;overflow:auto;min-height:440px;max-height:66vh;display:grid;gap:12px}.msg{padding:14px;border-radius:12px;white-space:pre-wrap;line-height:1.58;max-width:min(88%,860px)}.msg.user{justify-self:end;background:linear-gradient(180deg,rgba(51,208,198,.16),rgba(12,22,28,.98));border-color:rgba(51,208,198,.3)}.msg.assistant{justify-self:start}.msg.pending{border:1px solid rgba(130,182,191,.24);background:linear-gradient(180deg,rgba(18,34,42,.92),rgba(9,17,22,.98))}.msg small{display:block;margin-top:8px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}.typing{display:inline-flex;align-items:center;gap:10px}.typingDots{display:inline-flex;gap:6px;align-items:center}.typingDots span{width:8px;height:8px;border-radius:50%;background:var(--accent2);opacity:.3;animation:typing-bounce .9s infinite ease-in-out}.typingDots span:nth-child(2){animation-delay:.15s}.typingDots span:nth-child(3){animation-delay:.3s}@keyframes typing-bounce{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
-    .stats{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px}.stats .card{padding:14px}.stats b{display:block;font:24px var(--font-ui);margin-top:8px}.empty{padding:18px;border:1px dashed rgba(130,182,191,.24);color:var(--muted);text-align:center;background:rgba(8,15,20,.38)}.questions{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}.code{font-family:Consolas,monospace;font-size:12px;color:var(--accent2);word-break:break-all}
-    @media (max-width:1120px){body{padding:18px}.hero,.chat,.split,.two,.stats,.questions{grid-template-columns:1fr}}
+    :root {
+      --bg: #0a0c12;
+      --surface: #12151e;
+      --surface-elevated: #1a1e2a;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.15);
+      --text: #f0f2f5;
+      --text-muted: #94a3b8;
+      --accent: #00f5d4;
+      --accent-muted: rgba(0, 245, 212, 0.15);
+      --primary: #3b82f6;
+      --primary-muted: rgba(59, 130, 246, 0.15);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --font-mono: "Cascadia Code", "JetBrains Mono", "Fira Code", monospace;
+      --font-sans: "Inter", "Segoe UI Variable Display", system-ui, sans-serif;
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; outline: none; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+    
+    body { display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Layout Components */
+    header { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--surface); z-index: 100; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: 0.05em; font-size: 18px; color: var(--text); }
+    .brand span { color: var(--accent); }
+    
+    nav.tabs { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .tab { padding: 14px 20px; border: none; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: var(--transition); border-bottom: 2px solid transparent; }
+    .tab:hover { color: var(--text); background: var(--border); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--accent-muted); }
+
+    main { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+    .shell { max-width: 1600px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    /* Dashboard Hero */
+    .hero { display: grid; grid-template-columns: 1fr 400px; gap: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5); }
+    .hero-content h1 { margin: 0 0 12px; font-size: 32px; font-weight: 800; line-height: 1.1; }
+    .hero-content p { margin: 0; color: var(--text-muted); font-size: 16px; line-height: 1.6; max-width: 600px; }
+    
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .metric { background: var(--surface-elevated); border: 1px solid var(--border); padding: 16px; border-radius: 8px; transition: var(--transition); }
+    .metric:hover { border-color: var(--border-bright); transform: translateY(-2px); }
+    .metric div { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 8px; }
+    .metric b { display: block; font-size: 24px; font-weight: 700; color: var(--text); }
+    .metric span { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* UI Panels */
+    .panel { display: none; animation: slideIn 0.3s ease-out; }
+    .panel.active { display: block; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+    .card-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .card-title h2 { margin: 0; font-size: 18px; font-weight: 700; }
+    .card-title .muted { font-size: 13px; color: var(--text-muted); font-weight: 400; }
+
+    /* Inputs & Actions */
+    button { padding: 10px 18px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-elevated); color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    button:hover:not(:disabled) { border-color: var(--border-bright); background: #252a3a; }
+    button.primary { background: var(--primary); border-color: var(--primary); color: white; }
+    button.primary:hover:not(:disabled) { background: #2563eb; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+    button.danger { color: var(--danger); border-color: rgba(239, 68, 68, 0.2); }
+    button.danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); border-color: var(--danger); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    input, select, textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 12px 16px; font-size: 14px; transition: var(--transition); }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-muted); }
+    label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Chat Interface */
+    .chat-layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px; height: calc(100vh - 200px); min-height: 600px; }
+    .chat-sidebar { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow-y: auto; }
+    .chat-main { display: flex; flex-direction: column; height: 100%; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+    
+    .chat-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface-elevated); }
+    .chat-header h2 { margin: 0; font-size: 16px; }
+    
+    .transcript { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; background: var(--bg); }
+    .msg { padding: 16px 20px; border-radius: 12px; max-width: 85%; line-height: 1.6; font-size: 15px; position: relative; }
+    .msg.user { align-self: flex-end; background: var(--primary); color: white; border-bottom-right-radius: 2px; }
+    .msg.assistant { align-self: flex-start; background: var(--surface-elevated); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
+    .msg small { display: block; margin-top: 8px; font-size: 10px; opacity: 0.7; font-family: var(--font-mono); text-transform: uppercase; }
+    
+    .chat-footer { padding: 24px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; background: var(--surface-elevated); }
+    .chat-input-wrapper { position: relative; }
+    .chat-input-wrapper textarea { width: 100%; resize: none; height: 80px; padding-right: 100px; border-radius: 8px; }
+    
+    .session-item { padding: 16px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: var(--transition); text-align: left; background: var(--surface); }
+    .session-item:hover { border-color: var(--border-bright); background: var(--surface-elevated); }
+    .session-item.active { border-color: var(--primary); background: var(--primary-muted); }
+    .session-item strong { display: block; font-size: 14px; margin-bottom: 4px; }
+    .session-item .status { font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
+
+    /* Status Badges */
+    .badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+    .badge.success { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+    .badge.warn { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+    .badge.danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+    /* Global Utilities */
+    .notice { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; border-radius: 8px; background: var(--surface-elevated); border: 1px solid var(--border); box-shadow: 0 20px 40px rgba(0,0,0,0.4); z-index: 1000; display: none; }
+    .notice.show { display: flex; align-items: center; gap: 12px; animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    @keyframes popIn { from { opacity: 0; transform: scale(0.9) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    
+    .grid { display: grid; gap: 24px; }
+    .two-cols { grid-template-columns: 1fr 1fr; }
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
+    .stat-card div { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
+    .stat-card b { font-size: 28px; color: var(--text); }
+
+    .code { font-family: var(--font-mono); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); font-size: 0.9em; color: var(--accent); }
+    
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+    @media (max-width: 1200px) {
+      .hero, .chat-layout, .two-cols, .stats-row { grid-template-columns: 1fr; }
+      .chat-layout { height: auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">Pexo Control Plane</p>
-        <h1>Chat-first local brain and AI fleet control.</h1>
-        <p>Pexo now leads with its own direct chat surface. Talk to Pexo in the browser or with <span class="code">pexo --chat</span>, let it use hidden Codex, Gemini, or Claude workers only when needed, and keep all context local.</p>
-      </div>
-      <div class="metrics" id="heroMetrics"></div>
-    </section>
+  <header>
+    <div class="brand">PEXO <span>SWARM</span></div>
+    <div id="swarmStatus" class="badge success">Swarm Active</div>
+  </header>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="chat" type="button">Chat</button>
-      <button class="tab" data-tab="brain" type="button">Brain</button>
-      <button class="tab" data-tab="agents" type="button">Agents</button>
-      <button class="tab" data-tab="memory" type="button">Memory</button>
-      <button class="tab" data-tab="context" type="button">Context</button>
-      <button class="tab" data-tab="sessions" type="button">Sessions</button>
-      <button class="tab" data-tab="tools" type="button">Tools</button>
-    </nav>
+  <nav class="tabs">
+    <button class="tab active" data-tab="chat" type="button">Orchestrator</button>
+    <button class="tab" data-tab="brain" type="button">System Brain</button>
+    <button class="tab" data-tab="agents" type="button">Agent Registry</button>
+    <button class="tab" data-tab="memory" type="button">Long-term Memory</button>
+    <button class="tab" data-tab="context" type="button">Context Vault</button>
+    <button class="tab" data-tab="sessions" type="button">Activity Log</button>
+    <button class="tab" data-tab="tools" type="button">Genesis Tools</button>
+  </nav>
 
-    <div id="notice" class="notice"></div>
+  <main>
+    <div class="shell">
+      <section class="hero">
+        <div class="hero-content">
+          <h1>Distributed Intelligence.<br>Locally Orchestrated.</h1>
+          <p>The Pexo Control Plane provides a unified interface for your AI swarm. Manage memory, context, and specialized agents with enterprise-grade security and zero-latency local execution.</p>
+        </div>
+        <div class="metrics" id="heroMetrics"></div>
+      </section>
 
-    <section class="panel active" id="panel-chat">
-      <div class="chat">
-        <aside class="card">
-          <div class="head"><div><h2>Direct Chat</h2><div class="muted">Talk to Pexo directly and skip opening external AI consoles.</div></div><button class="primary" onclick="createChat()">New Chat</button></div>
-          <label>Hidden Worker Backend<select id="chatBackend"></select></label>
-          <label>Workspace Path<input id="chatWorkspace" placeholder="Optional repo or working directory"></label>
-          <div class="toolbar"><button onclick="saveChatSettings()">Apply</button><button class="danger" onclick="deleteChat()">Delete</button></div>
-          <div id="chatSessions" class="list"></div>
-        </aside>
-        <section class="card">
-          <div class="head"><div><h2 id="chatTitle">No chat selected</h2><div class="muted" id="chatMeta">Create a session and send one plain-language request.</div></div><div id="chatStatus"></div></div>
-          <div id="transcript" class="transcript"><div class="empty">No direct chat yet.</div></div>
-          <div style="height:14px"></div>
-          <label>Message<textarea id="chatInput" placeholder="Ask Pexo to design, build, review, or continue work."></textarea></label>
-          <div class="toolbar"><button id="sendChatButton" class="primary" onclick="sendChat()">Send To Pexo</button><button onclick="refreshChat()">Refresh</button></div>
+      <div id="notice" class="notice"></div>
+
+      <!-- Tab: Orchestrator -->
+      <section class="panel active" id="panel-chat">
+        <div class="chat-layout">
+          <aside class="chat-sidebar card">
+            <div class="card-title">
+              <h2>Sessions</h2>
+              <button class="primary" onclick="createChat()">+ New</button>
+            </div>
+            <div id="chatSessions" class="list" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </aside>
+          
+          <section class="chat-main">
+            <div class="chat-header">
+              <div>
+                <h2 id="chatTitle">No Session Selected</h2>
+                <div id="chatMeta" class="muted">Select a session to begin.</div>
+              </div>
+              <div id="chatStatus"></div>
+            </div>
+            <div id="transcript" class="transcript">
+              <div class="empty" style="margin: auto; opacity: 0.5;">No active transcript.</div>
+            </div>
+            <div class="chat-footer">
+              <div class="grid two-cols" style="gap: 12px;">
+                <label>Backend Worker <select id="chatBackend"></select></label>
+                <label>Workspace Context <input id="chatWorkspace" placeholder="Optional directory path"></label>
+              </div>
+              <div class="chat-input-wrapper">
+                <textarea id="chatInput" placeholder="Enter orchestration command... (Ctrl+Enter to send)"></textarea>
+                <button id="sendChatButton" class="primary" onclick="sendChat()" style="position: absolute; right: 12px; bottom: 12px;">Send</button>
+              </div>
+              <div style="display:flex; gap: 8px;">
+                <button onclick="refreshChat()">Sync</button>
+                <button onclick="saveChatSettings()">Settings</button>
+                <button class="danger" onclick="deleteChat()">Archive</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Tab: Brain -->
+      <section class="panel" id="panel-brain" hidden>
+        <div id="brainStats" class="stats-row"></div>
+        <div class="grid two-cols" style="margin-top: 24px;">
+          <section class="card">
+            <div class="card-title">
+              <h2>User Profile</h2>
+              <button class="primary" onclick="saveProfile()">Commit Profile</button>
+            </div>
+            <div id="personalityFields" class="grid two-cols"></div>
+            <div id="scriptingFields" class="grid two-cols"></div>
+            <label>Master Backup Path <input id="backupPath" placeholder="X:\PexoBackups"></label>
+          </section>
+          
+          <section class="card">
+            <div class="card-title">
+              <h2>Runtime Fleet</h2>
+              <button onclick="refreshAll()">Scan Ports</button>
+            </div>
+            <div id="runtimeSummary"></div>
+            <div id="clientFleet" style="display:flex; flex-direction:column; gap:12px;"></div>
+            <div style="display:flex; gap:8px; margin-top: auto;">
+              <button onclick="repairClients('all')">Repair Fleet</button>
+              <button onclick="promote('vector')">Enable Vector</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Tab: Agents -->
+      <section class="panel" id="panel-agents" hidden>
+        <div class="chat-layout" style="grid-template-columns: 400px 1fr;">
+          <aside class="card">
+            <div class="card-title">
+              <h2>Agent Registry</h2>
+              <button onclick="newAgent()">Add Specialist</button>
+            </div>
+            <div id="agentList" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </aside>
+          <section class="card">
+            <div class="card-title"><h2>Agent Configuration</h2></div>
+            <div class="grid two-cols">
+              <label>Designation <input id="agentName"></label>
+              <label>Operational Role <input id="agentRole"></label>
+            </div>
+            <label>Capability Tokens <input id="agentCaps" placeholder="read, write, execute, network"></label>
+            <label>Core Protocol (System Prompt) <textarea id="agentPrompt" style="height: 300px; font-family: var(--font-mono);"></textarea></label>
+            <div style="display:flex; gap:12px;">
+              <button class="primary" onclick="saveAgent()">Save Protocol</button>
+              <button id="deleteAgentButton" class="danger" onclick="deleteAgent()">Decommission</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Tab: Memory -->
+      <section class="panel" id="panel-memory" hidden>
+        <div class="grid two-cols">
+          <section class="card">
+            <div class="card-title">
+              <h2>Memory Retrieval</h2>
+              <button onclick="runMemoryMaintenance()">Cogmachine Sweep</button>
+            </div>
+            <div style="display:flex; gap:12px;">
+              <input id="memoryQuery" placeholder="Semantic search query..." style="flex:1;">
+              <button class="primary" onclick="searchMemory()">Search</button>
+            </div>
+            <div id="memoryList" style="display:flex; flex-direction:column; gap:12px;"></div>
+          </section>
+          <section class="card">
+            <div class="card-title"><h2>Session Snapshots</h2></div>
+            <div id="memorySessions" style="display:flex; flex-direction:column; gap:12px;"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Tab: Context -->
+      <section class="panel" id="panel-context" hidden>
+        <div class="grid two-cols">
+          <section class="card">
+            <div class="card-title"><h2>Context Ingestion</h2></div>
+            <div class="grid two-cols">
+              <label>Target Session <input id="contextSession" placeholder="Global Context"></label>
+              <label>Task Context <input id="contextTask" value="general"></label>
+            </div>
+            <label>Filesystem Path <input id="contextPath" placeholder="C:\Projects\TargetRepo"></label>
+            <button class="primary" onclick="attachPath()">Attach Source Path</button>
+            <hr style="width:100%; border:0; border-top:1px solid var(--border);">
+            <label>Internal Documentation <input id="contextNoteName" placeholder="architecture-spec.md"></label>
+            <textarea id="contextNote" placeholder="Paste critical specs, constraints, or goals here..."></textarea>
+            <button class="primary" onclick="attachText()">Ingest Documentation</button>
+          </section>
+          <section class="card">
+            <div class="card-title"><h2>Artifact Repository</h2></div>
+            <div id="artifactList" style="display:flex; flex-direction:column; gap:12px;"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Tab: Sessions -->
+      <section class="panel" id="panel-sessions" hidden>
+        <div class="grid two-cols">
+          <section class="card">
+            <div class="card-title"><h2>Direct Conversation History</h2></div>
+            <div id="recentChats" style="display:flex; flex-direction:column; gap:12px;"></div>
+          </section>
+          <section class="card">
+            <div class="card-title"><h2>Orchestration Workflow History</h2></div>
+            <div id="taskSessions" style="display:flex; flex-direction:column; gap:12px;"></div>
+          </section>
+        </div>
+        <section class="card" style="margin-top: 24px;">
+          <div class="card-title"><h2>Real-time Activity Stream</h2></div>
+          <div id="activityList" style="display:flex; flex-direction:column; gap:8px;"></div>
         </section>
-      </div>
-    </section>
+      </section>
 
-    <section class="panel" id="panel-brain" hidden>
-      <div id="brainStats" class="stats"></div>
-      <div class="grid two">
-        <section class="card">
-          <div class="head"><div><h2>Profile</h2><div class="muted">Tune how Pexo should explain, code, and recover.</div></div><button class="primary" onclick="saveProfile()">Save Profile</button></div>
-          <div id="personalityFields" class="questions"></div>
-          <div style="height:12px"></div>
-          <div id="scriptingFields" class="questions"></div>
-          <div style="height:12px"></div>
-          <label>Backup Path<input id="backupPath" placeholder="Optional local or network path"></label>
-        </section>
-        <section class="card">
-          <div class="head"><div><h2>Runtime And Clients</h2><div class="muted">Repair connections and promote optional runtime layers.</div></div><button onclick="refreshAll()">Refresh</button></div>
-          <div id="runtimeSummary" class="activity"></div>
-          <div class="toolbar" style="margin-top:12px"><button onclick="repairClients('all')">Repair Connections</button><button onclick="promote('full')">Promote Full</button><button onclick="promote('vector')">Promote Vector</button></div>
-          <div style="height:14px"></div>
-          <div id="clientFleet" class="activity"></div>
-        </section>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-agents" hidden>
-      <div class="split">
-        <section class="card"><div class="head"><div><h2>Agent Registry</h2><div class="muted">Edit core managers or add new specialists.</div></div><button onclick="newAgent()">New Agent</button></div><div id="agentList" class="list"></div></section>
-        <section class="card"><div class="head"><div><h2>Agent Editor</h2><div class="muted">System prompts are long-lived contracts.</div></div></div><label>Name<input id="agentName"></label><label>Role<input id="agentRole"></label><label>Capabilities<input id="agentCaps" placeholder="read, write, execute"></label><label>System Prompt<textarea id="agentPrompt" style="min-height:260px"></textarea></label><div class="toolbar"><button class="primary" onclick="saveAgent()">Save Agent</button><button id="deleteAgentButton" class="danger" onclick="deleteAgent()">Delete Agent</button></div></section>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-memory" hidden>
-      <div class="grid two">
-        <section class="card"><div class="head"><div><h2>Memory</h2><div class="muted">Search, edit, pin, archive, or clean memory.</div></div><button onclick="runMemoryMaintenance()">Run Maintenance</button></div><div class="toolbar"><input id="memoryQuery" placeholder="Search Pexo memory"><button class="primary" onclick="searchMemory()">Search</button></div><div style="height:14px"></div><div id="memoryList" class="list"></div></section>
-        <section class="card"><div class="head"><div><h2>Recent Orchestration</h2><div class="muted">Lower-level task state Pexo is tracking.</div></div></div><div id="memorySessions" class="activity"></div></section>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-context" hidden>
-      <div class="grid two">
-        <section class="card"><div class="head"><div><h2>Add Context</h2><div class="muted">Attach a path, a note, or an uploaded file.</div></div></div><label>Session Id<input id="contextSession" placeholder="Optional. Leave blank for general context."></label><label>Task Context<input id="contextTask" value="general"></label><label>Local File Path<input id="contextPath" placeholder="C:\path\to\file"></label><div class="toolbar"><button onclick="attachPath()">Attach Path</button></div><label>Note Name<input id="contextNoteName" placeholder="context-note.txt"></label><label>Note Content<textarea id="contextNote" placeholder="Paste notes, goals, or specs here."></textarea></label><div class="toolbar"><button onclick="attachText()">Save Note</button></div><label>Upload File<input id="contextUpload" type="file"></label><div class="toolbar"><button onclick="uploadArtifact()">Upload File</button></div></section>
-        <section class="card"><div class="head"><div><h2>Recent Artifacts</h2><div class="muted">Files and notes Pexo can reuse later.</div></div></div><div id="artifactList" class="list"></div></section>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-sessions" hidden>
-      <div class="grid two">
-        <section class="card"><div class="head"><div><h2>Direct Chats</h2><div class="muted">Browser and terminal chats with Pexo.</div></div></div><div id="recentChats" class="activity"></div></section>
-        <section class="card"><div class="head"><div><h2>Task Sessions</h2><div class="muted">Recent orchestration runs and their current state.</div></div></div><div id="taskSessions" class="activity"></div></section>
-      </div>
-      <div style="height:16px"></div>
-      <section class="card"><div class="head"><div><h2>Recent Activity</h2><div class="muted">Latest agent and orchestration state changes.</div></div></div><div id="activityList" class="activity"></div></section>
-    </section>
-
-    <section class="panel" id="panel-tools" hidden>
-      <div class="split">
-        <section class="card"><div class="head"><div><h2>Genesis Tools</h2><div class="muted">Inspect or extend Pexo's local tool layer.</div></div><button onclick="newTool()">New Tool</button></div><div id="toolList" class="list"></div></section>
-        <section class="card"><div class="head"><div><h2>Tool Editor</h2><div class="muted">Keep names stable and update code in place.</div></div></div><label>Tool Name<input id="toolName"></label><label>Description<input id="toolDescription"></label><label>Python Code<textarea id="toolCode" style="min-height:320px"></textarea></label><div class="toolbar"><button class="primary" onclick="saveTool()">Save Tool</button><button class="danger" onclick="deleteTool()">Delete Tool</button></div></section>
-      </div>
-    </section>
-  </div>
+      <!-- Tab: Tools -->
+      <section class="panel" id="panel-tools" hidden>
+        <div class="chat-layout" style="grid-template-columns: 400px 1fr;">
+          <aside class="card">
+            <div class="card-title">
+              <h2>Genesis Engine Tools</h2>
+              <button onclick="newTool()">+ Create</button>
+            </div>
+            <div id="toolList" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </aside>
+          <section class="card">
+            <div class="card-title"><h2>Tool definition</h2></div>
+            <label>Tool Identifier <input id="toolName"></label>
+            <label>Description <input id="toolDescription"></label>
+            <label>Python Implementation <textarea id="toolCode" style="height: 400px; font-family: var(--font-mono);"></textarea></label>
+            <div style="display:flex; gap:12px;">
+              <button class="primary" onclick="saveTool()">Deploy Tool</button>
+              <button class="danger" onclick="deleteTool()">Remove Tool</button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
 
   <script>
     const state={tab:"chat",snapshot:null,questions:null,chats:[],chatBackends:{default_backend:"auto",results:[]},currentChatId:null,currentChat:null,selectedAgentId:null,selectedToolName:null,memoryItems:[],sending:false,pendingChatMessage:""};
     const q=(s)=>document.querySelector(s),qq=(s)=>Array.from(document.querySelectorAll(s));
     const esc=(v)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
     const when=(v)=>{if(!v)return"Unknown time";const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleString()};
-    const human=(v)=>({idle:"Idle",answered:"Ready",clarification_required:"Needs Clarification",agent_action_required:"Working Through Task",processing:"Processing",complete:"Complete",clarification_pending:"Needs Clarification",graph_started:"Planning Started",running:"Running"})[v]||String(v||"unknown").replaceAll("_"," ");
+    const human=(v)=>({idle:"Ready",answered:"Success",clarification_required:"Validation Pending",agent_action_required:"Processing Sub-task",processing:"Executing Graph",complete:"Goal Reached",clarification_pending:"Validation Pending",graph_started:"Strategic Planning",running:"Active Swarm"})[v]||String(v||"unknown").replaceAll("_"," ");
     const tone=(v)=>["answered","complete","connected","success"].includes(String(v).toLowerCase())?"success":["clarification_required","clarification_pending","agent_action_required","graph_started","running"].includes(String(v).toLowerCase())?"warn":["error","failed","danger"].includes(String(v).toLowerCase())?"danger":"";
+    
     async function api(path,opt={}){const init={...opt,headers:opt.headers||{}};if(init.body&&!(init.body instanceof FormData))init.headers["Content-Type"]="application/json";const res=await fetch(path,init);if(!res.ok){let detail=res.statusText;try{const p=await res.json();detail=p.detail||JSON.stringify(p)}catch{detail=await res.text()}throw new Error(detail||`Request failed: ${res.status}`)}return (res.headers.get("content-type")||"").includes("application/json")?res.json():res.text()}
-    function notice(msg,t="info"){const el=q("#notice");if(!msg){el.className="notice";el.textContent="";return}el.className=`notice show ${t==="info"?"":t}`.trim();el.textContent=msg}
-    function openTab(name){if(state.tab===name)return;const cur=q(`#panel-${state.tab}`),next=q(`#panel-${name}`);qq(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));if(cur){cur.classList.remove("active");cur.classList.add("leaving");setTimeout(()=>{cur.hidden=true;cur.classList.remove("leaving")},125)}next.hidden=false;next.classList.add("active");state.tab=name}
+    
+    function notice(msg,t="info"){const el=q("#notice");if(!msg){el.className="notice";el.style.display="none";return}el.className=`notice show`;el.style.display="flex";el.innerHTML=`<span class="badge ${t}">${t.toUpperCase()}</span> <span>${esc(msg)}</span>`;setTimeout(()=>notice(""), 5000)}
+    
+    function openTab(name){if(state.tab===name)return;const cur=q(`#panel-${state.tab}`),next=q(`#panel-${name}`);qq(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));if(cur)cur.hidden=true;next.hidden=false;next.classList.add("active");state.tab=name;if(name==="tools")renderTools()}
+    
     async function loadAll(keepChat=true){const [snapshot,questions,chats]=await Promise.all([api("/admin/snapshot"),api("/profile/questions"),api("/chat/sessions")]);state.snapshot=snapshot;state.questions=questions;state.chats=chats.sessions||[];state.chatBackends=chats.available_backends||{default_backend:"auto",results:[]};state.memoryItems=snapshot.recent_memories||[];if(keepChat&&state.currentChatId){try{state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}catch{state.currentChatId=null;state.currentChat=null}}if(!state.currentChatId&&state.chats.length){state.currentChatId=state.chats[0].id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}if(!state.selectedAgentId&&(snapshot.agents||[])[0])state.selectedAgentId=snapshot.agents[0].id;if(!state.selectedToolName&&(snapshot.tools||[])[0])state.selectedToolName=snapshot.tools[0].name;renderAll()}
-    function renderHero(){const s=state.snapshot,clients=(s.clients?.results||[]).filter(x=>x.status==="connected");q("#heroMetrics").innerHTML=[{l:"Version",v:`v${s.runtime?.version||s.version||"1.0"}`,m:`${s.runtime?.active_profile||"unknown"} runtime`},{l:"Swarm Health",v:clients.length?"Active":"Offline",m:clients.length?`${clients.length} backends | Genesis Engine Ready`:"No AI clients connected"},{l:"Direct Chats",v:String(s.stats?.chat_count||0),m:s.recent_chats?.length?`Latest: ${s.recent_chats[0].title}`:"No direct chats yet"},{l:"Stored Context",v:String((s.stats?.memory_count||0)+(s.stats?.artifact_count||0)),m:`${s.stats?.memory_count||0} memories | ${s.stats?.artifact_count||0} artifacts`}].map(x=>`<div class="metric"><div>${esc(x.l)}</div><b>${esc(x.v)}</b><span>${esc(x.m)}</span></div>`).join("")}
-    function renderChat(){q("#chatBackend").innerHTML=['<option value="auto">auto</option>',...(state.chatBackends.results||[]).map(x=>`<option value="${esc(x.name)}"${(state.currentChat?.session?.backend||state.chatBackends.default_backend||"auto")===x.name?" selected":""}>${esc(x.name)}${x.available?"":" (missing)"}</option>`)].join("");q("#chatWorkspace").value=state.currentChat?.session?.workspace_path||"";q("#chatSessions").innerHTML=state.chats.length?state.chats.map(s=>`<button type="button" class="item ${s.id===state.currentChatId?"active":""}" onclick='pickChat(${JSON.stringify(s.id)})'><strong>${esc(s.title||`Chat ${s.short_id}`)}</strong><div class="muted">${esc(human(s.status))}</div><div class="meta"><span>${esc(s.backend||"auto")}</span><span>${esc(String(s.message_count||0))} messages</span></div>${s.last_assistant_message?`<div class="muted" style="margin-top:8px">${esc(s.last_assistant_message)}</div>`:""}</button>`).join(""):'<div class="empty">No direct chats yet.</div>';const session=state.currentChat?.session;if(!session){q("#chatTitle").textContent="No chat selected";q("#chatMeta").textContent="Create a session and send one plain-language request.";q("#chatStatus").innerHTML="";q("#transcript").innerHTML='<div class="empty">No direct chat yet.</div>';return}q("#chatTitle").textContent=session.title||`Chat ${session.id.slice(0,8)}`;q("#chatMeta").innerHTML=`<span class="code">${esc(session.workspace_path||"")}</span><br>Started ${esc(when(session.created_at))} | Pexo task ${esc(session.pexo_session_id||"not started yet")}`;q("#chatStatus").innerHTML=`<span class="chip ${tone(session.status)}">${esc(human(session.status))}</span>${state.sending?'<span class="chip warn">Fetching Answer</span>':''}`;const messages=(state.currentChat.messages||[]).map(m=>`<article class="msg ${esc(m.role)}">${esc(m.content)}<small>${esc(m.role)} | ${esc(when(m.created_at))}</small></article>`);if(state.sending&&state.pendingChatMessage){messages.push(`<article class="msg user">${esc(state.pendingChatMessage)}<small>user | sending now</small></article>`);messages.push(`<article class="msg assistant pending"><div class="typing"><span>Pexo is fetching an answer</span><span class="typingDots" aria-hidden="true"><span></span><span></span><span></span></span></div><small>assistant | working</small></article>`)}q("#transcript").innerHTML=messages.length?messages.join(""):'<div class="empty">This chat is ready. Ask Pexo to design, build, review, or continue work.</div>';q("#transcript").scrollTop=q("#transcript").scrollHeight}
-    function renderBrain(){const s=state.snapshot,profile=s.profile_answers||{personality_answers:{},scripting_answers:{}};q("#brainStats").innerHTML=[{l:"Agents",v:s.stats?.agent_count||0,m:"Core and custom profiles"},{l:"Memories",v:s.stats?.memory_count||0,m:`${s.stats?.pinned_memory_count||0} pinned | ${s.stats?.archived_memory_count||0} archived`},{l:"Artifacts",v:s.stats?.artifact_count||0,m:"Stored files and notes"},{l:"Observed Actions",v:s.telemetry?.summary?.action_count||0,m:`${s.telemetry?.summary?.session_count||0} sessions`}].map(x=>`<div class="card"><div>${esc(x.l)}</div><b>${esc(String(x.v))}</b><div class="muted">${esc(x.m)}</div></div>`).join("");const renderQuestions=(section,target,answers)=>{q(target).innerHTML=(state.questions?.[section]||[]).map(item=>`<label>${esc(item.text)}<select data-sec="${esc(section)}" data-id="${esc(item.id)}">${Object.entries(item.options||{}).map(([k,v])=>`<option value="${esc(k)}"${answers?.[item.id]===k?" selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")};renderQuestions("personality","#personalityFields",profile.personality_answers);renderQuestions("scripting","#scriptingFields",profile.scripting_answers);q("#backupPath").value=s.profile?.backup_path||"";q("#runtimeSummary").innerHTML=`<div class="item"><strong>Runtime</strong><div class="meta"><span>${esc(s.runtime?.active_profile||"unknown")}</span><span>${esc(s.runtime?.install_mode||"unknown")}</span><span>${s.runtime?.vector_embeddings_available?"vector ready":"vector not installed"}</span></div>${s.runtime?.recommended_promotions?.length?`<div class="muted" style="margin-top:8px">Recommended: ${esc(s.runtime.recommended_promotions.join(", "))}</div>`:""}</div>`;q("#clientFleet").innerHTML=(s.clients?.results||[]).map(c=>`<div class="item"><strong>${esc(c.client)}</strong><div class="meta"><span class="chip ${tone(c.status)}">${esc(human(c.status))}</span><span>${esc(c.target_command||"")}</span></div><div class="muted" style="margin-top:8px">${esc(c.message||"Client status loaded.")}</div><div class="toolbar" style="margin-top:10px"><button onclick='repairClients(${JSON.stringify(c.client)})'>Repair</button></div></div>`).join("")||'<div class="empty">No supported client CLIs detected.</div>'}
-    function renderAgents(){const agents=state.snapshot.agents||[],sel=agents.find(a=>a.id===state.selectedAgentId)||agents[0]||null;if(sel)state.selectedAgentId=sel.id;q("#agentList").innerHTML=agents.length?agents.map(a=>`<button type="button" class="item ${a.id===state.selectedAgentId?"active":""}" onclick="loadAgent(${a.id})"><strong>${esc(a.name)}</strong><div class="muted">${esc(a.role)}</div><div class="meta"><span>${a.is_core?"core":"custom"}</span><span>${esc((a.capabilities||[]).join(", ")||"no capabilities")}</span></div></button>`).join(""):'<div class="empty">No agents are registered.</div>';q("#agentName").value=sel?.name||"";q("#agentRole").value=sel?.role||"";q("#agentCaps").value=(sel?.capabilities||[]).join(", ");q("#agentPrompt").value=sel?.system_prompt||"";q("#deleteAgentButton").disabled=!sel||!!sel.is_core}
-    function renderMemory(){q("#memoryList").innerHTML=(state.memoryItems||[]).length?state.memoryItems.map(m=>`<div class="item"><strong>Memory ${esc(String(m.id))}</strong><div class="meta"><span>${esc(m.task_context||"general")}</span><span>${esc(m.session_id||"no session")}</span><span>${esc(when(m.updated_at||m.created_at))}</span></div><label>Content<textarea id="mem-content-${m.id}" style="min-height:140px">${esc(m.content||"")}</textarea></label><div class="grid two"><label>Task Context<input id="mem-context-${m.id}" value="${esc(m.task_context||"")}"></label><label>State<select id="mem-state-${m.id}"><option value="active"${!m.is_archived?" selected":""}>Active</option><option value="archived"${m.is_archived?" selected":""}>Archived</option></select></label></div><div class="toolbar"><button onclick="saveMemory(${m.id})">Save</button><button onclick="togglePinned(${m.id},${m.is_pinned?"false":"true"})">${m.is_pinned?"Unpin":"Pin"}</button><button class="danger" onclick="deleteMemory(${m.id})">Delete</button></div></div>`).join(""):'<div class="empty">No memories found.</div>';q("#memorySessions").innerHTML=(state.snapshot.telemetry?.recent_sessions||[]).map(s=>`<div class="item"><strong>${esc(s.title)}</strong><div class="meta"><span class="chip ${esc(s.status_tone||"")}">${esc(s.status_label)}</span><span>${esc(when(s.last_activity_at))}</span></div><div class="muted" style="margin-top:8px">${esc(s.summary||"Pexo is tracking this task.")}</div></div>`).join("")||'<div class="empty">No orchestration sessions yet.</div>'}
-    function renderContext(){q("#artifactList").innerHTML=(state.snapshot.recent_artifacts||[]).length?state.snapshot.recent_artifacts.map(a=>`<div class="item"><strong>${esc(a.name||`Artifact ${a.id}`)}</strong><div class="meta"><span>${esc(a.source_type||"local")}</span><span>${esc(a.task_context||"general")}</span><span>${esc(when(a.updated_at||a.created_at))}</span></div><div class="muted" style="margin-top:8px">${esc(a.preview||a.source_uri||"Stored artifact.")}</div><div class="toolbar" style="margin-top:10px"><a class="chip" href="/artifacts/${a.id}/download" target="_blank" rel="noopener">Download</a><button class="danger" onclick="deleteArtifact(${a.id})">Delete</button></div></div>`).join(""):'<div class="empty">No artifacts stored yet.</div>'}
-    function renderSessions(){q("#recentChats").innerHTML=(state.snapshot.recent_chats||[]).length?state.snapshot.recent_chats.map(c=>`<button type="button" class="item" onclick='pickChat(${JSON.stringify(c.id)});openTab("chat")'><strong>${esc(c.title)}</strong><div class="meta"><span>${esc(c.backend||"auto")}</span><span>${esc(String(c.message_count||0))} messages</span><span>${esc(when(c.updated_at||c.created_at))}</span></div>${c.last_assistant_message?`<div class="muted" style="margin-top:8px">${esc(c.last_assistant_message)}</div>`:""}</button>`).join(""):'<div class="empty">No direct chats recorded yet.</div>';q("#taskSessions").innerHTML=(state.snapshot.telemetry?.recent_sessions||[]).length?state.snapshot.telemetry.recent_sessions.map(s=>`<div class="item"><strong>${esc(s.title)}</strong><div class="meta"><span class="chip ${esc(s.status_tone||"")}">${esc(s.status_label)}</span><span>${esc(s.short_id||"")}</span><span>${esc(when(s.last_activity_at))}</span></div><div class="muted" style="margin-top:8px">${esc(s.summary||"Pexo is tracking this task.")}</div></div>`).join(""):'<div class="empty">No orchestration sessions recorded yet.</div>';q("#activityList").innerHTML=(state.snapshot.telemetry?.recent_activity||[]).length?state.snapshot.telemetry.recent_activity.map(a=>`<div class="item"><strong>${esc(a.agent_name)}</strong><div class="meta"><span>${esc(a.status)}</span><span>${esc(a.session_id||"")}</span><span>${esc(when(a.created_at))}</span></div>${a.task_description?`<div class="muted" style="margin-top:8px">${esc(a.task_description)}</div>`:""}${a.output_preview?`<div class="muted" style="margin-top:8px">${esc(a.output_preview)}</div>`:""}</div>`).join(""):'<div class="empty">No recent activity available.</div>'}
-    async function renderTools(){const tools=state.snapshot.tools||[];if(!state.selectedToolName&&tools[0])state.selectedToolName=tools[0].name;q("#toolList").innerHTML=tools.length?tools.map(t=>`<button type="button" class="item ${t.name===state.selectedToolName?"active":""}" onclick='loadTool(${JSON.stringify(t.name)})'><strong>${esc(t.name)}</strong><div class="muted">${esc(t.description||"No description")}</div></button>`).join(""):'<div class="empty">No Genesis tools registered yet.</div>';if(!state.selectedToolName){q("#toolName").value="";q("#toolDescription").value="";q("#toolCode").value="";return}try{const tool=await api(`/tools/${encodeURIComponent(state.selectedToolName)}`);q("#toolName").value=tool.name||"";q("#toolDescription").value=tool.description||"";q("#toolCode").value=tool.python_code||""}catch(e){notice(e.message,"danger")}}
+    
+    function renderHero(){const s=state.snapshot,clients=(s.clients?.results||[]).filter(x=>x.status==="connected");q("#heroMetrics").innerHTML=[{l:"Pexo Engine",v:`v${s.runtime?.version||s.version||"1.0"}`,m:`${s.runtime?.active_profile||"unknown"} profile`},{l:"Swarm Status",v:clients.length?"ACTIVE":"IDLE",m:clients.length?`${clients.length} Backends Connected`:"No workers detected"},{l:"Active Threads",v:String(s.stats?.chat_count||0),m:s.recent_chats?.length?`Last: ${s.recent_chats[0].title}`:"Zero conversations"},{l:"Context Load",v:String((s.stats?.memory_count||0)+(s.stats?.artifact_count||0)),m:`${s.stats?.memory_count||0} records | ${s.stats?.artifact_count||0} assets`}].map(x=>`<div class="metric"><div>${esc(x.l)}</div><b>${esc(x.v)}</b><span>${esc(x.m)}</span></div>`).join("")}
+    
+    function renderChat(){
+      q("#chatBackend").innerHTML=['<option value="auto">auto</option>',...(state.chatBackends.results||[]).map(x=>`<option value="${esc(x.name)}"${(state.currentChat?.session?.backend||state.chatBackends.default_backend||"auto")===x.name?" selected":""}>${esc(x.name)}${x.available?"":" (missing)"}</option>`)].join("");
+      q("#chatWorkspace").value=state.currentChat?.session?.workspace_path||"";
+      q("#chatSessions").innerHTML=state.chats.length?state.chats.map(s=>`<div class="session-item ${s.id===state.currentChatId?"active":""}" onclick='pickChat(${JSON.stringify(s.id)})'><strong>${esc(s.title||`Session ${s.short_id}`)}</strong><div class="status ${tone(s.status)}">${esc(human(s.status))}</div></div>`).join(""):'<div class="empty">No active sessions.</div>';
+      const session=state.currentChat?.session;
+      if(!session){q("#chatTitle").textContent="No session selected";q("#chatMeta").textContent="Select or create a session to start orchestration.";q("#chatStatus").innerHTML="";q("#transcript").innerHTML='<div class="empty" style="margin:auto">Select a session.</div>';return}
+      q("#chatTitle").textContent=session.title||`Session ${session.id.slice(0,8)}`;
+      q("#chatMeta").innerHTML=`<span class="code">${esc(session.workspace_path||"N/A")}</span> • Started ${esc(when(session.created_at))}`;
+      q("#chatStatus").innerHTML=`<span class="badge ${tone(session.status)}">${esc(human(session.status))}</span>`;
+      const messages=(state.currentChat.messages||[]).map(m=>`<div class="msg ${esc(m.role)}">${esc(m.content)}<small>${esc(m.role)} • ${esc(when(m.created_at))}</small></div>`);
+      if(state.sending&&state.pendingChatMessage){messages.push(`<div class="msg user">${esc(state.pendingChatMessage)}<small>USER • Now</small></div>`);messages.push('<div class="msg assistant"><div class="badge warn">PLANNING</div><small>PEXO • Now</small></div>')}
+      const t=q("#transcript");t.innerHTML=messages.length?messages.join(""): '<div class="empty" style="margin:auto">Transcript empty.</div>';t.scrollTop=t.scrollHeight;
+    }
+
+    function renderBrain(){
+      const s=state.snapshot,profile=s.profile_answers||{personality_answers:{},scripting_answers:{}};
+      q("#brainStats").innerHTML=[{l:"Registry Agents",v:s.stats?.agent_count||0},{l:"LTM Records",v:s.stats?.memory_count||0},{l:"Artifact Assets",v:s.stats?.artifact_count||0},{l:"Swarm Ops",v:s.telemetry?.summary?.action_count||0}].map(x=>`<div class="stat-card"><div>${esc(x.l)}</div><b>${esc(String(x.v))}</b></div>`).join("");
+      const renderQuestions=(section,target,answers)=>{q(target).innerHTML=(state.questions?.[section]||[]).map(item=>`<label>${esc(item.text)}<select data-sec="${esc(section)}" data-id="${esc(item.id)}">${Object.entries(item.options||{}).map(([k,v])=>`<option value="${esc(k)}"${answers?.[item.id]===k?" selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")};
+      renderQuestions("personality","#personalityFields",profile.personality_answers);
+      renderQuestions("scripting","#scriptingFields",profile.scripting_answers);
+      q("#backupPath").value=s.profile?.backup_path||"";
+      q("#runtimeSummary").innerHTML=`<div class="metric" style="width:100%; margin-bottom:12px;"><div>Current Runtime</div><b>${esc(s.runtime?.active_profile||"unknown")}</b><span>${esc(s.runtime?.install_mode||"unknown")} • ${s.runtime?.vector_embeddings_available?"Vector Optimized":"Keyword Fallback"}</span></div>`;
+      q("#clientFleet").innerHTML=(s.clients?.results||[]).map(c=>`<div class="session-item"><strong>${esc(c.client)}</strong><div style="display:flex; justify-content:space-between; align-items:center;"><span class="badge ${tone(c.status)}">${esc(human(c.status))}</span><span class="code" style="font-size:10px">${esc(c.target_command||"")}</span></div></div>`).join("");
+    }
+
+    function renderAgents(){
+      const agents=state.snapshot.agents||[],sel=agents.find(a=>a.id===state.selectedAgentId)||agents[0]||null;
+      if(sel)state.selectedAgentId=sel.id;
+      q("#agentList").innerHTML=agents.length?agents.map(a=>`<div class="session-item ${a.id===state.selectedAgentId?"active":""}" onclick="loadAgent(${a.id})"><strong>${esc(a.name)}</strong><div class="status">${esc(a.role)}</div></div>`).join(""):'<div class="empty">No agents registered.</div>';
+      q("#agentName").value=sel?.name||"";q("#agentRole").value=sel?.role||"";q("#agentCaps").value=(sel?.capabilities||[]).join(", ");q("#agentPrompt").value=sel?.system_prompt||"";q("#deleteAgentButton").disabled=!sel||!!sel.is_core;
+    }
+
+    function renderMemory(){
+      q("#memoryList").innerHTML=(state.memoryItems||[]).length?state.memoryItems.map(m=>`<div class="card"><strong>RECORD ID ${esc(String(m.id))}</strong><div style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">${esc(m.task_context||"general")} • ${esc(when(m.updated_at||m.created_at))}</div><textarea id="mem-content-${m.id}" style="min-height:80px; font-size:13px;">${esc(m.content||"")}</textarea><div class="grid two-cols"><label>Context <input id="mem-context-${m.id}" value="${esc(m.task_context||"")}"></label><label>State <select id="mem-state-${m.id}"><option value="active"${!m.is_archived?" selected":""}>Active</option><option value="archived"${m.is_archived?" selected":""}>Archived</option></select></label></div><div style="display:flex; gap:8px;"><button onclick="saveMemory(${m.id})">Commit</button><button onclick="togglePinned(${m.id},${m.is_pinned?"false":"true"})">${m.is_pinned?"Unpin":"Pin"}</button><button class="danger" onclick="deleteMemory(${m.id})">Purge</button></div></div>`).join(""):'<div class="empty">No records found.</div>';
+      q("#memorySessions").innerHTML=(state.snapshot.telemetry?.recent_sessions||[]).map(s=>`<div class="session-item"><strong>${esc(s.title)}</strong><div style="display:flex; justify-content:space-between;"><span class="badge ${esc(s.status_tone||"")}">${esc(s.status_label)}</span><span class="muted" style="font-size:10px">${esc(when(s.last_activity_at))}</span></div></div>`).join("")||'<div class="empty">No recent activity.</div>';
+    }
+
+    function renderContext(){
+      q("#artifactList").innerHTML=(state.snapshot.recent_artifacts||[]).length?state.snapshot.recent_artifacts.map(a=>`<div class="session-item"><strong>${esc(a.name||`Asset ${a.id}`)}</strong><div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${esc(a.source_type)} • ${esc(a.task_context)}</div><div class="muted" style="font-size:12px; margin-bottom:12px;">${esc(a.preview||"Binary artifact.")}</div><div style="display:flex; gap:8px;"><a class="badge success" style="text-decoration:none;" href="/artifacts/${a.id}/download" target="_blank">Download</a><button class="danger" style="padding:2px 8px; font-size:10px;" onclick="deleteArtifact(${a.id})">Delete</button></div></div>`).join(""):'<div class="empty">Context vault empty.</div>';
+    }
+
+    function renderSessions(){
+      q("#recentChats").innerHTML=(state.snapshot.recent_chats||[]).length?state.snapshot.recent_chats.map(c=>`<div class="session-item" onclick='pickChat(${JSON.stringify(c.id)});openTab("chat")'><strong>${esc(c.title)}</strong><div class="status">${esc(c.backend)} • ${esc(String(c.message_count||0))} ops</div></div>`).join(""):'<div class="empty">No conversations.</div>';
+      q("#taskSessions").innerHTML=(state.snapshot.telemetry?.recent_sessions||[]).length?state.snapshot.telemetry.recent_sessions.map(s=>`<div class="session-item"><strong>${esc(s.title)}</strong><div class="badge ${esc(s.status_tone||"")}">${esc(s.status_label)}</div></div>`).join(""):'<div class="empty">No workflows.</div>';
+      q("#activityList").innerHTML=(state.snapshot.telemetry?.recent_activity||[]).length?state.snapshot.telemetry.recent_activity.map(a=>`<div class="session-item" style="border-left: 3px solid var(--primary);"><strong>${esc(a.agent_name)}</strong><div class="muted" style="font-size:12px;">${esc(a.status)} • ${esc(when(a.created_at))}</div><div style="font-size:12px; margin-top:4px;">${esc(a.task_description||a.output_preview||"Working...")}</div></div>`).join(""):'<div class="empty">No activity.</div>';
+    }
+
+    async function renderTools(){
+      const tools=state.snapshot.tools||[];
+      if(!state.selectedToolName&&tools[0])state.selectedToolName=tools[0].name;
+      q("#toolList").innerHTML=tools.length?tools.map(t=>`<div class="session-item ${t.name===state.selectedToolName?"active":""}" onclick='loadTool(${JSON.stringify(t.name)})'><strong>${esc(t.name)}</strong><div class="muted" style="font-size:11px">${esc(t.description||"N/A")}</div></div>`).join(""):'<div class="empty">No tools.</div>';
+      if(!state.selectedToolName){q("#toolName").value="";q("#toolDescription").value="";q("#toolCode").value="";return}
+      try{const tool=await api(`/tools/${encodeURIComponent(state.selectedToolName)}`);q("#toolName").value=tool.name||"";q("#toolDescription").value=tool.description||"";q("#toolCode").value=tool.python_code||""}catch(e){notice(e.message,"danger")}
+    }
+
     function renderAll(){if(!state.snapshot)return;renderHero();renderChat();renderBrain();renderAgents();renderMemory();renderContext();renderSessions();renderTools()}
-    async function createChat(){try{const payload=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=payload.id;await loadAll(false);notice("New direct chat session created.")}catch(e){notice(e.message,"danger")}}
+    
+    async function createChat(){try{const payload=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=payload.id;await loadAll(false);notice("New operational session initialized.","success")}catch(e){notice(e.message,"danger")}}
     async function pickChat(id){try{state.currentChatId=id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(id)}`);renderChat()}catch(e){notice(e.message,"danger")}}
-    async function refreshChat(){if(!state.currentChatId){notice("No chat session is selected.","warn");return}try{state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`);renderChat()}catch(e){notice(e.message,"danger")}}
-    async function saveChatSettings(){if(!state.currentChatId){notice("Create or select a chat first.","warn");return}try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"PATCH",body:JSON.stringify({backend:q("#chatBackend").value||null,workspace_path:q("#chatWorkspace").value||null})});await loadAll();notice("Chat settings updated.")}catch(e){notice(e.message,"danger")}}
-    async function deleteChat(){if(!state.currentChatId){notice("No chat session is selected.","warn");return}try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"DELETE"});state.currentChatId=null;state.currentChat=null;await loadAll(false);notice("Chat session deleted.")}catch(e){notice(e.message,"danger")}}
-    async function sendChat(){const message=q("#chatInput").value.trim();if(!message||state.sending)return;try{state.sending=true;state.pendingChatMessage=message;q("#sendChatButton").disabled=true;q("#sendChatButton").textContent="Fetching...";notice("Pexo is fetching an answer...");if(!state.currentChatId){const created=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=created.id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}renderChat();state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}/messages`,{method:"POST",body:JSON.stringify({message,timeout_seconds:480})});q("#chatInput").value="";await loadAll();notice("Pexo replied.")}catch(e){notice(e.message,"danger")}finally{state.sending=false;state.pendingChatMessage="";q("#sendChatButton").disabled=false;q("#sendChatButton").textContent="Send To Pexo";renderChat()}}
-    async function saveProfile(){try{const personality={},scripting={};qq('[data-sec="personality"]').forEach(f=>personality[f.dataset.id]=f.value);qq('[data-sec="scripting"]').forEach(f=>scripting[f.dataset.id]=f.value);await api("/profile/",{method:"POST",body:JSON.stringify({name:"default_user",personality_answers:personality,scripting_answers:scripting,backup_path:q("#backupPath").value||"",clear_backup_path:false})});await loadAll();notice("Profile saved.")}catch(e){notice(e.message,"danger")}}
-    async function repairClients(target){try{await api(`/admin/connect/${encodeURIComponent(target)}?scope=user`,{method:"POST"});await loadAll();notice(`Pexo repaired the ${target} client connection.`)}catch(e){notice(e.message,"danger")}}
-    async function promote(profile){try{const res=await api(`/runtime/promote/${encodeURIComponent(profile)}`,{method:"POST"});await loadAll();notice(res.stdout||res.message||`Runtime promoted to ${profile}.`)}catch(e){notice(e.message,"danger")}}
+    async function refreshChat(){if(!state.currentChatId)return;try{state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`);renderChat()}catch(e){notice(e.message,"danger")}}
+    async function saveChatSettings(){if(!state.currentChatId)return;try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"PATCH",body:JSON.stringify({backend:q("#chatBackend").value||null,workspace_path:q("#chatWorkspace").value||null})});await loadAll();notice("Session settings committed.")}catch(e){notice(e.message,"danger")}}
+    async function deleteChat(){if(!state.currentChatId)return;try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"DELETE"});state.currentChatId=null;state.currentChat=null;await loadAll(false);notice("Session archived.")}catch(e){notice(e.message,"danger")}}
+    async function sendChat(){const message=q("#chatInput").value.trim();if(!message||state.sending)return;try{state.sending=true;state.pendingChatMessage=message;q("#sendChatButton").disabled=true;notice("Strategic Planning In Progress...","warn");if(!state.currentChatId){const created=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=created.id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}renderChat();state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}/messages`,{method:"POST",body:JSON.stringify({message,timeout_seconds:480})});q("#chatInput").value="";await loadAll();notice("Swarm response received.","success")}catch(e){notice(e.message,"danger")}finally{state.sending=false;state.pendingChatMessage="";q("#sendChatButton").disabled=false;renderChat()}}
+    async function saveProfile(){try{const personality={},scripting={};qq('[data-sec="personality"]').forEach(f=>personality[f.dataset.id]=f.value);qq('[data-sec="scripting"]').forEach(f=>scripting[f.dataset.id]=f.value);await api("/profile/",{method:"POST",body:JSON.stringify({name:"default_user",personality_answers:personality,scripting_answers:scripting,backup_path:q("#backupPath").value||"",clear_backup_path:false})});await loadAll();notice("User profile committed.","success")}catch(e){notice(e.message,"danger")}}
+    async function repairClients(target){try{await api(`/admin/connect/${encodeURIComponent(target)}?scope=user`,{method:"POST"});await loadAll();notice(`Fleet connection for ${target} restored.`)}catch(e){notice(e.message,"danger")}}
+    async function promote(profile){try{const res=await api(`/runtime/promote/${encodeURIComponent(profile)}`,{method:"POST"});await loadAll();notice(res.message||`Runtime upgraded to ${profile}.`)}catch(e){notice(e.message,"danger")}}
     function loadAgent(id){state.selectedAgentId=id;renderAgents()} function newAgent(){state.selectedAgentId=null;q("#agentName").value="";q("#agentRole").value="";q("#agentCaps").value="";q("#agentPrompt").value="";q("#deleteAgentButton").disabled=true}
-    async function saveAgent(){const name=q("#agentName").value.trim(),role=q("#agentRole").value.trim(),system_prompt=q("#agentPrompt").value.trim();if(!name||!role||!system_prompt){notice("Agent name, role, and prompt are required.","warn");return}const capabilities=q("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean);try{if(state.selectedAgentId){await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify({name,role,system_prompt,capabilities})})}else{await api("/agents/",{method:"POST",body:JSON.stringify({name,role,system_prompt,capabilities})})}await loadAll();state.selectedAgentId=(state.snapshot.agents||[]).find(a=>a.name===name)?.id||state.selectedAgentId;renderAgents();notice("Agent saved.")}catch(e){notice(e.message,"danger")}}
-    async function deleteAgent(){if(!state.selectedAgentId){notice("No custom agent selected.","warn");return}try{await api(`/agents/${state.selectedAgentId}`,{method:"DELETE"});state.selectedAgentId=null;await loadAll();renderAgents();notice("Agent deleted.")}catch(e){notice(e.message,"danger")}}
+    async function saveAgent(){const name=q("#agentName").value.trim(),role=q("#agentRole").value.trim(),system_prompt=q("#agentPrompt").value.trim();if(!name||!role||!system_prompt)return;const capabilities=q("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean);try{if(state.selectedAgentId){await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify({name,role,system_prompt,capabilities})})}else{await api("/agents/",{method:"POST",body:JSON.stringify({name,role,system_prompt,capabilities})})}await loadAll();renderAgents();notice("Specialist registry updated.","success")}catch(e){notice(e.message,"danger")}}
+    async function deleteAgent(){if(!state.selectedAgentId)return;try{await api(`/agents/${state.selectedAgentId}`,{method:"DELETE"});state.selectedAgentId=null;await loadAll();renderAgents();notice("Agent decommissioned.")}catch(e){notice(e.message,"danger")}}
     async function searchMemory(){const query=q("#memoryQuery").value.trim();if(!query){state.memoryItems=state.snapshot.recent_memories||[];renderMemory();return}try{const payload=await api("/memory/search",{method:"POST",body:JSON.stringify({query,n_results:12})});state.memoryItems=payload.results||[];renderMemory()}catch(e){notice(e.message,"danger")}}
-    async function saveMemory(id){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({content:q(`#mem-content-${id}`).value,task_context:q(`#mem-context-${id}`).value,is_archived:q(`#mem-state-${id}`).value==="archived"})});await loadAll();notice("Memory updated.")}catch(e){notice(e.message,"danger")}}
-    async function togglePinned(id,next){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({is_pinned:next})});await loadAll();notice("Memory pin state updated.")}catch(e){notice(e.message,"danger")}}
-    async function deleteMemory(id){try{await api(`/memory/${id}`,{method:"DELETE"});await loadAll();notice("Memory deleted.")}catch(e){notice(e.message,"danger")}}
-    async function runMemoryMaintenance(){try{const res=await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await loadAll();notice(res.message||"Memory maintenance completed.")}catch(e){notice(e.message,"danger")}}
-    async function attachPath(){const path=q("#contextPath").value.trim();if(!path){notice("Enter a local file path first.","warn");return}try{await api("/artifacts/register-path",{method:"POST",body:JSON.stringify({path,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",name:null})});q("#contextPath").value="";await loadAll();notice("Context path attached.")}catch(e){notice(e.message,"danger")}}
-    async function attachText(){const content=q("#contextNote").value.trim();if(!content){notice("Enter note content first.","warn");return}try{await api("/artifacts/register-text",{method:"POST",body:JSON.stringify({name:q("#contextNoteName").value.trim()||"context-note.txt",content,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",source_uri:null,content_type:"text/plain"})});q("#contextNoteName").value="";q("#contextNote").value="";await loadAll();notice("Context note stored.")}catch(e){notice(e.message,"danger")}}
-    async function uploadArtifact(){if(!q("#contextUpload").files?.length){notice("Choose a file to upload first.","warn");return}const form=new FormData();form.append("file",q("#contextUpload").files[0]);form.append("session_id",q("#contextSession").value.trim()||"general_context");form.append("task_context",q("#contextTask").value.trim()||"general");try{await api("/artifacts/upload",{method:"POST",body:form});q("#contextUpload").value="";await loadAll();notice("Artifact uploaded.")}catch(e){notice(e.message,"danger")}}
-    async function deleteArtifact(id){try{await api(`/artifacts/${id}`,{method:"DELETE"});await loadAll();notice("Artifact deleted.")}catch(e){notice(e.message,"danger")}}
+    async function saveMemory(id){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({content:q(`#mem-content-${id}`).value,task_context:q(`#mem-context-${id}`).value,is_archived:q(`#mem-state-${id}`).value==="archived"})});await loadAll();notice("Memory record updated.","success")}catch(e){notice(e.message,"danger")}}
+    async function togglePinned(id,next){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({is_pinned:next})});await loadAll();notice("Record priority updated.")}catch(e){notice(e.message,"danger")}}
+    async function deleteMemory(id){try{await api(`/memory/${id}`,{method:"DELETE"});await loadAll();notice("Memory purged.")}catch(e){notice(e.message,"danger")}}
+    async function runMemoryMaintenance(){try{await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await loadAll();notice("Cogmachine sweep complete.","success")}catch(e){notice(e.message,"danger")}}
+    async function attachPath(){const path=q("#contextPath").value.trim();if(!path)return;try{await api("/artifacts/register-path",{method:"POST",body:JSON.stringify({path,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",name:null})});q("#contextPath").value="";await loadAll();notice("Filesystem context ingested.","success")}catch(e){notice(e.message,"danger")}}
+    async function attachText(){const content=q("#contextNote").value.trim();if(!content)return;try{await api("/artifacts/register-text",{method:"POST",body:JSON.stringify({name:q("#contextNoteName").value.trim()||"context-note.txt",content,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",source_uri:null,content_type:"text/plain"})});q("#contextNoteName").value="";q("#contextNote").value="";await loadAll();notice("Manual context ingested.","success")}catch(e){notice(e.message,"danger")}}
+    async function deleteArtifact(id){try{await api(`/artifacts/${id}`,{method:"DELETE"});await loadAll();notice("Artifact removed.")}catch(e){notice(e.message,"danger")}}
     function newTool(){state.selectedToolName=null;q("#toolName").value="";q("#toolDescription").value="";q("#toolCode").value="def run(**kwargs):\n    return kwargs\n"} function loadTool(name){state.selectedToolName=name;renderTools()}
-    async function saveTool(){const name=q("#toolName").value.trim(),description=q("#toolDescription").value.trim(),python_code=q("#toolCode").value;if(!name||!python_code.trim()){notice("Tool name and code are required.","warn");return}try{if(state.selectedToolName){await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})})}else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await loadAll();notice("Tool saved.")}catch(e){notice(e.message,"danger")}}
-    async function deleteTool(){if(!state.selectedToolName){notice("No tool selected.","warn");return}try{await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"DELETE"});state.selectedToolName=null;await loadAll();notice("Tool deleted.")}catch(e){notice(e.message,"danger")}}
-    async function refreshAll(){try{await loadAll();notice("Pexo control plane refreshed.")}catch(e){notice(e.message,"danger")}}
-    qq(".tab").forEach(b=>b.addEventListener("click",()=>openTab(b.dataset.tab)));q("#chatInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat()}});
-    window.createChat=createChat;window.pickChat=pickChat;window.refreshChat=refreshChat;window.saveChatSettings=saveChatSettings;window.deleteChat=deleteChat;window.sendChat=sendChat;window.saveProfile=saveProfile;window.repairClients=repairClients;window.promote=promote;window.loadAgent=loadAgent;window.newAgent=newAgent;window.saveAgent=saveAgent;window.deleteAgent=deleteAgent;window.searchMemory=searchMemory;window.saveMemory=saveMemory;window.togglePinned=togglePinned;window.deleteMemory=deleteMemory;window.runMemoryMaintenance=runMemoryMaintenance;window.attachPath=attachPath;window.attachText=attachText;window.uploadArtifact=uploadArtifact;window.deleteArtifact=deleteArtifact;window.newTool=newTool;window.loadTool=loadTool;window.saveTool=saveTool;window.deleteTool=deleteTool;window.openTab=openTab;window.refreshAll=refreshAll;
+    async function saveTool(){const name=q("#toolName").value.trim(),description=q("#toolDescription").value.trim(),python_code=q("#toolCode").value;if(!name||!python_code.trim())return;try{if(state.selectedToolName){await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})})}else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await loadAll();notice("Tool deployed to swarm.","success")}catch(e){notice(e.message,"danger")}}
+    async function deleteTool(){if(!state.selectedToolName)return;try{await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"DELETE"});state.selectedToolName=null;await loadAll();notice("Tool removed.")}catch(e){notice(e.message,"danger")}}
+    async function refreshAll(){try{await loadAll();notice("System state synchronized.","success")}catch(e){notice(e.message,"danger")}}
+    
+    qq(".tab").forEach(b=>b.addEventListener("click",()=>openTab(b.dataset.tab)));
+    q("#chatInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.ctrlKey){e.preventDefault();sendChat()}});
+    
+    window.createChat=createChat;window.pickChat=pickChat;window.refreshChat=refreshChat;window.saveChatSettings=saveChatSettings;window.deleteChat=deleteChat;window.sendChat=sendChat;window.saveProfile=saveProfile;window.repairClients=repairClients;window.promote=promote;window.loadAgent=loadAgent;window.newAgent=newAgent;window.saveAgent=saveAgent;window.deleteAgent=deleteAgent;window.searchMemory=searchMemory;window.saveMemory=saveMemory;window.togglePinned=togglePinned;window.deleteMemory=deleteMemory;window.runMemoryMaintenance=runMemoryMaintenance;window.attachPath=attachPath;window.attachText=attachText;window.deleteArtifact=deleteArtifact;window.newTool=newTool;window.loadTool=loadTool;window.saveTool=saveTool;window.deleteTool=deleteTool;window.openTab=openTab;window.refreshAll=refreshAll;
     loadAll().catch(e=>notice(e.message,"danger"));
   </script>
 </body>

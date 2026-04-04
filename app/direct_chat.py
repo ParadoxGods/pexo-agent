@@ -104,13 +104,13 @@ PLANNING_TASK_HINTS = (
     "decide",
     "compare",
 )
-FAST_CHAT_TIMEOUT_SECONDS = 6
-FAST_LOOKUP_TIMEOUT_SECONDS = 10
-FACTUAL_CHAT_TIMEOUT_SECONDS = 6
-SECONDARY_CHAT_TIMEOUT_SECONDS = 4
-SECONDARY_LOOKUP_TIMEOUT_SECONDS = 5
-SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS = 5
-FAST_WEB_FACT_TIMEOUT_SECONDS = 3
+FAST_CHAT_TIMEOUT_SECONDS = 30
+FAST_LOOKUP_TIMEOUT_SECONDS = 40
+FACTUAL_CHAT_TIMEOUT_SECONDS = 30
+SECONDARY_CHAT_TIMEOUT_SECONDS = 20
+SECONDARY_LOOKUP_TIMEOUT_SECONDS = 25
+SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS = 25
+FAST_WEB_FACT_TIMEOUT_SECONDS = 15
 FAST_WEB_FACT_CACHE_TTL_SECONDS = 900
 LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
 LEARNED_PREFERENCE_TASK_CONTEXT = "user-preference"
@@ -118,8 +118,8 @@ MAX_LEARNED_PREFERENCES = 8
 CHAT_BACKEND_STATS_KEY = "chat.backend_stats.v1"
 BACKEND_STATS_MIN_OBSERVATIONS = 2
 DIRECT_CHAT_TASK_MAX_STEPS = 6
-DIRECT_CHAT_TASK_TIMEOUT_SECONDS = 25
-SECONDARY_TASK_TIMEOUT_SECONDS = 12
+DIRECT_CHAT_TASK_TIMEOUT_SECONDS = 180
+SECONDARY_TASK_TIMEOUT_SECONDS = 90
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
     "gemini": "PEXO_CHAT_FAST_MODEL_GEMINI",
@@ -1399,6 +1399,14 @@ def _build_local_lookup_reply(db: Session, user_message: str) -> str:
 
 
 def _looks_like_generic_backend_filler(text: str) -> bool:
+    if not text:
+        return True
+    
+    # Efficiency: Professional responses are often detailed. 
+    # If the response is substantial, it is likely not filler.
+    if len(text) > 350:
+        return False
+
     normalized = _normalize_chat_text(text)
     if not normalized:
         return True
@@ -1430,7 +1438,8 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "what are we working on",
     )
     if any(phrase in normalized for phrase in generic_phrases):
-        return True
+        # Even if it contains a generic phrase, only flag as filler if it's very short
+        return len(normalized) < 200
     if "what's next" in normalized or "whats next" in normalized:
         if any(starter in normalized for starter in ("i'm ready", "im ready", "ready for the next step", "ready when you are")):
             return True
@@ -2467,12 +2476,14 @@ def _build_backend_unavailable_reply(backend_name: str, *, mode: str) -> str:
     label = backend_name.capitalize()
     if mode == "brain_lookup":
         return (
-            f"I couldn't get a quick retrieval answer from {label} just now, but Pexo is still running. "
-            "Try again in a moment or switch backends with /backend <name>."
+            f"I couldn't get a retrieval answer from {label} within the time limit. "
+            "Pexo is still running, but the local search might be too large. "
+            "Try a more specific question or switch backends with /backend <name>."
         )
     return (
-        f"I couldn't get a quick answer from {label} just now, but Pexo is still running. "
-        "Try again, switch backends with /backend <name>, or give me a more concrete task."
+        f"I couldn't get a response from {label} after several attempts. "
+        "The backend might be under heavy load or the task is too complex for a single turn. "
+        "Try phrasing your request as a 'build' or 'fix' task, or switch backends with /backend <name>."
     )
 
 
@@ -2849,7 +2860,7 @@ def _conversation_backend_candidates(primary_backend: str, *, mode: str, db: Ses
     return candidates
 
 
-def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
+def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as handle:
         output_path = Path(handle.name)
     args = [
@@ -2872,6 +2883,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
                 command,
                 cwd=workspace_path if workspace_path else None,
                 timeout_seconds=timeout_seconds,
+                progress_callback=progress_callback,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -2888,7 +2900,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
         output_path.unlink(missing_ok=True)
 
 
-def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
+def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
     args = [
         "--prompt",
         prompt,
@@ -2908,6 +2920,7 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
         completed = _run_command_with_timeout(
             command,
             timeout_seconds=timeout_seconds,
+            progress_callback=progress_callback,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -2946,6 +2959,7 @@ def run_direct_chat_backend(
     timeout_seconds: int = 300,
     *,
     mode: str = "task",
+    progress_callback: Any | None = None,
 ) -> str:
     plan = build_client_connection_plan(backend_name, scope="user")
     if not plan["available"]:
@@ -2953,24 +2967,24 @@ def run_direct_chat_backend(
     model_override = _select_backend_model(backend_name, mode)
     if backend_name == "codex":
         try:
-            return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode)
+            return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode, progress_callback=progress_callback)
         except RuntimeError as exc:
             if model_override and _should_retry_without_model(exc):
-                return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode)
+                return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode, progress_callback=progress_callback)
             raise
     if backend_name == "gemini":
         try:
-            return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode)
+            return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode, progress_callback=progress_callback)
         except RuntimeError as exc:
             if model_override and _should_retry_without_model(exc):
-                return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode)
+                return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode, progress_callback=progress_callback)
             raise
     if backend_name == "claude":
         try:
-            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override, mode=mode)
+            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override, mode=mode, progress_callback=progress_callback)
         except RuntimeError as exc:
             if model_override and _should_retry_without_model(exc):
-                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None, mode=mode)
+                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None, mode=mode, progress_callback=progress_callback)
             raise
     raise RuntimeError(f"Unsupported backend '{backend_name}'.")
 
