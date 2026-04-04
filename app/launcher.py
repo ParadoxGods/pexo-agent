@@ -37,12 +37,11 @@ RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
 RELEASE_MANIFEST_ASSET = "pexo-install-manifest.json"
 PACKAGE_UPDATE_COMMAND = "pexo --update"
 PEXO_ASCII_BANNER = r"""
-______  ________  _______
-| ___ \ |  ___\ \/ /  _  \
-| |_/ / | |__  \  /| | | |
-|  __/  |  __| /  \| | | |
-| |     | |___/ /\ \ |/ /
-\_|     \____/\/  \/___/
+    ____  ________  ______
+   / __ \/ ____/ |/_/ __ \
+  / /_/ / __/  >  </ / / /
+ / ____/ /___ / /| / /_/ /
+/_/   /_____//_/ |_\____/
 """
 PACKAGED_UPDATE_HELPER = r"""
 from __future__ import annotations
