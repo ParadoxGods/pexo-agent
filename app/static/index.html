@@ -709,6 +709,61 @@ Use the browser for normal Pexo operation.
             return `${diffDays}d ago`;
         }
 
+        function humanStatusLabel(status) {
+            const labels = {
+                clarification_pending: "Needs Clarification",
+                graph_started: "Planning Started",
+                running: "Running",
+                completed: "Completed",
+                session_complete: "Complete",
+                processing: "Processing",
+                pending_action: "Waiting On Agent",
+                error: "Error",
+            };
+            const normalized = String(status || "").trim().toLowerCase();
+            return labels[normalized] || normalized.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase()) || "Unknown";
+        }
+
+        function humanStatusTone(status) {
+            const tones = {
+                clarification_pending: "warn",
+                graph_started: "warn",
+                running: "warn",
+                completed: "success",
+                session_complete: "success",
+                error: "danger",
+            };
+            return tones[String(status || "").trim().toLowerCase()] || "";
+        }
+
+        function shortSessionId(sessionId) {
+            return String(sessionId || "").slice(0, 8);
+        }
+
+        function humanAgentLabel(agentName) {
+            if (!agentName) return "Pexo";
+            return agentName === "orchestrator" ? "Orchestrator" : String(agentName);
+        }
+
+        function humanSessionTitle(session) {
+            if (session?.title && !/^session$/i.test(String(session.title).trim())) return session.title;
+            const status = String(session?.last_status || "").trim().toLowerCase();
+            if (status === "clarification_pending") return "Task Awaiting Clarification";
+            if (status === "graph_started") return "Task Plan In Progress";
+            if (status === "session_complete") return "Completed Pexo Task";
+            if (status === "running") return "Active Pexo Task";
+            return `Pexo Task ${shortSessionId(session?.session_id || session?.short_id) || ""}`.trim();
+        }
+
+        function humanSessionSummary(session) {
+            if (session?.summary && !/orchestrator is handling the latest step\./i.test(String(session.summary))) return session.summary;
+            const status = String(session?.last_status || "").trim().toLowerCase();
+            if (status === "clarification_pending") return "Waiting for one clarification before work begins.";
+            if (status === "graph_started") return "Pexo has started planning the task flow.";
+            if (status === "session_complete") return "Pexo completed this task session.";
+            return `${humanAgentLabel(session?.last_agent_label || session?.last_agent)} is handling the latest step.`;
+        }
+
         function parseCapabilities(rawValue) {
             return rawValue.split(",").map(value => value.trim()).filter(Boolean);
         }
@@ -985,12 +1040,12 @@ Use the browser for normal Pexo operation.
                 <div class="telemetry-row">
                     <div class="section-head" style="margin-bottom: 0.45rem;">
                         <div>
-                            <strong>${escapeHtml(session.title || `Session ${session.short_id || ""}`)}</strong>
-                            <div class="meta">${escapeHtml(session.summary || `${session.last_agent_label || session.last_agent || "Pexo"} is handling the latest step.`)}</div>
+                            <strong>${escapeHtml(humanSessionTitle(session))}</strong>
+                            <div class="meta">${escapeHtml(humanSessionSummary(session))}</div>
                         </div>
-                        <span class="${badgeClass(session.status_tone)}">${escapeHtml(session.status_label || session.last_status || "Unknown")}</span>
+                        <span class="${badgeClass(session.status_tone || humanStatusTone(session.last_status))}">${escapeHtml(session.status_label || humanStatusLabel(session.last_status))}</span>
                     </div>
-                    <div class="meta">Session ${escapeHtml(session.short_id || session.session_id || "")} • ${escapeHtml(formatRelativeTime(session.last_activity_at))} • ${escapeHtml(session.last_agent_label || session.last_agent || "Unknown")}</div>
+                    <div class="meta">Session ${escapeHtml(session.short_id || shortSessionId(session.session_id) || session.session_id || "")} | ${escapeHtml(formatRelativeTime(session.last_activity_at))} | ${escapeHtml(humanAgentLabel(session.last_agent_label || session.last_agent))}</div>
                     <div>Actions: ${session.total_actions} | Completed: ${session.completed_actions} | Tasks: ${session.task_count}</div>
                 </div>
             `).join("") : '<div class="telemetry-row">No sessions recorded yet.</div>';
