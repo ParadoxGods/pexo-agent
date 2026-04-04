@@ -595,6 +595,59 @@ class HardeningTests(unittest.TestCase):
         mock_exec.assert_called_once()
 
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._maybe_stop_existing_server_for_update", return_value="stopped")
+    @patch("app.launcher._exec_update_helper", return_value=0)
+    @patch("app.launcher._prepare_packaged_update_helper")
+    @patch("app.launcher._build_packaged_update_plan")
+    def test_run_update_stops_running_server_before_packaged_update(
+        self,
+        mock_build_plan,
+        mock_prepare,
+        mock_exec,
+        mock_stop_server,
+        _mock_checkout,
+    ):
+        mock_build_plan.return_value = {
+            "version": "1.0",
+            "release_url": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "wheel_name": "pexo_agent-1.0-py3-none-any.whl",
+            "wheel_url": "https://example.invalid/pexo_agent-1.0-py3-none-any.whl",
+            "checksum_url": "https://example.invalid/SHA256SUMS.txt",
+            "target_python": "C:/Users/dustin/.pexo/venv/Scripts/python.exe",
+            "install_metadata_path": "C:/Users/dustin/.pexo/.pexo-install.json",
+            "update_stamp_path": "C:/Users/dustin/.pexo/.pexo-update-check",
+            "operation": "wheel-only",
+            "install_label": "Installing update (wheel refresh only)...",
+            "pip_args": ["install", "--disable-pip-version-check", "--force-reinstall", "--no-deps"],
+            "wheel_sha256": "deadbeef",
+            "dependency_fingerprint": "cafebabe",
+        }
+        mock_prepare.return_value = (Path("C:/temp/pexo_update_helper.py"), Path("C:/temp/update-plan.json"))
+
+        self.assertEqual(launcher_module.run_update(), 0)
+        mock_stop_server.assert_called_once_with("127.0.0.1", 9999)
+        mock_exec.assert_called_once()
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._maybe_stop_existing_server_for_update", return_value="unavailable")
+    @patch("app.launcher._build_packaged_update_plan")
+    def test_run_update_refuses_packaged_update_when_server_cannot_be_stopped(
+        self,
+        mock_build_plan,
+        mock_stop_server,
+        _mock_checkout,
+    ):
+        mock_build_plan.return_value = {
+            "version": "1.0",
+            "operation": "wheel-only",
+        }
+
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            self.assertEqual(launcher_module.run_update(), 1)
+        self.assertIn("must be stopped before this packaged update can continue", stderr.getvalue())
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
     @patch("app.launcher._local_pexo_http_available", return_value=True)
     @patch("app.launcher._write_update_stamp")
     @patch("app.launcher._prepare_packaged_update_helper")
@@ -683,6 +736,42 @@ class HardeningTests(unittest.TestCase):
 
         self.assertEqual(plan["operation"], "skip")
         self.assertEqual(plan["pip_args"], [])
+
+    def test_resolve_runtime_python_executable_prefers_venv_python_for_console_entrypoints(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            venv_root = Path(tmpdir) / "venv"
+            scripts_dir = venv_root / "Scripts"
+            scripts_dir.mkdir(parents=True)
+            console_path = scripts_dir / "pexo.exe"
+            python_path = scripts_dir / "python.exe"
+            console_path.write_text("", encoding="utf-8")
+            python_path.write_text("", encoding="utf-8")
+
+            with patch.object(sys, "executable", str(console_path)), patch.object(sys, "prefix", str(venv_root)):
+                resolved = launcher_module._resolve_runtime_python_executable()
+
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(resolved)),
+                os.path.normcase(os.path.realpath(str(python_path))),
+            )
+
+    def test_exec_update_helper_uses_plan_target_python(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            helper_path = root / "pexo_update_helper.py"
+            helper_path.write_text("print('ok')", encoding="utf-8")
+            plan_path = root / "update-plan.json"
+            target_python = root / "python.exe"
+            target_python.write_text("", encoding="utf-8")
+            plan_path.write_text(json.dumps({"target_python": str(target_python)}), encoding="utf-8")
+
+            with patch("app.launcher.os.execv") as mock_execv:
+                launcher_module._exec_update_helper(helper_path, plan_path)
+
+            mock_execv.assert_called_once_with(
+                str(target_python),
+                [str(target_python), str(helper_path), str(plan_path)],
+            )
 
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})

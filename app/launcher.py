@@ -188,6 +188,40 @@ def _package_update_guidance() -> str:
     return PACKAGE_UPDATE_COMMAND
 
 
+def _resolve_runtime_python_executable() -> str:
+    executable = Path(sys.executable).resolve(strict=False)
+    if executable.name.lower().startswith("python"):
+        return str(executable)
+
+    candidates: list[Path] = []
+    if os.name == "nt":
+        candidates.extend(
+            [
+                executable.with_name("python.exe"),
+                Path(sys.prefix).resolve(strict=False) / "Scripts" / "python.exe",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                executable.with_name("python3"),
+                executable.with_name("python"),
+                Path(sys.prefix).resolve(strict=False) / "bin" / "python3",
+                Path(sys.prefix).resolve(strict=False) / "bin" / "python",
+            ]
+        )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return str(candidate.resolve(strict=False))
+    return str(executable)
+
+
 def _package_uninstall_guidance() -> str:
     metadata = _read_install_metadata()
     if metadata:
@@ -288,7 +322,7 @@ def _build_packaged_update_plan() -> dict:
         "wheel_url": str(wheel_asset["browser_download_url"]),
         "checksum_url": str(checksum_asset["browser_download_url"]),
         "manifest_url": str(manifest_asset["browser_download_url"]),
-        "target_python": sys.executable,
+        "target_python": _resolve_runtime_python_executable(),
         "install_metadata_path": str(INSTALL_METADATA_PATH),
         "update_stamp_path": str(UPDATE_STAMP_PATH),
         "operation": operation,
@@ -309,7 +343,12 @@ def _prepare_packaged_update_helper(plan: dict) -> tuple[Path, Path]:
 
 
 def _exec_update_helper(helper_path: Path, plan_path: Path) -> int:
-    os.execv(sys.executable, [sys.executable, str(helper_path), str(plan_path)])
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        target_python = str(plan.get("target_python") or _resolve_runtime_python_executable())
+    except (OSError, ValueError, json.JSONDecodeError):
+        target_python = _resolve_runtime_python_executable()
+    os.execv(target_python, [target_python, str(helper_path), str(plan_path)])
     return 0
 
 
@@ -411,8 +450,18 @@ def run_update() -> int:
         return 0
 
     print(f"Installed package detected. Preparing update to v{plan['version']}...")
-    if _local_pexo_http_available("127.0.0.1", 9999):
-        print("A Pexo server is already running. Restart it after the update completes to load the new build.")
+    server_state = _maybe_stop_existing_server_for_update("127.0.0.1", 9999)
+    if server_state == "declined":
+        return 0
+    if server_state == "failed":
+        print("Unable to stop the running Pexo server. Close it and run `pexo --update` again.", file=sys.stderr)
+        return 1
+    if server_state == "unavailable":
+        print(
+            "A Pexo server is already running and must be stopped before this packaged update can continue.",
+            file=sys.stderr,
+        )
+        return 1
     helper_path, plan_path = _prepare_packaged_update_helper(plan)
     return _exec_update_helper(helper_path, plan_path)
 
@@ -586,6 +635,26 @@ def _maybe_restart_existing_server(host: str, port: int) -> str:
         return "declined"
     print("Stopping the running Pexo server...")
     return "restarted" if _stop_local_pexo_server(host, port) else "failed"
+
+
+def _maybe_stop_existing_server_for_update(host: str, port: int) -> str:
+    if not _local_pexo_http_available(host, port):
+        return "not_running"
+    if not _can_prompt_for_restart():
+        return "unavailable"
+    try:
+        answer = input(
+            f"Pexo is currently running at http://{host}:{port}. "
+            "Stop it now so the update can continue? [Y/n]: "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("")
+        return "declined"
+    if answer not in {"", "y", "yes"}:
+        print("Update cancelled. The running Pexo server was left in place.")
+        return "declined"
+    print("Stopping the running Pexo server...")
+    return "stopped" if _stop_local_pexo_server(host, port) else "failed"
 
 
 def run_server(no_browser: bool = False) -> int:
