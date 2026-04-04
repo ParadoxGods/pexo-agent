@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -645,9 +645,10 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(plan["operation"], "skip")
         self.assertEqual(plan["pip_args"], [])
 
+    @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
-    def test_run_server_prints_pexo_banner(self, mock_uvicorn_run, _mock_status):
+    def test_run_server_prints_pexo_banner(self, mock_uvicorn_run, _mock_status, _mock_port_in_use):
         original_no_browser = os.environ.get("PEXO_NO_BROWSER")
         try:
             output = StringIO()
@@ -659,11 +660,23 @@ class HardeningTests(unittest.TestCase):
             self.assertNotIn("\033[", rendered)
             self.assertIn("\n\nPEXO | Primary EXecution Operator | local-first control plane", rendered)
             mock_uvicorn_run.assert_called_once()
+            self.assertEqual(mock_uvicorn_run.call_args.kwargs["use_colors"], False)
         finally:
             if original_no_browser is None:
                 os.environ.pop("PEXO_NO_BROWSER", None)
             else:
                 os.environ["PEXO_NO_BROWSER"] = original_no_browser
+
+    @patch("app.launcher._local_pexo_http_available", return_value=True)
+    @patch("app.launcher._port_is_in_use", return_value=True)
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
+    @patch("uvicorn.run")
+    def test_run_server_reports_existing_pexo_instance_clearly(self, mock_uvicorn_run, _mock_status, _mock_port_in_use, _mock_pexo_http):
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            self.assertEqual(launcher_module.run_server(no_browser=True), 1)
+        self.assertIn("Pexo already appears to be running", stderr.getvalue())
+        mock_uvicorn_run.assert_not_called()
 
     @patch("app.launcher._restart_launcher_process", return_value=0)
     @patch("app.launcher.promote_runtime")

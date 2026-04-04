@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import socket
 import subprocess
 import sys
 import tempfile
@@ -412,6 +413,22 @@ def shutil_which(command_name: str) -> str | None:
     return which(command_name)
 
 
+def _port_is_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.25)
+        return probe.connect_ex((host, port)) == 0
+
+
+def _local_pexo_http_available(host: str, port: int) -> bool:
+    for path in ("/admin/snapshot", "/docs", "/ui/"):
+        try:
+            with urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=0.5):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def run_server(no_browser: bool = False) -> int:
     status = build_runtime_status()
     if not status["installed_profiles"].get("full", False):
@@ -430,7 +447,15 @@ def run_server(no_browser: bool = False) -> int:
     if no_browser:
         os.environ["PEXO_NO_BROWSER"] = "1"
     _print_start_banner()
-    uvicorn.run("app.main:app", host="127.0.0.1", port=9999, workers=1)
+    host = "127.0.0.1"
+    port = 9999
+    if _port_is_in_use(host, port):
+        if _local_pexo_http_available(host, port):
+            print(f"Pexo already appears to be running at http://{host}:{port}", file=sys.stderr)
+        else:
+            print(f"Port {port} is already in use on {host}. Stop the existing process or free the port before starting Pexo.", file=sys.stderr)
+        return 1
+    uvicorn.run("app.main:app", host=host, port=port, workers=1, use_colors=False)
     return 0
 
 
