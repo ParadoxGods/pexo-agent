@@ -19,6 +19,17 @@ from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Pr
 from .paths import PROJECT_ROOT
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
+FAST_CHAT_TIMEOUT_SECONDS = 45
+FAST_CHAT_MODEL_ENV_VARS = {
+    "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
+    "gemini": "PEXO_CHAT_FAST_MODEL_GEMINI",
+    "claude": "PEXO_CHAT_FAST_MODEL_CLAUDE",
+}
+DEFAULT_FAST_CHAT_MODELS = {
+    "codex": "gpt-5.4-mini",
+    "gemini": "gemini-2.5-flash",
+    "claude": "",
+}
 CONVERSATION_HINTS = (
     "hello",
     "hi",
@@ -487,6 +498,22 @@ def _resolve_backend_name(preferred: str | None = None) -> str:
     raise RuntimeError("No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first.")
 
 
+def _fast_chat_model_for_backend(backend_name: str) -> str | None:
+    env_var = FAST_CHAT_MODEL_ENV_VARS.get(backend_name, "")
+    if env_var:
+        configured = os.environ.get(env_var, "").strip()
+        if configured:
+            return configured
+    default_model = DEFAULT_FAST_CHAT_MODELS.get(backend_name, "").strip()
+    return default_model or None
+
+
+def _select_backend_model(backend_name: str, mode: str) -> str | None:
+    if mode in {"conversation", "brain_lookup"}:
+        return _fast_chat_model_for_backend(backend_name)
+    return None
+
+
 def _ensure_backend_connected(backend_name: str) -> None:
     report = connect_clients(target=backend_name, scope="user", dry_run=False)
     if report["status"] == "failed":
@@ -614,24 +641,28 @@ def _build_task_prompt(
     )
 
 
-def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int) -> str:
+def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None) -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as handle:
         output_path = Path(handle.name)
-    command = _wrap_command(
-        plan["invoker"],
+    args = [
+        "exec",
+        "--skip-git-repo-check",
+        "--color",
+        "never",
+        "--full-auto",
+    ]
+    if model_override:
+        args.extend(["-m", model_override])
+    args.extend(
         [
-            "exec",
-            "--skip-git-repo-check",
-            "--color",
-            "never",
-            "--full-auto",
             "-C",
             workspace_path,
             "-o",
             str(output_path),
             prompt,
-        ],
+        ]
     )
+    command = _wrap_command(plan["invoker"], args)
     try:
         completed = subprocess.run(
             command,
@@ -651,7 +682,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
         output_path.unlink(missing_ok=True)
 
 
-def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int) -> str:
+def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None) -> str:
     args = [
         "--prompt",
         prompt,
@@ -661,6 +692,8 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
         "--allowed-mcp-server-names",
         "pexo",
     ]
+    if model_override:
+        args.extend(["-m", model_override])
     if workspace_path:
         args.extend(["--include-directories", workspace_path])
     command = _wrap_command(plan["invoker"], args)
@@ -676,8 +709,12 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     return (completed.stdout or "").strip()
 
 
-def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int) -> str:
-    command = _wrap_command(plan["invoker"], ["-p", prompt])
+def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None) -> str:
+    args = []
+    if model_override:
+        args.extend(["--model", model_override])
+    args.extend(["-p", prompt])
+    command = _wrap_command(plan["invoker"], args)
     completed = subprocess.run(
         command,
         capture_output=True,
@@ -690,16 +727,39 @@ def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int) -> str:
     return (completed.stdout or "").strip()
 
 
-def run_direct_chat_backend(backend_name: str, prompt: str, workspace_path: str, timeout_seconds: int = 300) -> str:
+def run_direct_chat_backend(
+    backend_name: str,
+    prompt: str,
+    workspace_path: str,
+    timeout_seconds: int = 300,
+    *,
+    mode: str = "task",
+) -> str:
     plan = build_client_connection_plan(backend_name, scope="user")
     if not plan["available"]:
         raise RuntimeError(f"{backend_name} is not installed or not visible in PATH.")
+    model_override = _select_backend_model(backend_name, mode)
     if backend_name == "codex":
-        return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds)
+        try:
+            return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override)
+        except RuntimeError:
+            if model_override:
+                return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None)
+            raise
     if backend_name == "gemini":
-        return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds)
+        try:
+            return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override)
+        except RuntimeError:
+            if model_override:
+                return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None)
+            raise
     if backend_name == "claude":
-        return _run_claude_turn(plan, prompt, timeout_seconds)
+        try:
+            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override)
+        except RuntimeError:
+            if model_override:
+                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None)
+            raise
     raise RuntimeError(f"Unsupported backend '{backend_name}'.")
 
 
@@ -889,17 +949,18 @@ def send_chat_message(
             latest_user_message=user_message,
             history_excerpt=history_excerpt,
         )
-    assistant_text = _maybe_build_local_reply(
-        db,
-        mode=mode,
-        user_message=user_message,
-    )
-    if assistant_text is None:
+    assistant_text = None
+    backend_timeout = timeout_seconds
+    if mode in {"conversation", "brain_lookup"}:
+        backend_timeout = min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
+
+    try:
         raw_result = run_direct_chat_backend(
             backend_name,
             assistant_prompt,
             session.workspace_path,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=backend_timeout,
+            mode=mode,
         )
         assistant_text = _normalize_backend_reply(
             db,
@@ -907,6 +968,14 @@ def send_chat_message(
             user_message=user_message,
             assistant_text=raw_result or "",
         )
+    except RuntimeError:
+        assistant_text = _maybe_build_local_reply(
+            db,
+            mode=mode,
+            user_message=user_message,
+        )
+        if assistant_text is None:
+            raise
 
     session.status = "answered"
     details = dict(session.details or {})

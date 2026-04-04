@@ -21,6 +21,7 @@ from sqlalchemy import inspect
 import app.routers.memory as memory_router
 import app.runtime as runtime_module
 import app.launcher as launcher_module
+import app.direct_chat as direct_chat_module
 from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp
@@ -783,6 +784,26 @@ class HardeningTests(unittest.TestCase):
                 check=False,
             )
 
+    @patch("app.direct_chat._run_gemini_turn", return_value="ok")
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_run_direct_chat_backend_prefers_fast_model_for_conversation(self, mock_plan, mock_run_gemini):
+        mock_plan.return_value = {
+            "available": True,
+            "invoker": "gemini",
+        }
+
+        result = direct_chat_module.run_direct_chat_backend(
+            "gemini",
+            "hello",
+            str(PROJECT_ROOT),
+            timeout_seconds=30,
+            mode="conversation",
+        )
+
+        self.assertEqual(result, "ok")
+        mock_run_gemini.assert_called_once()
+        self.assertEqual(mock_run_gemini.call_args.kwargs["model_override"], "gemini-2.5-flash")
+
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
@@ -1463,11 +1484,14 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             self.assertEqual(session["backend"], "gemini")
 
-            mock_run_backend.return_value = "Understood. I will keep it responsive, minimal, and high-contrast."
+            mock_run_backend.side_effect = [
+                "Hi. I'm online and ready.",
+                "Understood. I will keep it responsive, minimal, and high-contrast.",
+            ]
 
             first_reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
             self.assertEqual(first_reply["reply"]["status"], "answered")
-            self.assertIn("online", first_reply["reply"]["user_message"].lower())
+            self.assertIn("ready", first_reply["reply"]["user_message"].lower())
 
             second_reply = send_chat_message(
                 db,
@@ -1476,7 +1500,7 @@ class HardeningTests(unittest.TestCase):
             )
             self.assertEqual(second_reply["reply"]["status"], "answered")
             self.assertIn("responsive", second_reply["reply"]["user_message"].lower())
-            mock_run_backend.assert_called_once()
+            self.assertEqual(mock_run_backend.call_count, 2)
 
             payload = get_chat_session_payload(db, session["id"])
             self.assertEqual(payload["session"]["status"], "answered")
@@ -1496,31 +1520,33 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "Hi. I'm here and ready."
 
             reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
 
-            mock_run_backend.assert_not_called()
+            mock_run_backend.assert_called_once()
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")
             self.assertEqual(reply["reply"]["status"], "answered")
-            self.assertIn("online", reply["reply"]["user_message"].lower())
+            self.assertIn("ready", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_answers_identity_and_date_locally(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_identity_and_date_when_backend_fails(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = RuntimeError("backend unavailable")
 
             name_reply = send_chat_message(db, session_id=session["id"], message="What is your name?")
             date_reply = send_chat_message(db, session_id=session["id"], message="what is todays day")
             time_reply = send_chat_message(db, session_id=session["id"], message="what time is it")
 
-            mock_run_backend.assert_not_called()
+            self.assertEqual(mock_run_backend.call_count, 3)
             self.assertEqual(name_reply["reply"]["user_message"], "My name is Pexo.")
             self.assertIn("Today is", date_reply["reply"]["user_message"])
             self.assertIn("It is", time_reply["reply"]["user_message"])
@@ -1530,18 +1556,19 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_handles_smalltalk_and_feedback_locally(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_smalltalk_and_feedback_when_backend_fails(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = RuntimeError("backend unavailable")
 
             status_reply = send_chat_message(db, session_id=session["id"], message="how are you")
             preference_reply = send_chat_message(db, session_id=session["id"], message="what is your favorite color")
             feedback_reply = send_chat_message(db, session_id=session["id"], message="this is bad")
 
-            mock_run_backend.assert_not_called()
+            self.assertEqual(mock_run_backend.call_count, 3)
             self.assertIn("ready", status_reply["reply"]["user_message"].lower())
             self.assertIn("don't have personal preferences", preference_reply["reply"]["user_message"].lower())
             self.assertIn("simpler and more direct", feedback_reply["reply"]["user_message"].lower())
@@ -1585,10 +1612,11 @@ class HardeningTests(unittest.TestCase):
                 db,
             )
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "The stored README.md artifact says Pexo is a local-first orchestration layer."
 
             reply = send_chat_message(db, session_id=session["id"], message="Tell me the readme we have stored.")
 
-            mock_run_backend.assert_not_called()
+            mock_run_backend.assert_called_once()
             self.assertEqual(reply["session"]["details"]["mode"], "brain_lookup")
             self.assertIn("README.md", reply["reply"]["user_message"])
         finally:
@@ -1612,7 +1640,7 @@ class HardeningTests(unittest.TestCase):
             )
 
             prompt = mock_run_backend.call_args.args[1]
-            self.assertIn("This turn is task mode.", prompt)
+            self.assertIn("The user is asking Pexo to accomplish real work.", prompt)
             self.assertIn("Use structured Pexo task flow only when the work is clearly multi-step", prompt)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
         finally:
@@ -1624,7 +1652,10 @@ class HardeningTests(unittest.TestCase):
     def test_chat_api_and_snapshot_include_direct_chat(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
-        mock_run_backend.return_value = "I can keep the plan local-first and simple."
+        mock_run_backend.side_effect = [
+            "Hi. Pexo is online and ready.",
+            "I can keep the plan local-first and simple.",
+        ]
 
         client = TestClient(app)
         create_response = client.post("/chat/sessions", json={"backend": "auto", "workspace_path": str(PROJECT_ROOT)})
@@ -1641,7 +1672,7 @@ class HardeningTests(unittest.TestCase):
         )
         self.assertEqual(second_message.status_code, 200)
         self.assertEqual(second_message.json()["reply"]["status"], "answered")
-        mock_run_backend.assert_called_once()
+        self.assertEqual(mock_run_backend.call_count, 2)
 
         snapshot = client.get("/admin/snapshot")
         self.assertEqual(snapshot.status_code, 200)
