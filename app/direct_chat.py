@@ -30,6 +30,79 @@ from .search_index import upsert_memory_search_document
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
 PREFERRED_CONVERSATION_BACKENDS = ("gemini", "claude", "codex")
 PREFERRED_TASK_BACKENDS = ("codex", "gemini", "claude")
+SEARCH_HINTS = (
+    "search ",
+    "search for",
+    "look up",
+    "lookup",
+    "google ",
+    "google for",
+    "latest ",
+    "latest news",
+    "news about",
+    "what happened",
+)
+IMAGE_TASK_HINTS = (
+    "image",
+    "images",
+    "logo",
+    "icon",
+    "illustration",
+    "artwork",
+    "photo",
+    "photos",
+    "picture",
+    "pictures",
+    "hero image",
+    "poster",
+    "banner",
+    "screenshot",
+    "sprite",
+    "mockup",
+    "thumbnail",
+)
+FRONTEND_TASK_HINTS = (
+    "landing page",
+    "homepage",
+    "website",
+    "web app",
+    "dashboard",
+    "frontend",
+    "front-end",
+    "ui",
+    "ux",
+    "design system",
+    "component",
+    "page layout",
+)
+CODE_TASK_HINTS = (
+    "code",
+    "repo",
+    "repository",
+    "codebase",
+    "function",
+    "bug",
+    "debug",
+    "fix",
+    "refactor",
+    "implement",
+    "build",
+    "script",
+    "api",
+    "database",
+    "query",
+    "test",
+)
+PLANNING_TASK_HINTS = (
+    "plan",
+    "strategy",
+    "roadmap",
+    "outline",
+    "brainstorm",
+    "proposal",
+    "decide",
+    "compare",
+)
 FAST_CHAT_TIMEOUT_SECONDS = 6
 FAST_LOOKUP_TIMEOUT_SECONDS = 10
 FACTUAL_CHAT_TIMEOUT_SECONDS = 6
@@ -55,6 +128,27 @@ DEFAULT_FAST_CHAT_MODELS = {
     "codex": "gpt-5.4-mini",
     "gemini": "gemini-2.5-flash",
     "claude": "",
+}
+BACKEND_CAPABILITY_ENV_VARS = {
+    "codex": "PEXO_BACKEND_CAPABILITIES_CODEX",
+    "gemini": "PEXO_BACKEND_CAPABILITIES_GEMINI",
+    "claude": "PEXO_BACKEND_CAPABILITIES_CLAUDE",
+}
+DEFAULT_BACKEND_CAPABILITIES = {
+    "codex": {"conversation", "brain_lookup", "task", "code", "frontend", "image", "planning"},
+    "gemini": {"conversation", "brain_lookup", "task", "search", "factual", "image", "frontend", "planning"},
+    "claude": {"conversation", "brain_lookup", "task", "writing", "planning", "analysis", "frontend"},
+}
+PREFERRED_BACKENDS_BY_CAPABILITY = {
+    "conversation": ("gemini", "claude", "codex"),
+    "brain_lookup": ("gemini", "claude", "codex"),
+    "search": ("gemini", "claude", "codex"),
+    "factual": ("gemini", "claude", "codex"),
+    "image": ("codex", "gemini", "claude"),
+    "frontend": ("codex", "gemini", "claude"),
+    "code": ("codex", "claude", "gemini"),
+    "planning": ("gemini", "claude", "codex"),
+    "task": ("codex", "gemini", "claude"),
 }
 CONVERSATION_HINTS = (
     "hello",
@@ -265,6 +359,40 @@ def _contains_hint(text: str, hint: str) -> bool:
     return re.search(rf"\b{re.escape(normalized_hint)}\b", text) is not None
 
 
+def _parse_backend_capability_override(raw_value: str | None) -> set[str]:
+    if not raw_value:
+        return set()
+    capabilities: set[str] = set()
+    for part in str(raw_value).replace(";", ",").split(","):
+        normalized = _normalize_chat_text(part)
+        if normalized:
+            capabilities.add(normalized.replace(" ", "_"))
+    return capabilities
+
+
+def _backend_capabilities(backend_name: str) -> set[str]:
+    normalized = _normalize_chat_text(backend_name)
+    defaults = set(DEFAULT_BACKEND_CAPABILITIES.get(normalized, set()))
+    override = _parse_backend_capability_override(os.environ.get(BACKEND_CAPABILITY_ENV_VARS.get(normalized, "")))
+    return override or defaults
+
+
+def _default_backend_order_for_mode(mode: str) -> tuple[str, ...]:
+    if mode in {"conversation", "brain_lookup"}:
+        return PREFERRED_CONVERSATION_BACKENDS
+    if mode == "task":
+        return PREFERRED_TASK_BACKENDS
+    return PREFERRED_CHAT_BACKENDS
+
+
+def _preferred_backends_for_capability(mode: str, capability: str | None) -> tuple[str, ...]:
+    if capability:
+        order = PREFERRED_BACKENDS_BY_CAPABILITY.get(capability)
+        if order:
+            return order
+    return _default_backend_order_for_mode(mode)
+
+
 def _looks_like_conversation(text: str) -> bool:
     if not text:
         return True
@@ -366,6 +494,46 @@ def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str
     if previous_mode == "task" and text and not _looks_like_conversation(text):
         return "task"
     return "conversation"
+
+
+def _infer_chat_capability(
+    chat_session: ChatSession,
+    latest_user_message: str,
+    *,
+    mode: str,
+    direct_fact_intent: str | None = None,
+) -> str | None:
+    text = _normalize_chat_text(latest_user_message)
+    details = dict(chat_session.details or {})
+    previous_mode = str(details.get("mode") or "").strip().lower()
+    previous_capability = str(details.get("capability") or "").strip().lower() or None
+
+    if mode == "brain_lookup":
+        return "brain_lookup"
+
+    if mode == "conversation":
+        if direct_fact_intent is not None:
+            return "factual"
+        if any(_contains_hint(text, hint) for hint in SEARCH_HINTS):
+            return "search"
+        if _looks_like_general_knowledge_question(text):
+            return "search"
+        return "conversation"
+
+    if mode == "task":
+        if previous_mode == "task" and _looks_like_task_follow_up(text) and previous_capability:
+            return previous_capability
+        if any(_contains_hint(text, hint) for hint in IMAGE_TASK_HINTS):
+            return "image"
+        if any(_contains_hint(text, hint) for hint in FRONTEND_TASK_HINTS):
+            return "frontend"
+        if any(_contains_hint(text, hint) for hint in CODE_TASK_HINTS):
+            return "code"
+        if any(_contains_hint(text, hint) for hint in PLANNING_TASK_HINTS):
+            return "planning"
+        return "task"
+
+    return None
 
 
 def _profile_summary(db: Session) -> str:
@@ -616,6 +784,13 @@ def _adaptive_backend_order(
 
     ranked = sorted(list(enumerate(available_backends)), key=sort_key)
     return [backend_name for _, backend_name in ranked]
+
+
+def _backend_stats_bucket(mode: str, capability: str | None = None) -> str:
+    normalized_capability = _normalize_chat_text(capability or "")
+    if not normalized_capability or normalized_capability == mode:
+        return mode
+    return f"{mode}:{normalized_capability}"
 
 
 def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
@@ -1510,14 +1685,43 @@ def _task_timeout_for_backend(timeout_seconds: int) -> int:
     return max(12, min(timeout_seconds, DIRECT_CHAT_TASK_TIMEOUT_SECONDS))
 
 
-def _task_worker_backend_name(db: Session, chat_session: ChatSession, backend_name: str, role: str | None) -> str:
+def _task_worker_capability(chat_session: ChatSession, role: str | None, latest_user_message: str | None = None, instruction: str | None = None) -> str | None:
+    details = dict(chat_session.details or {})
+    session_capability = str(details.get("capability") or "").strip().lower() or None
+    if role == "Developer":
+        if session_capability in {"code", "frontend", "image"}:
+            return session_capability
+        combined = _normalize_chat_text(" ".join(part for part in (latest_user_message or "", instruction or "") if part))
+        if any(_contains_hint(combined, hint) for hint in IMAGE_TASK_HINTS):
+            return "image"
+        if any(_contains_hint(combined, hint) for hint in FRONTEND_TASK_HINTS):
+            return "frontend"
+        return "code"
+    if role in {"Supervisor", "Code Organization Manager"}:
+        return "planning"
+    return session_capability or "task"
+
+
+def _task_worker_backend_name(
+    db: Session,
+    chat_session: ChatSession,
+    backend_name: str,
+    role: str | None,
+    *,
+    capability: str | None = None,
+) -> str:
     if role in {"Supervisor", "Code Organization Manager"}:
         backend_policy = str((chat_session.details or {}).get("backend_policy") or "manual").strip().lower()
         if backend_policy == "auto":
             try:
-                return _resolve_backend_name("auto", mode="conversation", db=db)
+                return _resolve_backend_name("auto", mode="conversation", db=db, capability=capability or "planning")
             except RuntimeError:
                 return backend_name
+    if capability and str((chat_session.details or {}).get("backend_policy") or "manual").strip().lower() == "auto":
+        try:
+            return _resolve_backend_name("auto", mode="task", db=db, capability=capability)
+        except RuntimeError:
+            return backend_name
     return backend_name
 
 
@@ -1531,9 +1735,26 @@ def _task_role_requires_backend(role: str | None) -> bool:
     return bool(role) and role not in {"Supervisor", "Code Organization Manager"}
 
 
-def _task_worker_backend_candidates(db: Session, chat_session: ChatSession, backend_name: str, role: str | None) -> list[str]:
-    primary = _task_worker_backend_name(db, chat_session, backend_name, role)
-    return [primary]
+def _task_worker_backend_candidates(
+    db: Session,
+    chat_session: ChatSession,
+    backend_name: str,
+    role: str | None,
+    *,
+    capability: str | None = None,
+) -> list[str]:
+    primary = _task_worker_backend_name(db, chat_session, backend_name, role, capability=capability)
+    candidates = [primary]
+    backend_policy = str((chat_session.details or {}).get("backend_policy") or "manual").strip().lower()
+    if backend_policy != "auto":
+        return candidates
+    mode = _task_worker_mode(role)
+    for candidate in _available_backends_for_mode(mode, db=db, capability=capability):
+        if candidate not in candidates:
+            candidates.append(candidate)
+        if len(candidates) >= 2:
+            break
+    return candidates
 
 
 def _task_worker_timeout_seconds(role: str | None, timeout_seconds: int) -> int:
@@ -1650,14 +1871,27 @@ def _advance_direct_chat_task(
             break
 
         worker_mode = _task_worker_mode(role)
+        worker_capability = _task_worker_capability(
+            chat_session,
+            role,
+            latest_user_message=latest_user_message,
+            instruction=instruction,
+        )
         worker_succeeded = False
-        for worker_backend_name in _task_worker_backend_candidates(db, chat_session, backend_name, role):
+        for worker_backend_name in _task_worker_backend_candidates(
+            db,
+            chat_session,
+            backend_name,
+            role,
+            capability=worker_capability,
+        ):
             attempted_backends.append(worker_backend_name)
             try:
                 base_worker_prompt = _build_worker_prompt(
                     backend_name=worker_backend_name,
                     chat_session=chat_session,
                     role=role,
+                    capability=worker_capability,
                     instruction=instruction,
                     latest_user_message=latest_user_message,
                     history_excerpt=history_excerpt,
@@ -1984,7 +2218,7 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
 
 def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None) -> bool:
     normalized = _normalize_chat_text(user_message)
-    if not _looks_like_general_knowledge_question(normalized):
+    if not (_looks_like_general_knowledge_question(normalized) or any(_contains_hint(normalized, hint) for hint in SEARCH_HINTS)):
         return False
     if direct_fact_intent is None:
         direct_fact_intent = _infer_direct_fact_intent(user_message)
@@ -2064,6 +2298,7 @@ def list_chat_backends(scope: str = "user") -> dict:
                 "name": client,
                 "available": bool(plan["available"]),
                 "binary": plan["binary"],
+                "capabilities": sorted(_backend_capabilities(client)),
                 "target_command": plan["target"]["display"],
                 "manual_command": plan["manual_command"],
             }
@@ -2075,7 +2310,13 @@ def list_chat_backends(scope: str = "user") -> dict:
     }
 
 
-def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = None, db: Session | None = None) -> str:
+def _resolve_backend_name(
+    preferred: str | None = None,
+    *,
+    mode: str | None = None,
+    db: Session | None = None,
+    capability: str | None = None,
+) -> str:
     normalized = (preferred or "auto").strip().lower()
     if normalized and normalized != "auto":
         plan = build_client_connection_plan(normalized, scope="user")
@@ -2083,7 +2324,7 @@ def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = No
             raise RuntimeError(f"{normalized} is not installed or not visible in PATH.")
         return normalized
 
-    for candidate in _available_backends_for_mode(mode or "conversation", db=db):
+    for candidate in _available_backends_for_mode(mode or "conversation", db=db, capability=capability):
         return candidate
     raise RuntimeError("No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first.")
 
@@ -2191,6 +2432,7 @@ def _build_worker_prompt(
     backend_name: str,
     chat_session: ChatSession,
     role: str | None,
+    capability: str | None,
     instruction: str,
     latest_user_message: str,
     history_excerpt: str,
@@ -2207,6 +2449,7 @@ def _build_worker_prompt(
         f"Pexo task session: {chat_session.pexo_session_id or 'none'}\n"
         f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n"
         f"Assigned role: {role or 'Worker'}\n\n"
+        f"Primary capability focus: {capability or 'general task'}\n\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n\n"
         f"Internal instruction:\n{instruction}\n"
@@ -2324,25 +2567,36 @@ def _backend_needs_workspace(mode: str) -> bool:
     return mode == "task"
 
 
-def _available_backends_for_mode(mode: str, db: Session | None = None) -> list[str]:
-    order = PREFERRED_CHAT_BACKENDS
-    if mode in {"conversation", "brain_lookup"}:
-        order = PREFERRED_CONVERSATION_BACKENDS
-    elif mode == "task":
-        order = PREFERRED_TASK_BACKENDS
+def _available_backends_for_mode(mode: str, db: Session | None = None, capability: str | None = None) -> list[str]:
+    preferred_order = list(_preferred_backends_for_capability(mode, capability))
+    fallback_order = list(_default_backend_order_for_mode(mode))
+    order: list[str] = []
+    for candidate in [*preferred_order, *fallback_order]:
+        if candidate not in order:
+            order.append(candidate)
     available: list[str] = []
     for candidate in order:
         plan = build_client_connection_plan(candidate, scope="user")
         if plan["available"]:
+            backend_capabilities = _backend_capabilities(candidate)
+            if capability and capability not in backend_capabilities:
+                continue
             available.append(candidate)
-    return _adaptive_backend_order(available, mode=mode, db=db)
+    if not available and capability:
+        for candidate in fallback_order:
+            if candidate in available:
+                continue
+            plan = build_client_connection_plan(candidate, scope="user")
+            if plan["available"]:
+                available.append(candidate)
+    return _adaptive_backend_order(available, mode=_backend_stats_bucket(mode, capability), db=db)
 
 
-def _conversation_backend_candidates(primary_backend: str, *, mode: str, db: Session | None = None) -> list[str]:
+def _conversation_backend_candidates(primary_backend: str, *, mode: str, db: Session | None = None, capability: str | None = None) -> list[str]:
     candidates = [primary_backend]
     if mode not in {"conversation", "brain_lookup"}:
         return candidates
-    for candidate in _available_backends_for_mode(mode, db=db):
+    for candidate in _available_backends_for_mode(mode, db=db, capability=capability):
         if candidate not in candidates:
             candidates.append(candidate)
     return candidates
@@ -2665,15 +2919,22 @@ def send_chat_message(
             and _build_local_conversation_reply(user_message) is None
         ):
             mode = "task"
+    direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
+    capability = _infer_chat_capability(
+        session,
+        user_message,
+        mode=mode,
+        direct_fact_intent=direct_fact_intent,
+    )
     backend_name = _resolve_backend_name(
         "auto" if backend_policy == "auto" else (session.backend or "auto"),
         mode=mode,
         db=db,
+        capability=capability,
     )
     session.backend = backend_name
     preference_memory = _remember_preference(db, session, user_message)
     learned_preferences = _learned_preference_summary(db, limit=6)
-    direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
     session_local_reply = _build_session_aware_conversation_reply(session, user_message) if mode == "conversation" else None
     general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
         user_message,
@@ -2820,12 +3081,15 @@ def send_chat_message(
             backend_candidates = [backend_name]
             should_try_backend_fallbacks = (
                 backend_policy == "auto"
-                and (
-                    mode == "brain_lookup"
-                )
+                and capability in {"brain_lookup", "search", "factual", "image"}
             )
             if should_try_backend_fallbacks:
-                backend_candidates = _conversation_backend_candidates(backend_name, mode=mode, db=db)
+                backend_candidates = _conversation_backend_candidates(
+                    backend_name,
+                    mode=mode,
+                    db=db,
+                    capability=capability,
+                )
             for attempt_index, candidate_backend in enumerate(backend_candidates):
                 attempted_backends.append(candidate_backend)
                 candidate_timeout = timeout_seconds
@@ -2878,7 +3142,7 @@ def send_chat_message(
                     )
                     backend_stats_setting = _record_backend_attempt(
                         db,
-                        mode=mode,
+                        mode=_backend_stats_bucket(mode, capability),
                         backend_name=candidate_backend,
                         success=True,
                         latency_ms=attempt_elapsed_ms,
@@ -2890,7 +3154,7 @@ def send_chat_message(
                     backend_errors[candidate_backend] = str(exc)
                     backend_stats_setting = _record_backend_attempt(
                         db,
-                        mode=mode,
+                        mode=_backend_stats_bucket(mode, capability),
                         backend_name=candidate_backend,
                         success=False,
                         latency_ms=candidate_timeout * 1000 if "timed out" in str(exc).lower() else None,
@@ -2915,6 +3179,7 @@ def send_chat_message(
     details["last_user_message"] = user_message
     details["last_assistant_message"] = assistant_text
     details["mode"] = mode
+    details["capability"] = capability
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms

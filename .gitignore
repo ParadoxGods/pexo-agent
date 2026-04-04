@@ -15,6 +15,7 @@ __pycache__/
 pexo.db
 chroma_db/
 AI_NOTES.md
+ai_context
 .pexo-deps-profile
 .pexo-update-check
 artifacts/

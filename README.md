@@ -1,14 +1,20 @@
 # Pexo
 
-Pexo is a local-first memory, orchestration, and MCP layer for AI work.
+Pexo is a local-first brain and control plane for AI work.
 
-It gives Codex, Claude, Gemini, and other MCP-capable clients one shared local brain for profile settings, agents, memories, artifacts, tools, and task flow.
+It gives Codex, Gemini, Claude, and other MCP-capable clients one shared local place for memory, artifacts, agents, tools, sessions, and task flow. Users can also talk to Pexo directly in the browser or terminal without living inside an AI client console.
+
+## What It Does
+
+- Runs a local API, dashboard, terminal chat, and MCP server.
+- Keeps project context, memories, artifacts, and agent state on the local machine.
+- Lets multiple AI clients share the same local brain on the same project.
+- Routes work to available backends based on the kind of request.
+- Falls back cleanly when a preferred backend is not installed or not healthy.
 
 ## Install
 
 Use the latest GitHub Release bundle.
-
-The bundle installs Pexo, runs headless setup, connects supported local AI clients, runs `pexo doctor`, and prints `PEXO_INSTALL_SUMMARY_JSON=...` when it finishes.
 
 Windows:
 
@@ -26,6 +32,8 @@ tar -xzf pexo-install-unix.tar.gz
 ./install.sh
 ```
 
+The bundle installs Pexo, runs headless setup, connects supported local AI clients, runs `pexo doctor`, warms the runtime, and prints `PEXO_INSTALL_SUMMARY_JSON=...` when it finishes.
+
 Fallback only if the release bundle path is unavailable:
 
 ```bash
@@ -37,12 +45,16 @@ pexo doctor
 
 ## Use
 
-Most users should not need to think about Pexo after install.
+After install, there are three normal entry points:
 
-- If Pexo is connected to the AI client, the model should use it automatically as the default local brain.
-- If you want to talk to Pexo directly in the browser, run `pexo`.
-- If you want to talk to Pexo directly in the terminal, run `pexo --chat`.
-- If you want the MCP server only, use `pexo-mcp` or `pexo --mcp`.
+- `pexo`
+  Start the local API and browser control plane.
+- `pexo --chat`
+  Talk to Pexo directly in the terminal.
+- `pexo-mcp` or `pexo --mcp`
+  Run the MCP server only.
+
+If Pexo is connected to Codex, Gemini, or Claude, the model should use it automatically as the default local brain for normal tasks.
 
 Packaged installs expose this MCP entrypoint:
 
@@ -59,16 +71,35 @@ Packaged installs expose this MCP entrypoint:
 
 Repository-level AI usage rules live in `AGENTS.md`.
 
+## Direct Chat
+
+Pexo can respond directly and also coordinate real work behind the scenes.
+
+- Simple local facts like name, date, and time are answered immediately.
+- Fast factual lookups use a web fact path.
+- Stored-context questions prefer local Pexo memory and artifacts first.
+- Concrete work requests can open a real Pexo task session and continue in the background.
+- In `auto` mode, Pexo chooses among installed backends based on request type, availability, and observed performance.
+
+Today, the broad routing behavior is:
+
+- search and factual lookups prefer Gemini first
+- coding and repo work prefer Codex first
+- frontend and website work prefer Codex first
+- image and visual asset work prefer Codex first, then Gemini
+- missing clients fall back to whatever supported backend is installed
+
 ## Commands
 
-- `pexo`: start the local API and dashboard
-- `pexo --chat`: start direct terminal chat with Pexo
-- `pexo --no-browser`: start the local API without opening the browser
-- `pexo-mcp` or `pexo --mcp`: start the MCP server over stdio
-- `pexo --update`: update the current install
-- `pexo doctor`: check install, runtime, and client status
-- `pexo connect all --scope user`: connect supported AI clients
-- `pexo promote vector`: install local vector-memory support
+- `pexo`
+- `pexo --chat`
+- `pexo --no-browser`
+- `pexo-mcp` or `pexo --mcp`
+- `pexo --update`
+- `pexo warmup`
+- `pexo doctor`
+- `pexo connect all --scope user`
+- `pexo promote vector`
 
 Packaged installs keep mutable state in `~/.pexo` by default. Override it with `PEXO_HOME` if needed.
 

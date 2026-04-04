@@ -960,6 +960,94 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="task"), "codex")
 
     @patch("app.direct_chat.build_client_connection_plan")
+    def test_resolve_backend_name_prefers_capability_specific_backends(self, mock_plan):
+        def fake_plan(client, scope="user"):
+            return {
+                "available": client in {"codex", "gemini", "claude"},
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+
+        self.assertEqual(
+            direct_chat_module._resolve_backend_name("auto", mode="conversation", capability="search"),
+            "gemini",
+        )
+        self.assertEqual(
+            direct_chat_module._resolve_backend_name("auto", mode="task", capability="code"),
+            "codex",
+        )
+        self.assertEqual(
+            direct_chat_module._resolve_backend_name("auto", mode="task", capability="image"),
+            "codex",
+        )
+
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_resolve_backend_name_falls_back_when_capability_backend_is_missing(self, mock_plan):
+        availability = {
+            "codex": True,
+            "gemini": False,
+            "claude": False,
+        }
+
+        def fake_plan(client, scope="user"):
+            return {
+                "available": availability.get(client, False),
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+
+        self.assertEqual(
+            direct_chat_module._resolve_backend_name("auto", mode="conversation", capability="search"),
+            "codex",
+        )
+
+        availability["codex"] = False
+        availability["gemini"] = True
+        self.assertEqual(
+            direct_chat_module._resolve_backend_name("auto", mode="task", capability="code"),
+            "gemini",
+        )
+
+    def test_infer_chat_capability_routes_search_image_and_code_turns(self):
+        session = ChatSession(
+            id="chat-test",
+            title="Test",
+            backend="gemini",
+            workspace_path=str(PROJECT_ROOT),
+            details={"mode": "conversation"},
+        )
+
+        self.assertEqual(
+            direct_chat_module._infer_chat_capability(
+                session,
+                "google the latest OpenAI news",
+                mode="conversation",
+                direct_fact_intent=None,
+            ),
+            "search",
+        )
+        self.assertEqual(
+            direct_chat_module._infer_chat_capability(
+                session,
+                "Create a new logo and hero image for my product.",
+                mode="task",
+                direct_fact_intent=None,
+            ),
+            "image",
+        )
+        self.assertEqual(
+            direct_chat_module._infer_chat_capability(
+                session,
+                "Fix the Python API bug in this repo.",
+                mode="task",
+                direct_fact_intent=None,
+            ),
+            "code",
+        )
+
+    @patch("app.direct_chat.build_client_connection_plan")
     def test_resolve_backend_name_can_adapt_to_observed_backend_performance(self, mock_plan):
         def fake_plan(client, scope="user"):
             return {
@@ -2067,13 +2155,21 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat.build_client_connection_plan")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_does_not_try_secondary_backend_for_task_worker(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_task_worker_can_try_secondary_backend_in_auto_mode(self, mock_backend_name, mock_connect, mock_plan, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
+            mock_plan.side_effect = lambda client, scope="user": {
+                "available": client in {"codex", "gemini"},
+                "invoker": client,
+                "binary": client,
+                "target": {"display": "pexo-mcp"},
+                "manual_command": f"{client} mcp add pexo",
+            }
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             first_reply = send_chat_message(
                 db,
@@ -2082,7 +2178,10 @@ class HardeningTests(unittest.TestCase):
             )
             self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
-            mock_run_backend.side_effect = RuntimeError("Codex direct chat timed out after 25 seconds.")
+            mock_run_backend.side_effect = [
+                RuntimeError("Codex direct chat timed out after 25 seconds."),
+                RuntimeError("Gemini direct chat timed out after 25 seconds."),
+            ]
             db_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
             second_reply = direct_chat_module._advance_direct_chat_task(
                 db,
@@ -2094,10 +2193,11 @@ class HardeningTests(unittest.TestCase):
                 stop_before_external_worker=False,
             )
 
-            self.assertEqual(mock_run_backend.call_count, 1)
+            self.assertEqual(mock_run_backend.call_count, 2)
             self.assertEqual(second_reply["response_path"], "task_session_blocked")
-            self.assertEqual(second_reply["attempted_backends"], ["codex"])
+            self.assertEqual(second_reply["attempted_backends"], ["codex", "gemini"])
             self.assertEqual(second_reply["backend_errors"]["codex"], "Codex direct chat timed out after 25 seconds.")
+            self.assertEqual(second_reply["backend_errors"]["gemini"], "Gemini direct chat timed out after 25 seconds.")
         finally:
             db.close()
 
