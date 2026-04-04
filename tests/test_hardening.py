@@ -1518,10 +1518,33 @@ class HardeningTests(unittest.TestCase):
 
             name_reply = send_chat_message(db, session_id=session["id"], message="What is your name?")
             date_reply = send_chat_message(db, session_id=session["id"], message="what is todays day")
+            time_reply = send_chat_message(db, session_id=session["id"], message="what time is it")
 
             mock_run_backend.assert_not_called()
             self.assertEqual(name_reply["reply"]["user_message"], "My name is Pexo.")
             self.assertIn("Today is", date_reply["reply"]["user_message"])
+            self.assertIn("It is", time_reply["reply"]["user_message"])
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_handles_smalltalk_and_feedback_locally(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            status_reply = send_chat_message(db, session_id=session["id"], message="how are you")
+            preference_reply = send_chat_message(db, session_id=session["id"], message="what is your favorite color")
+            feedback_reply = send_chat_message(db, session_id=session["id"], message="this is bad")
+
+            mock_run_backend.assert_not_called()
+            self.assertIn("ready", status_reply["reply"]["user_message"].lower())
+            self.assertIn("don't have personal preferences", preference_reply["reply"]["user_message"].lower())
+            self.assertIn("simpler and more direct", feedback_reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -1536,7 +1559,7 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.return_value = "Ill operate as the user-facing Pexo assistant for this session. What do you want to do?"
 
-            reply = send_chat_message(db, session_id=session["id"], message="what is your favorite color")
+            reply = send_chat_message(db, session_id=session["id"], message="talk casually about weather for one sentence")
 
             mock_run_backend.assert_called_once()
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")

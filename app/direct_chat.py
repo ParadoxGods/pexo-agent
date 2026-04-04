@@ -23,6 +23,10 @@ CONVERSATION_HINTS = (
     "hello",
     "hi",
     "hey",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "how are you",
     "thanks",
     "thank you",
     "testing",
@@ -321,6 +325,37 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
         return "You're welcome. Pexo is ready for the next step."
 
+    if any(_contains_hint(text, hint) for hint in ("how are you",)):
+        return "I'm online, responsive, and ready to help."
+
+    if any(_contains_hint(text, hint) for hint in ("bye", "goodbye", "see you")):
+        return "Understood. I'll be here when you need me."
+
+    if any(
+        phrase in text
+        for phrase in (
+            "favorite",
+            "favourite",
+            "do you like",
+            "what do you like",
+            "what's your favorite",
+            "what is your favorite",
+        )
+    ):
+        return "I don't have personal preferences, but I can help you choose based on what you want."
+
+    if any(
+        phrase in text
+        for phrase in (
+            "this is shit",
+            "this is bad",
+            "this sucks",
+            "not good",
+            "this is terrible",
+        )
+    ):
+        return "Understood. I'll keep it simpler and more direct. Tell me what you want changed."
+
     if any(_contains_hint(text, hint) for hint in ("what can you do", "help")):
         return (
             "Pexo is online. I can keep local memory, search stored artifacts, manage agents, "
@@ -332,6 +367,9 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
 
     if any(_contains_hint(text, hint) for hint in ("are you there", "are you online", "testing", "test", "hello", "hi", "hey")):
         return "Pexo is online and ready. Ask for a task, stored context, or an agent change when you're ready."
+
+    if text.endswith("?"):
+        return "I'm here. Ask directly for the outcome you want, or ask what Pexo already knows."
 
     return None
 
@@ -509,14 +547,14 @@ def _build_conversation_prompt(
     history_excerpt: str,
 ) -> str:
     return (
-        "You are the user-facing Pexo assistant.\n"
-        "This turn is conversation mode.\n"
-        "Do not start or continue a structured Pexo task for this turn.\n"
-        "Do not invoke Supervisor-style orchestration for greetings, smoke tests, casual chat, or short direct questions.\n"
-        "If the user is simply testing the chat, answer plainly that Pexo is online and ready.\n"
-        "If the user asks a short direct question, answer that question directly.\n"
-        "Ask a clarification question only if the request cannot be answered responsibly without one.\n"
-        "Keep the reply short, plain, and natural.\n\n"
+        "You are Pexo speaking directly to the user.\n"
+        "This turn is normal conversation, not structured task orchestration.\n"
+        "Answer like a calm, natural local assistant.\n"
+        "Do not describe your role, mode, or internal process.\n"
+        "Do not start Supervisor-style orchestration for greetings, casual chat, smoke tests, or short direct questions.\n"
+        "If the user asks a short direct question, answer it directly.\n"
+        "Ask a clarification question only if the request truly cannot be answered responsibly without one.\n"
+        "Keep the reply short, clear, and human.\n\n"
         "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant' or 'Send the task you want handled'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
@@ -535,14 +573,13 @@ def _build_lookup_prompt(
     local_context: str,
 ) -> str:
     return (
-        "You are the user-facing Pexo assistant.\n"
-        "This turn is brain lookup mode.\n"
+        "You are Pexo speaking directly to the user.\n"
         "The user is asking what Pexo already knows, stores, or remembers.\n"
         "Answer from the local Pexo context below.\n"
-        "Do not start or continue a structured Pexo task for this turn.\n"
+        "Do not start or continue structured task orchestration for this turn.\n"
         "Do not ask a clarification question unless the user's request is genuinely ambiguous.\n"
         "If the local context does not contain the answer, say that plainly.\n"
-        "Keep the reply concise and practical.\n\n"
+        "Keep the reply concise, natural, and practical.\n\n"
         "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
@@ -561,14 +598,13 @@ def _build_task_prompt(
     history_excerpt: str,
 ) -> str:
     return (
-        "You are the user-facing Pexo assistant.\n"
-        "This turn is task mode.\n"
+        "You are Pexo speaking directly to the user.\n"
         "The user is asking Pexo to accomplish real work.\n"
         "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
         "Prefer handling straightforward one-step work directly.\n"
         "Use structured Pexo task flow only when the work is clearly multi-step, needs durable coordination, or truly needs one clarification question.\n"
         "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
-        "Keep the reply plain and outcome-focused.\n\n"
+        "Keep the reply natural, direct, and outcome-focused.\n\n"
         "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
