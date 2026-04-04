@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -356,6 +357,31 @@ def _render_progress_bar(percent: int, status: str, *, width: int = 28) -> str:
 
 def _print_progress_bar(percent: int, status: str) -> None:
     print(_render_progress_bar(percent, status))
+
+
+def _start_terminal_fetch_animation(label: str = "pexo> fetching answer") -> tuple[threading.Event, threading.Thread]:
+    stop_event = threading.Event()
+
+    def worker() -> None:
+        frames = ("   ", ".  ", ".. ", "...")
+        index = 0
+        while not stop_event.is_set():
+            sys.stdout.write("\r" + label + frames[index % len(frames)])
+            sys.stdout.flush()
+            index += 1
+            time.sleep(0.15)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_terminal_fetch_animation(stop_event: threading.Event, thread: threading.Thread, label: str = "pexo> fetching answer") -> None:
+    stop_event.set()
+    thread.join(timeout=0.5)
+    clear_width = len(label) + 3
+    sys.stdout.write("\r" + (" " * clear_width) + "\r")
+    sys.stdout.flush()
 
 
 def _github_api_request(url: str) -> urllib.request.Request:
@@ -1041,10 +1067,8 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             print(f"Workspace set to {current_workspace}.")
             continue
 
-        thinking_label = "pexo> thinking..."
         print("")
-        sys.stdout.write(thinking_label)
-        sys.stdout.flush()
+        stop_animation, animation_thread = _start_terminal_fetch_animation()
         try:
             db = SessionLocal()
             try:
@@ -1056,13 +1080,11 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             finally:
                 db.close()
         except RuntimeError as exc:
-            sys.stdout.write("\r" + (" " * len(thinking_label)) + "\r")
-            sys.stdout.flush()
+            _stop_terminal_fetch_animation(stop_animation, animation_thread)
             print(str(exc), file=sys.stderr)
             continue
 
-        sys.stdout.write("\r" + (" " * len(thinking_label)) + "\r")
-        sys.stdout.flush()
+        _stop_terminal_fetch_animation(stop_animation, animation_thread)
         session = payload["session"]
         reply = payload["reply"]
         session_id = session["id"]

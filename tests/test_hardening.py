@@ -291,6 +291,9 @@ class HardeningTests(unittest.TestCase):
         html = Path("app/static/index.html").read_text(encoding="utf-8")
         self.assertIn("saveAgent()", html)
         self.assertIn("sendChat()", html)
+        self.assertIn("Fetching Answer", html)
+        self.assertIn("typingDots", html)
+        self.assertIn("Pexo is fetching an answer", html)
         self.assertIn("saveMemory(", html)
         self.assertIn("deleteMemory(", html)
         self.assertIn("saveProfile()", html)
@@ -565,6 +568,10 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("pexo --chat", output)
         self.assertIn("Starts a direct terminal chat with Pexo", output)
         self.assertIn("pexo warmup", output)
+
+    def test_terminal_chat_uses_fetch_animation_label(self):
+        launcher_text = Path("app/launcher.py").read_text(encoding="utf-8")
+        self.assertIn("pexo> fetching answer", launcher_text)
 
     def test_checkout_wrappers_advertise_terminal_chat_mode(self):
         windows_wrapper = Path("pexo.bat").read_text(encoding="utf-8")
