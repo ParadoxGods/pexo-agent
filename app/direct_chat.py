@@ -21,8 +21,11 @@ from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Pr
 from .paths import PROJECT_ROOT
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
+PREFERRED_CONVERSATION_BACKENDS = ("gemini", "codex", "claude")
+PREFERRED_TASK_BACKENDS = ("codex", "gemini", "claude")
 FAST_CHAT_TIMEOUT_SECONDS = 6
 FAST_LOOKUP_TIMEOUT_SECONDS = 10
+FACTUAL_CHAT_TIMEOUT_SECONDS = 18
 LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
@@ -177,6 +180,32 @@ def _looks_like_task(text: str) -> bool:
     if not text:
         return False
     return any(_contains_hint(text, hint) for hint in TASK_HINTS)
+
+
+def _looks_like_general_knowledge_question(text: str) -> bool:
+    if not text:
+        return False
+    if _looks_like_task(text) or _looks_like_brain_lookup(text):
+        return False
+    prefixes = (
+        "who ",
+        "what ",
+        "when ",
+        "where ",
+        "why ",
+        "how ",
+        "which ",
+        "is ",
+        "are ",
+        "do ",
+        "does ",
+        "did ",
+        "can ",
+        "could ",
+        "would ",
+        "will ",
+    )
+    return text.endswith("?") or text.startswith(prefixes)
 
 
 def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
@@ -608,6 +637,26 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in LOCAL_FIRST_FACT_INTENTS
 
 
+def _conversation_timeout_seconds(user_message: str, timeout_seconds: int) -> int:
+    normalized = _normalize_chat_text(user_message)
+    if _looks_like_general_knowledge_question(normalized):
+        return min(timeout_seconds, FACTUAL_CHAT_TIMEOUT_SECONDS)
+    return min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
+
+
+def _build_backend_unavailable_reply(backend_name: str, *, mode: str) -> str:
+    label = backend_name.capitalize()
+    if mode == "brain_lookup":
+        return (
+            f"I couldn't get a quick retrieval answer from {label} just now, but Pexo is still running. "
+            "Try again in a moment or switch backends with /backend <name>."
+        )
+    return (
+        f"I couldn't get a quick answer from {label} just now, but Pexo is still running. "
+        "Try again, switch backends with /backend <name>, or give me a more concrete task."
+    )
+
+
 def _default_workspace_path(explicit_path: str | None = None) -> str:
     if explicit_path:
         return str(Path(explicit_path).expanduser().resolve(strict=False))
@@ -641,7 +690,7 @@ def list_chat_backends(scope: str = "user") -> dict:
     }
 
 
-def _resolve_backend_name(preferred: str | None = None) -> str:
+def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = None) -> str:
     normalized = (preferred or "auto").strip().lower()
     if normalized and normalized != "auto":
         plan = build_client_connection_plan(normalized, scope="user")
@@ -649,7 +698,13 @@ def _resolve_backend_name(preferred: str | None = None) -> str:
             raise RuntimeError(f"{normalized} is not installed or not visible in PATH.")
         return normalized
 
-    for candidate in PREFERRED_CHAT_BACKENDS:
+    preferred_order = PREFERRED_CHAT_BACKENDS
+    if mode in {"conversation", "brain_lookup"}:
+        preferred_order = PREFERRED_CONVERSATION_BACKENDS
+    elif mode == "task":
+        preferred_order = PREFERRED_TASK_BACKENDS
+
+    for candidate in preferred_order:
         plan = build_client_connection_plan(candidate, scope="user")
         if plan["available"]:
             return candidate
@@ -970,9 +1025,13 @@ def create_chat_session(
     title: str | None = None,
 ) -> dict:
     ensure_db_ready()
-    backend_name = _resolve_backend_name(backend)
+    backend_policy = "auto" if (backend or "auto").strip().lower() == "auto" else "manual"
+    backend_name = _resolve_backend_name(backend, mode="conversation")
     backend_warning = _best_effort_backend_connection(backend_name)
-    details = {"connected_backend": backend_name}
+    details = {
+        "connected_backend": backend_name,
+        "backend_policy": backend_policy,
+    }
     if backend_warning:
         details["backend_warning"] = backend_warning
     session = ChatSession(
@@ -1007,10 +1066,12 @@ def update_chat_session(
     if title is not None:
         session.title = title.strip() or session.title
     if backend is not None:
-        backend_name = _resolve_backend_name(backend)
+        backend_policy = "auto" if backend.strip().lower() == "auto" else "manual"
+        backend_name = _resolve_backend_name(backend, mode="conversation")
         session.backend = backend_name
         details = dict(session.details or {})
         details["connected_backend"] = backend_name
+        details["backend_policy"] = backend_policy
         backend_warning = _best_effort_backend_connection(backend_name)
         if backend_warning:
             details["backend_warning"] = backend_warning
@@ -1100,8 +1161,6 @@ def send_chat_message(
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session is None:
         raise RuntimeError("Chat session not found.")
-
-    backend_name = _resolve_backend_name(session.backend or "auto")
     if not session.workspace_path:
         session.workspace_path = _default_workspace_path()
 
@@ -1115,9 +1174,13 @@ def send_chat_message(
     user_record = _store_message(db, session.id, "user", user_message)
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
+    backend_policy = str((session.details or {}).get("backend_policy") or "manual").strip().lower()
+    backend_name = _resolve_backend_name("auto" if backend_policy == "auto" else (session.backend or "auto"), mode=mode)
+    session.backend = backend_name
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
     local_first = _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
     details = dict(session.details or {})
+    details["backend_policy"] = backend_policy
     if mode == "task" and (
         details.get("connected_backend") != backend_name or details.get("backend_warning")
     ):
@@ -1158,7 +1221,7 @@ def send_chat_message(
     if mode == "brain_lookup":
         backend_timeout = min(timeout_seconds, FAST_LOOKUP_TIMEOUT_SECONDS)
     elif mode == "conversation":
-        backend_timeout = min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
+        backend_timeout = _conversation_timeout_seconds(user_message, timeout_seconds)
 
     if local_first:
         assistant_text = _build_local_conversation_reply(user_message)
@@ -1207,7 +1270,8 @@ def send_chat_message(
             )
             response_path = "local_fallback"
             if assistant_text is None:
-                raise
+                assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
+                response_path = "backend_unavailable"
 
     total_latency_ms = int((time.monotonic() - started_at) * 1000)
 

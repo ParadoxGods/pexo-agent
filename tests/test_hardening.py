@@ -892,6 +892,20 @@ class HardeningTests(unittest.TestCase):
         mock_run_gemini.assert_called_once()
         self.assertEqual(mock_run_gemini.call_args.kwargs["model_override"], "gemini-2.5-flash")
 
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_resolve_backend_name_prefers_gemini_for_conversation_and_codex_for_tasks(self, mock_plan):
+        def fake_plan(client, scope="user"):
+            return {
+                "available": client in {"codex", "gemini"},
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+
+        self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="conversation"), "gemini")
+        self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="brain_lookup"), "gemini")
+        self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="task"), "codex")
+
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
@@ -1718,6 +1732,26 @@ class HardeningTests(unittest.TestCase):
             mock_run_backend.assert_not_called()
             self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
             self.assertIn("It is", reply["reply"]["user_message"])
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = RuntimeError("Gemini direct chat timed out after 18 seconds.")
+
+            reply = send_chat_message(db, session_id=session["id"], message="who is the president")
+
+            self.assertEqual(reply["reply"]["status"], "answered")
+            self.assertEqual(reply["session"]["details"]["response_path"], "backend_unavailable")
+            self.assertIn("still running", reply["reply"]["user_message"].lower())
+            self.assertIn("gemini", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

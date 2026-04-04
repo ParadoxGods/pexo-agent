@@ -1041,6 +1041,10 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             print(f"Workspace set to {current_workspace}.")
             continue
 
+        thinking_label = "pexo> thinking..."
+        print("")
+        sys.stdout.write(thinking_label)
+        sys.stdout.flush()
         try:
             db = SessionLocal()
             try:
@@ -1052,9 +1056,13 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             finally:
                 db.close()
         except RuntimeError as exc:
+            sys.stdout.write("\r" + (" " * len(thinking_label)) + "\r")
+            sys.stdout.flush()
             print(str(exc), file=sys.stderr)
             continue
 
+        sys.stdout.write("\r" + (" " * len(thinking_label)) + "\r")
+        sys.stdout.flush()
         session = payload["session"]
         reply = payload["reply"]
         session_id = session["id"]
