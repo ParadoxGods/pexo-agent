@@ -377,10 +377,135 @@ def apply_memory_retention(db: Session) -> int:
     return len(stale_memories)
 
 
+def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.85) -> list[list[int]]:
+    """
+    Scans the memory collection for near-duplicate entries using vector similarity.
+    Returns a list of clusters (lists of memory IDs) that are semantically similar.
+    """
+    collection = get_memory_collection()
+    if collection is None:
+        return []
+
+    # Fetch recent active memories to check for likeness
+    candidates = (
+        db.query(Memory)
+        .filter(Memory.is_archived.is_(False), Memory.is_compacted.is_(False))
+        .order_by(Memory.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    if not candidates:
+        return []
+
+    clusters = []
+    processed_ids = set()
+
+    for memory in candidates:
+        if memory.id in processed_ids or not memory.chroma_id:
+            continue
+
+        # Search for neighbors in ChromaDB
+        results = collection.query(
+            query_texts=[memory.content],
+            n_results=5,
+            include=["distances", "metadatas"]
+        )
+
+        cluster = [memory.id]
+        processed_ids.add(memory.id)
+
+        if results and results["ids"] and results["distances"]:
+            # ChromaDB distances: 0 is identical, higher is more different. 
+            # threshold 0.15 roughly corresponds to 0.85 similarity
+            for i, other_chroma_id in enumerate(results["ids"][0]):
+                distance = results["distances"][0][i]
+                if other_chroma_id == memory.chroma_id:
+                    continue
+                
+                if distance < (1.0 - similarity_threshold):
+                    # Find the SQL record for this chroma_id
+                    other_mem = db.query(Memory).filter(Memory.chroma_id == other_chroma_id).first()
+                    if other_mem and other_mem.id not in processed_ids:
+                        cluster.append(other_mem.id)
+                        processed_ids.add(other_mem.id)
+        
+        if len(cluster) > 1:
+            clusters.append(cluster)
+
+    return clusters
+
+
+def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
+    """
+    Uses an LLM to consolidate a cluster of similar memories into one high-quality entry.
+    """
+    memories = db.query(Memory).filter(Memory.id.in_(memory_ids)).all()
+    if len(memories) < 2:
+        return None
+
+    # Pick the most recent session_id and task_context
+    primary = memories[0]
+    content_block = "\n".join([f"- {m.content}" for m in memories])
+    
+    prompt = (
+        "The following memories were identified as semantically similar or redundant. "
+        "Merge them into a single, dense, factual memory that preserves all unique details but removes repetition. "
+        "Output ONLY the final merged text.\n\n"
+        f"{content_block}"
+    )
+
+    merged_content = None
+    for backend in _adaptive_backend_order():
+        try:
+            res = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=20)
+            if res and "Error:" not in res:
+                merged_content = res.strip()
+                break
+        except Exception:
+            continue
+
+    if not merged_content:
+        # Fallback: just use the longest one if LLM fails
+        merged_content = max([m.content for m in memories], key=len)
+
+    # Create new consolidated memory
+    new_memory = Memory(
+        session_id=primary.session_id,
+        task_context=primary.task_context,
+        content=merged_content,
+        is_compacted=False
+    )
+    db.add(new_memory)
+    db.flush()
+    _upsert_memory_embedding(new_memory)
+
+    # Archive old ones
+    for m in memories:
+        m.is_archived = True
+        m.compacted_into_id = new_memory.id
+    
+    db.commit()
+    return new_memory.id
+
+
+def deduplicate_memories(db: Session) -> int:
+    """
+    Sweeps through memory to find and merge duplicates. Returns number of merges performed.
+    """
+    clusters = find_semantic_duplicates(db)
+    merge_count = 0
+    for cluster in clusters:
+        if merge_memory_cluster(db, cluster):
+            merge_count += 1
+    return merge_count
+
+
 def maintain_memory_health(db: Session, task_context: str | None = None) -> dict:
+    dedup_count = deduplicate_memories(db)
     compaction_result = compact_memories_for_context(db, task_context)
     archived_count = apply_memory_retention(db)
     return {
+        "deduplicated_clusters": dedup_count,
         "compacted_count": compaction_result["compacted_count"],
         "summary_memory_id": compaction_result["summary_memory_id"],
         "archived_count": archived_count,
