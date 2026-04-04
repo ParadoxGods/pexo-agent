@@ -740,10 +740,15 @@ class HardeningTests(unittest.TestCase):
     def test_resolve_runtime_python_executable_prefers_venv_python_for_console_entrypoints(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             venv_root = Path(tmpdir) / "venv"
-            scripts_dir = venv_root / "Scripts"
+            if launcher_module.os.name == "nt":
+                scripts_dir = venv_root / "Scripts"
+                console_path = scripts_dir / "pexo.exe"
+                python_path = scripts_dir / "python.exe"
+            else:
+                scripts_dir = venv_root / "bin"
+                console_path = scripts_dir / "pexo"
+                python_path = scripts_dir / "python"
             scripts_dir.mkdir(parents=True)
-            console_path = scripts_dir / "pexo.exe"
-            python_path = scripts_dir / "python.exe"
             console_path.write_text("", encoding="utf-8")
             python_path.write_text("", encoding="utf-8")
 
