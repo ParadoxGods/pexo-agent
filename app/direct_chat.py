@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import html
+import json
 import os
 import re
 import subprocess
@@ -9,26 +11,30 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+import urllib.parse
+import urllib.request
 
 from sqlalchemy import func
 from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 from sqlalchemy.orm import Session
 
-from .cache import invalidate_many
+from .cache import cached_value, invalidate_many
 from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, connect_clients
 from .database import ensure_db_ready
 from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile
 from .paths import PROJECT_ROOT
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
-PREFERRED_CONVERSATION_BACKENDS = ("gemini", "codex", "claude")
+PREFERRED_CONVERSATION_BACKENDS = ("gemini", "claude", "codex")
 PREFERRED_TASK_BACKENDS = ("codex", "gemini", "claude")
 FAST_CHAT_TIMEOUT_SECONDS = 6
 FAST_LOOKUP_TIMEOUT_SECONDS = 10
-FACTUAL_CHAT_TIMEOUT_SECONDS = 10
+FACTUAL_CHAT_TIMEOUT_SECONDS = 6
 SECONDARY_CHAT_TIMEOUT_SECONDS = 4
 SECONDARY_LOOKUP_TIMEOUT_SECONDS = 5
 SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS = 5
+FAST_WEB_FACT_TIMEOUT_SECONDS = 3
+FAST_WEB_FACT_CACHE_TTL_SECONDS = 900
 LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
@@ -318,6 +324,193 @@ def _artifact_summary(db: Session, query: str, limit: int = 3) -> str:
     return "Matching artifacts:\n" + "\n".join(lines)
 
 
+def _http_request(url: str, *, timeout_seconds: int, headers: dict[str, str] | None = None) -> urllib.request.Request:
+    request_headers = {
+        "User-Agent": "Pexo/1.0 (+https://github.com/ParadoxGods/pexo-agent)",
+        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+    }
+    if headers:
+        request_headers.update(headers)
+    return urllib.request.Request(url, headers=request_headers)
+
+
+def _strip_html_text(value: str) -> str:
+    text = re.sub(r"<.*?>", " ", value or "", flags=re.S)
+    text = html.unescape(text)
+    return " ".join(text.split()).strip()
+
+
+def _truncate_sentence(value: str, limit: int = 220) -> str:
+    text = " ".join((value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit].rstrip()
+    if "." in clipped:
+        clipped = clipped.rsplit(".", 1)[0].rstrip()
+    return f"{clipped}."
+
+
+def _fact_query_terms(query: str) -> list[str]:
+    stopwords = {
+        "a",
+        "an",
+        "are",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "how",
+        "in",
+        "is",
+        "of",
+        "on",
+        "the",
+        "to",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "would",
+    }
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]+", (query or "").lower())
+        if len(token) >= 4 and token not in stopwords
+    ]
+
+
+def _score_fact_result(query: str, *, title: str, snippet: str) -> int:
+    query_terms = _fact_query_terms(query)
+    normalized_title = (title or "").lower()
+    normalized_snippet = (snippet or "").lower()
+    combined = f"{normalized_title} {normalized_snippet}"
+    score = sum(3 for term in query_terms if term in combined)
+    if any(hint in normalized_snippet for hint in ("incumbent", "currently", "current", "as of", "assumed office")):
+        score += 8
+    if re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", snippet or ""):
+        score += 4
+    if any(
+        bad_hint in combined
+        for bad_hint in (
+            "actors who have played",
+            "fictitious",
+            "vice presidents",
+            "ran for president",
+        )
+    ):
+        score -= 10
+    if title.lower().startswith("list of") and "incumbent" not in normalized_snippet:
+        score -= 2
+    if "*" in (snippet or ""):
+        score -= 2
+    return score
+
+
+def _focus_fact_snippet(query: str, snippet: str) -> str:
+    text = " ".join((snippet or "").split()).strip()
+    if not text:
+        return text
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if sentence.strip()
+    ]
+    preferred_hints = ("incumbent", "currently", "current", "assumed office", "is the")
+    for hint in preferred_hints:
+        for sentence in sentences:
+            if hint in sentence.lower():
+                return sentence
+    query_terms = _fact_query_terms(query)
+    for sentence in sentences:
+        normalized = sentence.lower()
+        if any(term in normalized for term in query_terms):
+            return sentence
+    return sentences[0] if sentences else text
+
+
+def _wikipedia_search_fact(query: str, *, timeout_seconds: int) -> dict[str, str] | None:
+    params = urllib.parse.urlencode(
+        {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "utf8": "1",
+            "format": "json",
+            "srlimit": "3",
+        }
+    )
+    request = _http_request(f"https://en.wikipedia.org/w/api.php?{params}", timeout_seconds=timeout_seconds)
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.load(response)
+    results = ((payload or {}).get("query") or {}).get("search") or []
+    ranked: list[tuple[int, dict[str, str]]] = []
+    for entry in results[:5]:
+        title = str(entry.get("title") or "").strip()
+        snippet = _strip_html_text(str(entry.get("snippet") or ""))
+        if not snippet:
+            continue
+        focused = _focus_fact_snippet(query, snippet)
+        ranked.append(
+            (
+                _score_fact_result(query, title=title, snippet=focused),
+                {
+                    "answer": f"According to Wikipedia, {_truncate_sentence(focused)}",
+                    "source": "wikipedia_search",
+                    "title": title,
+                },
+            )
+        )
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked[0][1]
+
+
+def _duckduckgo_lite_fact(query: str, *, timeout_seconds: int) -> dict[str, str] | None:
+    params = urllib.parse.urlencode({"q": query})
+    request = _http_request(
+        f"https://lite.duckduckgo.com/lite/?{params}",
+        timeout_seconds=timeout_seconds,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        html_text = response.read().decode("utf-8", "ignore")
+    matches = re.findall(r"<td class='result-snippet'>(.*?)</td>", html_text, flags=re.S | re.I)
+    for match in matches[:3]:
+        snippet = _strip_html_text(match)
+        if not snippet:
+            continue
+        return {
+            "answer": f"Search results say {_truncate_sentence(snippet)}",
+            "source": "duckduckgo_lite",
+            "title": "",
+        }
+    return None
+
+
+def _fast_web_fact_lookup(query: str, *, timeout_seconds: int = FAST_WEB_FACT_TIMEOUT_SECONDS) -> dict[str, str] | None:
+    normalized_query = " ".join((query or "").split()).strip()
+    if not normalized_query:
+        return None
+
+    def _loader() -> dict[str, str] | None:
+        for loader in (_wikipedia_search_fact, _duckduckgo_lite_fact):
+            try:
+                result = loader(normalized_query, timeout_seconds=timeout_seconds)
+            except Exception:
+                result = None
+            if result and result.get("answer"):
+                return result
+        return None
+
+    return cached_value("web_fact_search", normalized_query.lower(), FAST_WEB_FACT_CACHE_TTL_SECONDS, _loader)
+
+
 def _build_brain_lookup_context(db: Session, query: str) -> str:
     sections = [
         _profile_summary(db),
@@ -579,6 +772,11 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "send the task, question, or workflow you want handled",
         "what do you want to do next",
         "what do you want to do",
+        "what do you need",
+        "how can i help",
+        "how may i help",
+        "tell me what you need",
+        "tell me what you want",
     )
     return any(phrase in normalized for phrase in generic_phrases)
 
@@ -790,6 +988,52 @@ def _wrap_command(invoker: str, args: list[str]) -> list[str]:
     return [invoker, *args]
 
 
+def _terminate_process_tree(process: subprocess.Popen[Any]) -> None:
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        else:
+            process.kill()
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def _run_command_with_timeout(
+    command: list[str],
+    *,
+    cwd: str | None = None,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    popen_kwargs: dict[str, Any] = {
+        "cwd": cwd,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    process = subprocess.Popen(command, **popen_kwargs)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+        except Exception:
+            stdout, stderr = "", ""
+        raise subprocess.TimeoutExpired(command, timeout_seconds, output=stdout, stderr=stderr) from exc
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def _history_excerpt(db: Session, chat_session_id: str, limit: int = 10) -> str:
     messages = (
         db.query(ChatMessage)
@@ -859,7 +1103,8 @@ def _build_quick_conversation_prompt(*, latest_user_message: str) -> str:
         "Answer the user's latest message directly.\n"
         "Do not narrate your role, mode, or process.\n"
         "If the user asked a simple factual question, answer with the fact plainly.\n"
-        "If you are uncertain, say so in one short sentence.\n\n"
+        "If you are uncertain, say so in one short sentence.\n"
+        "Do not ask a follow-up question unless the user explicitly asked for options or help deciding.\n\n"
         f"{_local_chat_facts()}\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
@@ -961,13 +1206,10 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
     command = _wrap_command(plan["invoker"], args)
     try:
         try:
-            completed = subprocess.run(
+            completed = _run_command_with_timeout(
                 command,
                 cwd=workspace_path if workspace_path else None,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=timeout_seconds,
+                timeout_seconds=timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -1001,12 +1243,9 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
         args.extend(["--include-directories", workspace_path])
     command = _wrap_command(plan["invoker"], args)
     try:
-        completed = subprocess.run(
+        completed = _run_command_with_timeout(
             command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -1024,12 +1263,9 @@ def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_overri
     args.extend(["-p", prompt])
     command = _wrap_command(plan["invoker"], args)
     try:
-        completed = subprocess.run(
+        completed = _run_command_with_timeout(
             command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -1113,13 +1349,11 @@ def create_chat_session(
     ensure_db_ready()
     backend_policy = "auto" if (backend or "auto").strip().lower() == "auto" else "manual"
     backend_name = _resolve_backend_name(backend, mode="conversation")
-    backend_warning = _best_effort_backend_connection(backend_name)
     details = {
         "connected_backend": backend_name,
         "backend_policy": backend_policy,
+        "backend_verified": False,
     }
-    if backend_warning:
-        details["backend_warning"] = backend_warning
     session = ChatSession(
         id=str(uuid.uuid4()),
         title=title or "New Chat",
@@ -1158,11 +1392,8 @@ def update_chat_session(
         details = dict(session.details or {})
         details["connected_backend"] = backend_name
         details["backend_policy"] = backend_policy
-        backend_warning = _best_effort_backend_connection(backend_name)
-        if backend_warning:
-            details["backend_warning"] = backend_warning
-        else:
-            details.pop("backend_warning", None)
+        details["backend_verified"] = False
+        details.pop("backend_warning", None)
         session.details = details
     if workspace_path is not None:
         session.workspace_path = _default_workspace_path(workspace_path)
@@ -1272,14 +1503,18 @@ def send_chat_message(
     details = dict(session.details or {})
     details["backend_policy"] = backend_policy
     if mode == "task" and (
-        details.get("connected_backend") != backend_name or details.get("backend_warning")
+        details.get("connected_backend") != backend_name
+        or details.get("backend_warning")
+        or not details.get("backend_verified")
     ):
         details["connected_backend"] = backend_name
         backend_warning = _best_effort_backend_connection(backend_name)
         if backend_warning:
             details["backend_warning"] = backend_warning
+            details["backend_verified"] = False
         else:
             details.pop("backend_warning", None)
+            details["backend_verified"] = True
         session.details = details
     if mode == "brain_lookup":
         assistant_prompt = _build_lookup_prompt(
@@ -1309,6 +1544,10 @@ def send_chat_message(
     assistant_text = None
     response_path = "backend"
     backend_elapsed_ms: int | None = None
+    attempted_backends: list[str] = []
+    backend_errors: dict[str, str] = {}
+    web_fact_source: str | None = None
+    web_fact_title: str | None = None
     started_at = time.monotonic()
     backend_timeout = timeout_seconds
     if mode == "brain_lookup":
@@ -1320,79 +1559,85 @@ def send_chat_message(
         assistant_text = _build_local_conversation_reply(user_message)
         response_path = "local_direct"
     else:
-        backend_candidates = [backend_name]
-        should_try_backend_fallbacks = (
-            backend_policy == "auto"
-            and (
-                mode == "brain_lookup"
-                or general_knowledge_turn
-            )
-        )
-        if should_try_backend_fallbacks:
-            backend_candidates = _conversation_backend_candidates(backend_name, mode=mode)
-        backend_errors: dict[str, str] = {}
-        attempted_backends: list[str] = []
-        for attempt_index, candidate_backend in enumerate(backend_candidates):
-            attempted_backends.append(candidate_backend)
-            candidate_timeout = timeout_seconds
-            if mode == "brain_lookup":
-                candidate_timeout = _lookup_timeout_for_attempt(timeout_seconds, attempt_index)
-            elif mode == "conversation":
-                candidate_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, attempt_index)
-            try:
-                backend_started_at = time.monotonic()
-                raw_result = run_direct_chat_backend(
-                    candidate_backend,
-                    assistant_prompt,
-                    session.workspace_path,
-                    timeout_seconds=candidate_timeout,
-                    mode=mode,
+        web_fact = _fast_web_fact_lookup(user_message) if general_knowledge_turn else None
+        if web_fact and web_fact.get("answer"):
+            assistant_text = str(web_fact["answer"]).strip()
+            response_path = "web_fact"
+            web_fact_source = str(web_fact.get("source") or "").strip() or None
+            web_fact_title = str(web_fact.get("title") or "").strip() or None
+        if assistant_text is None:
+            backend_candidates = [backend_name]
+            should_try_backend_fallbacks = (
+                backend_policy == "auto"
+                and (
+                    mode == "brain_lookup"
                 )
-                candidate_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
-                backend_elapsed_ms = (backend_elapsed_ms or 0) + candidate_elapsed_ms
-                if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
-                    direct_fact_intent,
-                    raw_result or "",
-                ):
-                    retry_started_at = time.monotonic()
+            )
+            if should_try_backend_fallbacks:
+                backend_candidates = _conversation_backend_candidates(backend_name, mode=mode)
+            for attempt_index, candidate_backend in enumerate(backend_candidates):
+                attempted_backends.append(candidate_backend)
+                candidate_timeout = timeout_seconds
+                if mode == "brain_lookup":
+                    candidate_timeout = _lookup_timeout_for_attempt(timeout_seconds, attempt_index)
+                elif mode == "conversation":
+                    candidate_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, attempt_index)
+                try:
+                    backend_started_at = time.monotonic()
                     raw_result = run_direct_chat_backend(
                         candidate_backend,
-                        _build_backend_retry_prompt(
-                            assistant_prompt,
-                            mode=mode,
-                            user_message=user_message,
-                        ),
+                        assistant_prompt,
                         session.workspace_path,
                         timeout_seconds=candidate_timeout,
                         mode=mode,
                     )
-                    backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
-                    response_path = "backend_retry" if attempt_index == 0 else "backend_fallback_retry"
-                elif attempt_index > 0:
-                    response_path = "backend_fallback"
-                assistant_text = _normalize_backend_reply(
-                    db,
-                    mode=mode,
-                    user_message=user_message,
-                    assistant_text=raw_result or "",
-                    direct_fact_intent=direct_fact_intent,
-                )
-                backend_name = candidate_backend
-                session.backend = candidate_backend
-                break
-            except RuntimeError as exc:
-                backend_errors[candidate_backend] = str(exc)
-                if attempt_index == len(backend_candidates) - 1:
-                    assistant_text = _maybe_build_local_reply(
+                    candidate_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
+                    backend_elapsed_ms = (backend_elapsed_ms or 0) + candidate_elapsed_ms
+                    if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
+                        direct_fact_intent,
+                        raw_result or "",
+                    ):
+                        retry_started_at = time.monotonic()
+                        raw_result = run_direct_chat_backend(
+                            candidate_backend,
+                            _build_backend_retry_prompt(
+                                assistant_prompt,
+                                mode=mode,
+                                user_message=user_message,
+                            ),
+                            session.workspace_path,
+                            timeout_seconds=candidate_timeout,
+                            mode=mode,
+                        )
+                        backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
+                        response_path = "backend_retry" if attempt_index == 0 else "backend_fallback_retry"
+                        if general_knowledge_turn and _looks_like_generic_backend_filler(raw_result or ""):
+                            raise RuntimeError(f"{candidate_backend} returned generic filler for a factual question.")
+                    elif attempt_index > 0:
+                        response_path = "backend_fallback"
+                    assistant_text = _normalize_backend_reply(
                         db,
                         mode=mode,
                         user_message=user_message,
+                        assistant_text=raw_result or "",
+                        direct_fact_intent=direct_fact_intent,
                     )
-                    response_path = "local_fallback"
-                    if assistant_text is None:
-                        assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
-                        response_path = "backend_unavailable"
-                continue
+                    backend_name = candidate_backend
+                    session.backend = candidate_backend
+                    break
+                except RuntimeError as exc:
+                    backend_errors[candidate_backend] = str(exc)
+                    if attempt_index == len(backend_candidates) - 1:
+                        assistant_text = _maybe_build_local_reply(
+                            db,
+                            mode=mode,
+                            user_message=user_message,
+                        )
+                        response_path = "local_fallback"
+                        if assistant_text is None:
+                            assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
+                            response_path = "backend_unavailable"
+                    continue
 
     total_latency_ms = int((time.monotonic() - started_at) * 1000)
 
@@ -1404,12 +1649,23 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
-    if not local_first:
+    if response_path == "web_fact":
+        if web_fact_source:
+            details["web_fact_source"] = web_fact_source
+        if web_fact_title:
+            details["web_fact_title"] = web_fact_title
+    else:
+        details.pop("web_fact_source", None)
+        details.pop("web_fact_title", None)
+    if not local_first and response_path != "web_fact":
         details["attempted_backends"] = attempted_backends
         if backend_errors:
             details["backend_errors"] = backend_errors
         else:
             details.pop("backend_errors", None)
+    elif response_path == "web_fact":
+        details.pop("attempted_backends", None)
+        details.pop("backend_errors", None)
     if backend_elapsed_ms is not None:
         details["backend_latency_ms"] = backend_elapsed_ms
     else:

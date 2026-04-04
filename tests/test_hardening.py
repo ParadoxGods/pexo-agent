@@ -1669,16 +1669,18 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
-    @patch("app.direct_chat._best_effort_backend_connection", return_value="Unable to connect gemini to the Pexo MCP server.")
+    @patch("app.direct_chat._best_effort_backend_connection")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_session_creation_tolerates_backend_connection_warning(self, mock_backend_name, mock_best_effort):
+    def test_direct_chat_session_creation_defers_backend_connection_verification(self, mock_backend_name, mock_best_effort):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             self.assertEqual(session["backend"], "gemini")
-            self.assertIn("backend_warning", session["details"])
+            mock_best_effort.assert_not_called()
+            self.assertEqual(session["details"]["backend_verified"], False)
+            self.assertNotIn("backend_warning", session["details"])
         finally:
             db.close()
 
@@ -1703,17 +1705,34 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
-    @patch("app.direct_chat._best_effort_backend_connection")
+    @patch("app.direct_chat._fast_web_fact_lookup", return_value={"answer": "According to Wikipedia, the incumbent president is Donald Trump.", "source": "wikipedia_search", "title": "List of presidents of the United States"})
+    @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_retries_backend_connection_for_task_mode_when_session_has_warning(self, mock_backend_name, mock_best_effort, mock_run_backend):
+    def test_direct_chat_answers_general_question_from_fast_web_fact_lookup(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
-            mock_best_effort.side_effect = [
-                "Unable to connect gemini to the Pexo MCP server.",
-                None,
-            ]
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            reply = send_chat_message(db, session_id=session["id"], message="who is the president")
+
+            mock_run_backend.assert_not_called()
+            self.assertEqual(reply["session"]["details"]["response_path"], "web_fact")
+            self.assertEqual(reply["session"]["details"]["web_fact_source"], "wikipedia_search")
+            self.assertIn("president", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._best_effort_backend_connection")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_verifies_backend_connection_for_task_mode_when_session_is_unverified(self, mock_backend_name, mock_best_effort, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            mock_best_effort.return_value = None
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.return_value = "I can design that landing page."
 
@@ -1723,9 +1742,33 @@ class HardeningTests(unittest.TestCase):
                 message="Design a modern landing page for my product.",
             )
 
-            self.assertEqual(mock_best_effort.call_count, 2)
+            self.assertEqual(mock_best_effort.call_count, 1)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
             self.assertNotIn("backend_warning", reply["session"]["details"])
+            self.assertEqual(reply["session"]["details"]["backend_verified"], True)
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._best_effort_backend_connection", return_value="Unable to connect gemini to the Pexo MCP server.")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_surfaces_backend_warning_when_task_mode_verification_fails(self, mock_backend_name, mock_best_effort, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "I can design that landing page."
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product.",
+            )
+
+            self.assertEqual(mock_best_effort.call_count, 1)
+            self.assertEqual(reply["session"]["details"]["backend_verified"], False)
+            self.assertIn("backend_warning", reply["session"]["details"])
         finally:
             db.close()
 
@@ -1788,10 +1831,10 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
-    @patch("app.direct_chat._conversation_backend_candidates", return_value=["gemini", "codex"])
+    @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_backend_candidates, mock_run_backend):
+    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -1809,29 +1852,48 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
-    @patch("app.direct_chat._conversation_backend_candidates", return_value=["gemini", "codex"])
+    @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_tries_fallback_backend_for_general_question_in_auto_mode(self, mock_backend_name, mock_connect, mock_backend_candidates, mock_run_backend):
+    def test_direct_chat_does_not_try_secondary_backend_for_general_question(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = RuntimeError("Gemini direct chat timed out after 6 seconds.")
+
+            reply = send_chat_message(db, session_id=session["id"], message="who is the president")
+
+            self.assertEqual(mock_run_backend.call_count, 1)
+            self.assertEqual(reply["session"]["details"]["response_path"], "backend_unavailable")
+            self.assertEqual(reply["session"]["details"]["attempted_backends"], ["gemini"])
+            self.assertEqual(reply["session"]["backend"], "gemini")
+            first_prompt = mock_run_backend.call_args_list[0].args[1]
+            self.assertNotIn("Recent direct chat transcript", first_prompt)
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_rejects_generic_filler_for_general_question(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.side_effect = [
-                RuntimeError("Gemini direct chat timed out after 10 seconds."),
-                "The president is Alex Example.",
+                "Pexo: What do you need?",
+                "How can I help?",
             ]
 
             reply = send_chat_message(db, session_id=session["id"], message="who is the president")
 
             self.assertEqual(mock_run_backend.call_count, 2)
-            self.assertEqual(reply["session"]["details"]["response_path"], "backend_fallback")
-            self.assertEqual(reply["session"]["details"]["attempted_backends"], ["gemini", "codex"])
-            self.assertEqual(reply["session"]["backend"], "codex")
-            self.assertIn("president", reply["reply"]["user_message"].lower())
-            first_prompt = mock_run_backend.call_args_list[0].args[1]
-            self.assertNotIn("Recent direct chat transcript", first_prompt)
+            self.assertEqual(reply["session"]["details"]["response_path"], "backend_unavailable")
+            self.assertIn("still running", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

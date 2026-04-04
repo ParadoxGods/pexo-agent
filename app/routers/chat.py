@@ -106,3 +106,5 @@ def post_message(session_id: str, request: ChatMessageRequest, db: Session = Dep
         )
     except RuntimeError as exc:
         raise _map_chat_error(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Pexo chat hit an internal error while fetching that answer.") from exc

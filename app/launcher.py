@@ -1083,6 +1083,10 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
             _stop_terminal_fetch_animation(stop_animation, animation_thread)
             print(str(exc), file=sys.stderr)
             continue
+        except Exception:
+            _stop_terminal_fetch_animation(stop_animation, animation_thread)
+            print("Pexo hit an internal chat error while fetching that answer. Try again or switch backends with /backend <name>.", file=sys.stderr)
+            continue
 
         _stop_terminal_fetch_animation(stop_animation, animation_thread)
         session = payload["session"]
