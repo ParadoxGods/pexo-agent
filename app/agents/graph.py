@@ -45,6 +45,10 @@ def _resolve_agent_context(agent_registry: Dict[str, Dict[str, Any]], agent_name
 
 def _format_capabilities(agent: Dict[str, Any]) -> str:
     capabilities = agent.get("capabilities") or []
+    if isinstance(capabilities, dict) and "list" in capabilities:
+        base = ", ".join(capabilities["list"])
+        schemas = json.dumps(capabilities.get("schemas", {}), indent=2)
+        return f"{base}\nDetailed Schemas:\n{schemas}"
     return ", ".join(capabilities) if capabilities else "No explicit capabilities registered."
 
 def _get_lessons_learned() -> str:
@@ -187,6 +191,43 @@ def reviewer_node(state: PexoState):
         }
     return {"waiting_for_ai": False}
 
+def genesis_node(state: PexoState):
+    tasks = state.get("tasks", [])
+    completed = state.get("completed_tasks", [])
+    completed_ids = {t.get("task", {}).get("id") for t in completed}
+    
+    # Find the next task assigned to Genesis Architect
+    next_task = None
+    for task in tasks:
+        if task.get("id") not in completed_ids and task.get("assigned_agent") == "Genesis Architect":
+            requires = task.get("requires") or []
+            if all(req_id in completed_ids for req_id in requires):
+                next_task = task
+                break
+                
+    if next_task:
+        context = _get_context(state)
+        genesis = _resolve_agent_context(context["agent_registry"], "Genesis Architect", "Genesis Architect")
+        
+        instruction = (
+            f"{genesis['system_prompt']}\n\n"
+            f"--- TASK TO EXECUTE ---\n"
+            f"Task ID: {next_task.get('id', 'unknown')}\n"
+            f"Description: {next_task.get('description', 'No description provided')}\n\n"
+            f"--- RELEVANT CONTEXT ---\n"
+            f"{context.get('relevant_context_text', 'None')}\n\n"
+            f"--- NON-NEGOTIABLE OUTPUT CONTRACT ---\n"
+            f"Output ONLY a valid JSON object with 'name', 'description', and 'python_code'. "
+            f"Example: {{\"name\": \"my_tool\", \"description\": \"...\", \"python_code\": \"def run(**kwargs):\\n    return 'hello'\"}}"
+        )
+        
+        return {
+            "current_agent": "Genesis Architect",
+            "current_instruction": instruction,
+            "waiting_for_ai": True
+        }
+    return {"waiting_for_ai": False}
+
 def manager_node(state: PexoState):
     if state.get("current_agent") != "Code Organization Manager":
         context = _get_context(state)
@@ -220,16 +261,38 @@ def router(state: PexoState):
 
     if current_agent == "Supervisor":
         if not tasks:
-            return "supervisor" # Stay on supervisor until tasks are generated
+            return "supervisor"
+        
+        # Check if first task is Genesis Architect
+        first_pending = None
+        completed_ids = {t.get("task", {}).get("id") for t in completed}
+        for t in tasks:
+            if t.get("id") not in completed_ids:
+                first_pending = t
+                break
+        
+        if first_pending and first_pending.get("assigned_agent") == "Genesis Architect":
+            return "genesis"
+        return "developer"
+
+    if current_agent == "Genesis Architect":
         return "developer"
 
     if current_agent == "Quality Assurance Manager":
         if len(completed) < len(tasks):
-            return "developer" # Loop back to assign the next task
-        return "manager" # All tasks done, go to final review
+            # Check if next task is Genesis Architect
+            next_pending = None
+            completed_ids = {t.get("task", {}).get("id") for t in completed}
+            for t in tasks:
+                if t.get("id") not in completed_ids:
+                    next_pending = t
+                    break
+            if next_pending and next_pending.get("assigned_agent") == "Genesis Architect":
+                return "genesis"
+            return "developer"
+        return "manager"
 
     if current_agent not in ["Supervisor", "Code Organization Manager", "Quality Assurance Manager"]:
-        # A worker just finished. Time to review it.
         return "reviewer"
 
     if current_agent == "Code Organization Manager":
@@ -242,16 +305,15 @@ def _resolve_start_node(state: PexoState) -> str:
     if state.get("waiting_for_ai"):
         return ""
     
-    # If we are not waiting, someone just finished. Use the router to find the next node.
     route = router(state)
     if route == END:
         return ""
     
-    # Map router names to internal node names if they differ
     mapping = {
         "developer": "developer",
         "reviewer": "reviewer",
-        "manager": "manager"
+        "manager": "manager",
+        "genesis": "genesis"
     }
     return mapping.get(route, route)
 
@@ -275,6 +337,8 @@ def _advance_state_machine(state: PexoState) -> PexoState:
             node_result = reviewer_node(current_state)
         elif next_node == "manager":
             node_result = manager_node(current_state)
+        elif next_node == "genesis":
+            node_result = genesis_node(current_state)
         else:
             return current_state
 
@@ -284,7 +348,6 @@ def _advance_state_machine(state: PexoState) -> PexoState:
         if route == END:
             return current_state
         
-        # Prevent infinite loops if we are stuck on the same node and not waiting
         if route == next_node and not current_state.get("waiting_for_ai"):
             return current_state
             
@@ -306,11 +369,13 @@ else:
     workflow.add_node("developer", developer_node)
     workflow.add_node("reviewer", reviewer_node)
     workflow.add_node("manager", manager_node)
+    workflow.add_node("genesis", genesis_node)
 
     workflow.set_entry_point("supervisor")
-    workflow.add_conditional_edges("supervisor", router, {END: END, "developer": "developer"})
+    workflow.add_conditional_edges("supervisor", router, {END: END, "developer": "developer", "genesis": "genesis"})
     workflow.add_conditional_edges("developer", router, {END: END, "reviewer": "reviewer"})
-    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager"})
+    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager", "genesis": "genesis"})
+    workflow.add_conditional_edges("genesis", router, {END: END, "developer": "developer"})
     workflow.add_conditional_edges("manager", router, {END: END})
 
     pexo_app = workflow.compile()

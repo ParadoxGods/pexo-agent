@@ -329,6 +329,42 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                 "output_preview": build_output_preview(result.result_data),
                 "result_type": type(result.result_data).__name__,
             }
+    elif current_agent == "Genesis Architect":
+        telemetry_data = {
+            "output_preview": build_output_preview(result.result_data),
+            "result_type": type(result.result_data).__name__,
+        }
+        # Automatic Tool Registration
+        try:
+            tool_data = result.result_data
+            if isinstance(tool_data, str):
+                # Try to parse JSON from string if AI didn't return raw dict
+                import re
+                match = re.search(r"\{.*\}", tool_data, re.DOTALL)
+                if match:
+                    tool_data = json.loads(match.group())
+            
+            if isinstance(tool_data, dict) and "python_code" in tool_data:
+                from .tools import register_tool, ToolRegistrationRequest
+                reg_request = ToolRegistrationRequest(
+                    name=tool_data.get("name") or f"auto_tool_{uuid.uuid4().hex[:8]}",
+                    description=tool_data.get("description") or "Autonomously generated tool.",
+                    python_code=tool_data["python_code"]
+                )
+                reg_res = register_tool(reg_request, db)
+                telemetry_data["registered_tool"] = reg_res
+                
+                # Mark the task as completed
+                tasks = state.get("tasks", [])
+                completed = state.get("completed_tasks", [])
+                if len(completed) < len(tasks):
+                    current_task = next((t for t in tasks if t.get("id") not in {ct.get("task", {}).get("id") for ct in completed}), None)
+                    if current_task:
+                        completed.append({"task": current_task, "result": reg_res})
+                        state["completed_tasks"] = completed
+        except Exception as exc:
+            telemetry_data["registration_error"] = str(exc)
+            # On failure, the router will stay on genesis or the Reviewer will catch it
     elif current_agent == "Quality Assurance Manager":
         reviewed = state.get("reviewed_tasks", [])
         completed = state.get("completed_tasks", [])

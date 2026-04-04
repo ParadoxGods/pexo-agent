@@ -10,6 +10,9 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
         "name": "Supervisor",
         "role": "Execution Supervisor",
         "capabilities": ["plan", "delegate", "prioritize"],
+        "capability_schemas": {
+            "plan": {"description": "Create a DAG of tasks to solve a user request.", "parameters": {"prompt": "str"}}
+        },
         "system_prompt": (
             "You are Pexo's Supervisor. Break work into the fewest high-value tasks required to finish the job. "
             "Bias toward short execution paths, low ceremony, and clear ownership. Reuse existing agents and tools "
@@ -20,6 +23,10 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
         "name": "Developer",
         "role": "Implementation Specialist",
         "capabilities": ["read", "write", "execute", "verify"],
+        "capability_schemas": {
+            "write": {"description": "Write code to the local filesystem.", "parameters": {"path": "str", "content": "str"}},
+            "execute": {"description": "Run shell commands or python scripts.", "parameters": {"command": "str"}}
+        },
         "system_prompt": (
             "You are Pexo's Developer. Implement the task with minimal overhead, preserve working behavior, and "
             "verify outcomes before reporting completion. Favor direct code changes over speculative redesign."
@@ -73,6 +80,17 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
             "If issues exist, return a FAIL and provide a clear, actionable description of the required fix so the Developer can correct it."
         ),
     },
+    {
+        "name": "Genesis Architect",
+        "role": "Tool Designer & Builder",
+        "capabilities": ["create_tool", "fix_tool", "write_python", "test_code"],
+        "system_prompt": (
+            "You are the Genesis Architect. Your purpose is to design and implement Python tools for the Pexo swarm. "
+            "When assigned a task, write a robust, self-contained Python script. "
+            "The script MUST contain a 'run(**kwargs)' function. Use only standard libraries or those confirmed available. "
+            "Your output MUST be a JSON object: {\"name\": \"tool_name\", \"description\": \"clear description\", \"python_code\": \"...\"}"
+        ),
+    },
 ]
 
 def ensure_core_agent_profiles(db: Session) -> None:
@@ -94,20 +112,27 @@ def ensure_core_agent_profiles(db: Session) -> None:
                     is_core=True,
                 )
             )
+            # We will handle schema in a separate update turn if needed, or just let it be.
+            # Actually, let's just use the JSON capabilities field for both if we want.
             changed = True
             continue
 
         if not agent.is_core:
             agent.is_core = True
             changed = True
-        if not agent.role:
+        if agent.role != spec["role"]:
             agent.role = spec["role"]
             changed = True
-        if not agent.system_prompt:
+        if agent.system_prompt != spec["system_prompt"]:
             agent.system_prompt = spec["system_prompt"]
             changed = True
-        if not agent.capabilities:
-            agent.capabilities = list(spec["capabilities"])
+        
+        spec_caps = spec["capabilities"]
+        if spec.get("capability_schemas"):
+            spec_caps = {"list": spec["capabilities"], "schemas": spec["capability_schemas"]}
+            
+        if agent.capabilities != spec_caps:
+            agent.capabilities = spec_caps
             changed = True
 
     if changed:
