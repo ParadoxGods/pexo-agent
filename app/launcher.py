@@ -315,6 +315,11 @@ def _exec_update_helper(helper_path: Path, plan_path: Path) -> int:
     return 0
 
 
+def _restart_launcher_process(argv: list[str] | None = None) -> int:
+    os.execv(sys.executable, [sys.executable, "-m", "app.launcher", *(argv if argv is not None else sys.argv[1:])])
+    return 0
+
+
 def _update_stamp_is_fresh() -> bool:
     if not UPDATE_STAMP_PATH.exists():
         return False
@@ -424,6 +429,8 @@ def run_server(no_browser: bool = False) -> int:
                 file=sys.stderr,
             )
             return 1
+        print("Full runtime installed. Restarting Pexo to activate the new environment...")
+        return _restart_launcher_process()
 
     import uvicorn
 
@@ -444,6 +451,7 @@ def run_mcp() -> int:
                 file=sys.stderr,
             )
             return 1
+        return _restart_launcher_process()
 
     from .mcp_server import start_mcp_server
 

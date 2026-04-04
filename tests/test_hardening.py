@@ -663,6 +663,26 @@ class HardeningTests(unittest.TestCase):
             else:
                 os.environ["PEXO_NO_BROWSER"] = original_no_browser
 
+    @patch("app.launcher._restart_launcher_process", return_value=0)
+    @patch("app.launcher.promote_runtime")
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": False}})
+    def test_run_server_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart):
+        mock_promote.return_value = {"status": "success"}
+
+        self.assertEqual(launcher_module.run_server(no_browser=True), 0)
+        mock_promote.assert_called_once_with("full")
+        mock_restart.assert_called_once()
+
+    @patch("app.launcher._restart_launcher_process", return_value=0)
+    @patch("app.launcher.promote_runtime")
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"mcp": False}})
+    def test_run_mcp_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart):
+        mock_promote.return_value = {"status": "success"}
+
+        self.assertEqual(launcher_module.run_mcp(), 0)
+        mock_promote.assert_called_once_with("mcp")
+        mock_restart.assert_called_once()
+
     @patch("app.client_connect.running_from_repo_checkout", return_value=False)
     @patch("app.client_connect.which")
     def test_client_connect_builds_packaged_plans_for_supported_clients(self, mock_which, _mock_checkout):
