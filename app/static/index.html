@@ -689,6 +689,26 @@ Use the browser for normal Pexo operation.
             return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
         }
 
+        function badgeClass(tone) {
+            if (tone === "success") return "badge success";
+            if (tone === "danger") return "badge danger";
+            if (tone === "warn") return "badge warn";
+            return "badge";
+        }
+
+        function formatRelativeTime(value) {
+            if (!value) return "Unknown time";
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
+            if (diffMinutes <= 0) return "Just now";
+            if (diffMinutes < 60) return `${diffMinutes}m ago`;
+            const diffHours = Math.round(diffMinutes / 60);
+            if (diffHours < 24) return `${diffHours}h ago`;
+            const diffDays = Math.round(diffHours / 24);
+            return `${diffDays}d ago`;
+        }
+
         function parseCapabilities(rawValue) {
             return rawValue.split(",").map(value => value.trim()).filter(Boolean);
         }
@@ -963,16 +983,22 @@ Use the browser for normal Pexo operation.
 
             $("telemetry-sessions").innerHTML = (telemetry?.recent_sessions || []).length ? telemetry.recent_sessions.map(session => `
                 <div class="telemetry-row">
-                    <strong>${escapeHtml(session.session_id)}</strong>
-                    <div class="meta">${escapeHtml(session.last_agent)} / ${escapeHtml(session.last_status)}</div>
+                    <div class="section-head" style="margin-bottom: 0.45rem;">
+                        <div>
+                            <strong>${escapeHtml(session.title || `Session ${session.short_id || ""}`)}</strong>
+                            <div class="meta">${escapeHtml(session.summary || `${session.last_agent_label || session.last_agent || "Pexo"} is handling the latest step.`)}</div>
+                        </div>
+                        <span class="${badgeClass(session.status_tone)}">${escapeHtml(session.status_label || session.last_status || "Unknown")}</span>
+                    </div>
+                    <div class="meta">Session ${escapeHtml(session.short_id || session.session_id || "")} • ${escapeHtml(formatRelativeTime(session.last_activity_at))} • ${escapeHtml(session.last_agent_label || session.last_agent || "Unknown")}</div>
                     <div>Actions: ${session.total_actions} | Completed: ${session.completed_actions} | Tasks: ${session.task_count}</div>
                 </div>
             `).join("") : '<div class="telemetry-row">No sessions recorded yet.</div>';
 
             $("telemetry-activity").innerHTML = (telemetry?.recent_activity || []).length ? telemetry.recent_activity.map(activity => `
                 <div class="telemetry-row">
-                    <strong>${escapeHtml(activity.agent_name)}</strong>
-                    <div class="meta">${escapeHtml(activity.session_id)} | ${escapeHtml(activity.status)}</div>
+                    <strong>${escapeHtml(activity.task_description || activity.agent_name)}</strong>
+                    <div class="meta">${escapeHtml(activity.agent_name)} • ${escapeHtml((activity.session_id || "").slice(0, 8))} • ${escapeHtml(activity.status)}</div>
                     <div>${escapeHtml(activity.task_description || activity.output_preview || "No detail")}</div>
                 </div>
             `).join("") : '<div class="telemetry-row">No agent activity recorded yet.</div>';

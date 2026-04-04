@@ -1108,10 +1108,20 @@ class HardeningTests(unittest.TestCase):
                     status="completed",
                     context_size_tokens=42,
                     data={
+                        "user_prompt": "Create a hardening plan for the install flow.",
+                        "clarification_question": "Which OS should be prioritized?",
+                    },
+                )
+            )
+            db.add(
+                AgentState(
+                    session_id="session-telemetry",
+                    agent_name="orchestrator",
+                    status="clarification_pending",
+                    context_size_tokens=9,
+                    data={
                         "task_id": "task-1",
                         "task_description": "Implement feature",
-                        "output_preview": "done",
-                        "result_type": "dict",
                     },
                 )
             )
@@ -1128,8 +1138,13 @@ class HardeningTests(unittest.TestCase):
 
             telemetry = build_telemetry_payload(db)
             self.assertEqual(telemetry["summary"]["session_count"], 1)
-            self.assertEqual(telemetry["summary"]["action_count"], 2)
-            self.assertTrue(any(session["session_id"] == "session-telemetry" for session in telemetry["recent_sessions"]))
+            self.assertEqual(telemetry["summary"]["action_count"], 3)
+            session = next(session for session in telemetry["recent_sessions"] if session["session_id"] == "session-telemetry")
+            self.assertEqual(session["status_label"], "Complete")
+            self.assertEqual(session["last_agent_label"], "Orchestrator")
+            self.assertEqual(session["short_id"], "session-")
+            self.assertIn("Create a hardening plan", session["title"])
+            self.assertTrue(session["summary"])
             self.assertTrue(any(activity["agent_name"] == "Developer" for activity in telemetry["recent_activity"]))
         finally:
             db.close()

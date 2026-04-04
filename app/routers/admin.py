@@ -15,6 +15,90 @@ from .profile import derive_profile_answers
 
 router = APIRouter()
 
+STATUS_LABELS = {
+    "clarification_pending": "Needs Clarification",
+    "graph_started": "Planning Started",
+    "running": "Running",
+    "completed": "Completed",
+    "session_complete": "Complete",
+    "processing": "Processing",
+    "pending_action": "Waiting On Agent",
+    "error": "Error",
+}
+
+STATUS_TONES = {
+    "clarification_pending": "warn",
+    "graph_started": "warn",
+    "running": "warn",
+    "completed": "success",
+    "session_complete": "success",
+    "error": "danger",
+}
+
+
+def _truncate(value: str | None, limit: int = 96) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _status_label(status: str | None) -> str:
+    normalized = (status or "").strip().lower()
+    return STATUS_LABELS.get(normalized, normalized.replace("_", " ").title() or "Unknown")
+
+
+def _status_tone(status: str | None) -> str:
+    return STATUS_TONES.get((status or "").strip().lower(), "")
+
+
+def _agent_label(agent_name: str | None) -> str:
+    if not agent_name:
+        return "Unknown"
+    if agent_name == "orchestrator":
+        return "Orchestrator"
+    return agent_name
+
+
+def _session_title_from_state(state: AgentState) -> tuple[int, str | None]:
+    data = state.data or {}
+    for priority, candidate in (
+        (3, data.get("user_prompt")),
+        (2, data.get("task_description")),
+        (1, data.get("current_instruction")),
+    ):
+        title = _truncate(candidate, 88)
+        if title:
+            return priority, title
+    return 0, None
+
+
+def _session_summary_from_state(state: AgentState) -> str | None:
+    data = state.data or {}
+    if state.status == "clarification_pending":
+        return "Waiting for one clarification before work begins."
+    if state.status == "graph_started":
+        next_agent = data.get("next_agent")
+        if next_agent:
+            return f"Task graph started. Next role: {_agent_label(str(next_agent))}."
+        return "Task graph started."
+    if state.status == "session_complete":
+        return _truncate(data.get("final_response"), 110) or "Session completed."
+    for candidate in (
+        data.get("task_description"),
+        data.get("output_preview"),
+        data.get("clarification_answer"),
+        data.get("result_type"),
+    ):
+        summary = _truncate(candidate, 110)
+        if summary:
+            return summary
+    return None
+
 
 def build_client_surface(scope: str = "user") -> dict:
     return cached_value(
@@ -93,11 +177,20 @@ def _build_telemetry_payload(db: Session) -> dict:
     for state in recent_states:
         session = session_index.get(state.session_id)
         if session is None:
+            title_priority, title = _session_title_from_state(state)
             session = {
                 "session_id": state.session_id,
+                "short_id": state.session_id[:8],
+                "title": title,
+                "title_priority": title_priority,
+                "summary": _session_summary_from_state(state),
                 "last_agent": state.agent_name,
+                "last_agent_label": _agent_label(state.agent_name),
                 "last_status": state.status,
+                "status_label": _status_label(state.status),
+                "status_tone": _status_tone(state.status),
                 "last_activity_at": state.created_at.isoformat() if state.created_at else None,
+                "started_at": state.created_at.isoformat() if state.created_at else None,
                 "total_actions": 0,
                 "completed_actions": 0,
                 "task_ids": set(),
@@ -105,18 +198,27 @@ def _build_telemetry_payload(db: Session) -> dict:
             session_index[state.session_id] = session
             recent_sessions.append(session)
 
+        session["started_at"] = state.created_at.isoformat() if state.created_at else session["started_at"]
         session["total_actions"] += 1
         if state.status == "completed" and state.agent_name != "orchestrator":
             session["completed_actions"] += 1
         task_id = (state.data or {}).get("task_id")
         if task_id:
             session["task_ids"].add(str(task_id))
+        title_priority, title = _session_title_from_state(state)
+        if title and title_priority > session.get("title_priority", 0):
+            session["title"] = title
+            session["title_priority"] = title_priority
+        if not session.get("summary"):
+            session["summary"] = _session_summary_from_state(state)
 
     normalized_sessions = []
     for session in recent_sessions[:10]:
+        session_payload = {key: value for key, value in session.items() if key != "title_priority"}
         normalized_sessions.append(
             {
-                **session,
+                **session_payload,
+                "title": session.get("title") or f"Session {session['short_id']}",
                 "task_count": len(session["task_ids"]),
                 "task_ids": sorted(session["task_ids"]),
             }
