@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -135,7 +136,13 @@ class FakeCollection:
 class HardeningTests(unittest.TestCase):
     def tearDown(self):
         engine.dispose()
-        PEXO_DB_PATH.unlink(missing_ok=True)
+        for _ in range(10):
+            try:
+                PEXO_DB_PATH.unlink(missing_ok=True)
+                break
+            except PermissionError:
+                engine.dispose()
+                time.sleep(0.05)
         shutil.rmtree(CHROMA_DB_DIR, ignore_errors=True)
         shutil.rmtree(ARTIFACTS_DIR, ignore_errors=True)
 
@@ -1380,6 +1387,81 @@ class HardeningTests(unittest.TestCase):
 
             self.assertEqual(db.query(ChatSession).count(), 1)
             self.assertGreaterEqual(db.query(ChatMessage).count(), 4)
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_routes_simple_messages_to_conversation_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "Pexo is online and ready."
+
+            reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
+
+            prompt = mock_run_backend.call_args.args[1]
+            self.assertIn("This turn is conversation mode.", prompt)
+            self.assertIn("Do not start or continue a structured Pexo task", prompt)
+            self.assertEqual(reply["session"]["details"]["mode"], "conversation")
+            self.assertEqual(reply["reply"]["status"], "answered")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_routes_lookup_requests_to_brain_lookup_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            register_artifact_text(
+                ArtifactTextRequest(
+                    name="README.md",
+                    content="Pexo README artifact.",
+                    session_id="lookup-session",
+                    task_context="docs",
+                ),
+                db,
+            )
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "Pexo has a stored README artifact."
+
+            reply = send_chat_message(db, session_id=session["id"], message="Tell me the readme we have stored.")
+
+            prompt = mock_run_backend.call_args.args[1]
+            self.assertIn("This turn is brain lookup mode.", prompt)
+            self.assertIn("Local Pexo context:", prompt)
+            self.assertIn("README.md", prompt)
+            self.assertEqual(reply["session"]["details"]["mode"], "brain_lookup")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_routes_build_requests_to_task_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "I can design that landing page."
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product.",
+            )
+
+            prompt = mock_run_backend.call_args.args[1]
+            self.assertIn("This turn is task mode.", prompt)
+            self.assertIn("Use structured Pexo task flow only when the work is clearly multi-step", prompt)
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
         finally:
             db.close()
 

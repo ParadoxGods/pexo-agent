@@ -1,10 +1,10 @@
 from __future__ import annotations
-
 import os
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -12,10 +12,74 @@ from sqlalchemy.orm import Session
 from .cache import invalidate_many
 from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, connect_clients
 from .database import ensure_db_ready
-from .models import ChatMessage, ChatSession
+from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile
 from .paths import PROJECT_ROOT
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
+CONVERSATION_HINTS = (
+    "hello",
+    "hi",
+    "hey",
+    "thanks",
+    "thank you",
+    "testing",
+    "test",
+    "this is a test",
+    "are you there",
+    "are you online",
+    "who are you",
+    "what can you do",
+    "help",
+)
+TASK_HINTS = (
+    "build",
+    "create",
+    "design",
+    "implement",
+    "fix",
+    "refactor",
+    "review",
+    "audit",
+    "analyze",
+    "plan",
+    "write",
+    "edit",
+    "update",
+    "change",
+    "debug",
+    "optimize",
+    "scaffold",
+    "generate",
+    "develop",
+    "start a new",
+    "new website",
+    "landing page",
+    "dashboard",
+    "repo",
+    "repository",
+    "codebase",
+)
+BRAIN_LOOKUP_HINTS = (
+    "memory",
+    "remember",
+    "recall",
+    "artifact",
+    "artifacts",
+    "stored",
+    "store",
+    "session",
+    "sessions",
+    "agent",
+    "agents",
+    "profile",
+    "runtime",
+    "telemetry",
+    "readme",
+    "what do you know",
+    "what do we know",
+    "what is stored",
+    "what's stored",
+)
 
 
 def serialize_chat_session(session: ChatSession, *, message_count: int | None = None) -> dict:
@@ -53,6 +117,152 @@ def _session_title(message: str) -> str:
     if len(compact) <= 72:
         return compact
     return f"{compact[:72].rstrip()}..."
+
+
+def _normalize_chat_text(message: str) -> str:
+    return " ".join((message or "").strip().lower().split())
+
+
+def _looks_like_conversation(text: str) -> bool:
+    if not text:
+        return True
+    if any(hint in text for hint in CONVERSATION_HINTS):
+        return True
+    words = text.split()
+    if len(words) <= 10 and not any(hint in text for hint in TASK_HINTS + BRAIN_LOOKUP_HINTS):
+        return True
+    if text.endswith("?") and not any(hint in text for hint in TASK_HINTS):
+        return True
+    return False
+
+
+def _looks_like_brain_lookup(text: str) -> bool:
+    if not text:
+        return False
+    return any(hint in text for hint in BRAIN_LOOKUP_HINTS)
+
+
+def _looks_like_task(text: str) -> bool:
+    if not text:
+        return False
+    return any(hint in text for hint in TASK_HINTS)
+
+
+def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
+    text = _normalize_chat_text(latest_user_message)
+    previous_mode = str((chat_session.details or {}).get("mode") or "").strip().lower()
+
+    if _looks_like_brain_lookup(text):
+        return "brain_lookup"
+    if _looks_like_task(text):
+        return "task"
+    if previous_mode == "task" and text and not _looks_like_conversation(text):
+        return "task"
+    return "conversation"
+
+
+def _profile_summary(db: Session) -> str:
+    profile = db.query(Profile).filter(Profile.name == "default_user").first()
+    if not profile:
+        return "No user profile is configured."
+    personality = " ".join((profile.personality_prompt or "").split()).strip()
+    scripting = ""
+    if isinstance(profile.scripting_preferences, dict):
+        scripting = str(profile.scripting_preferences.get("scripting_preferences") or "").strip()
+    parts = [part for part in (personality, scripting) if part]
+    summary = " | ".join(parts) if parts else "Profile is configured."
+    return f"Profile {profile.name}: {summary}"
+
+
+def _agent_summary(db: Session, limit: int = 8) -> str:
+    agents = (
+        db.query(AgentProfile)
+        .order_by(AgentProfile.is_core.desc(), AgentProfile.name.asc())
+        .limit(max(1, min(limit, 12)))
+        .all()
+    )
+    if not agents:
+        return "No agents are registered."
+    rendered = []
+    for agent in agents:
+        role = (agent.role or "").strip()
+        rendered.append(f"{agent.name} ({role})" if role else agent.name)
+    return "Agents: " + ", ".join(rendered)
+
+
+def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
+    needle = _normalize_chat_text(query)
+    query_obj = db.query(Memory).filter(Memory.is_archived.is_(False))
+    memories = []
+    if needle and not any(phrase in needle for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")):
+        term = f"%{needle}%"
+        memories = (
+            query_obj.filter((Memory.content.ilike(term)) | (Memory.task_context.ilike(term)))
+            .order_by(Memory.updated_at.desc().nullslast(), Memory.created_at.desc(), Memory.id.desc())
+            .limit(max(1, min(limit, 6)))
+            .all()
+        )
+    if not memories:
+        memories = (
+            query_obj.order_by(Memory.updated_at.desc().nullslast(), Memory.created_at.desc(), Memory.id.desc())
+            .limit(max(1, min(limit, 6)))
+            .all()
+        )
+    if not memories:
+        return "Matching memories: none."
+    lines = []
+    for memory in memories:
+        compact = " ".join((memory.content or "").split()).strip()
+        snippet = compact if len(compact) <= 180 else f"{compact[:180].rstrip()}..."
+        lines.append(f"- [{memory.task_context or 'general'}] {snippet}")
+    return "Matching memories:\n" + "\n".join(lines)
+
+
+def _artifact_summary(db: Session, query: str, limit: int = 3) -> str:
+    needle = _normalize_chat_text(query)
+    query_obj = db.query(Artifact)
+    artifacts = []
+    if needle and not any(phrase in needle for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")):
+        term = f"%{needle}%"
+        artifacts = (
+            query_obj.filter(
+                (Artifact.name.ilike(term))
+                | (Artifact.source_uri.ilike(term))
+                | (Artifact.extracted_text.ilike(term))
+                | (Artifact.task_context.ilike(term))
+            )
+            .order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
+            .limit(max(1, min(limit, 6)))
+            .all()
+        )
+    if not artifacts:
+        artifacts = (
+            query_obj.order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
+            .limit(max(1, min(limit, 6)))
+            .all()
+        )
+    if not artifacts:
+        return "Matching artifacts: none."
+    lines = []
+    for artifact in artifacts:
+        preview = " ".join((artifact.extracted_text or "").split()).strip()
+        snippet = preview if len(preview) <= 140 else f"{preview[:140].rstrip()}..."
+        descriptor = artifact.name or artifact.source_uri or f"artifact:{artifact.id}"
+        if snippet:
+            lines.append(f"- {descriptor}: {snippet}")
+        else:
+            lines.append(f"- {descriptor}")
+    return "Matching artifacts:\n" + "\n".join(lines)
+
+
+def _build_brain_lookup_context(db: Session, query: str) -> str:
+    sections = [
+        _profile_summary(db),
+        _agent_summary(db),
+        _memory_summary(db, query),
+        _artifact_summary(db, query),
+    ]
+    return "\n\n".join(section for section in sections if section)
 
 
 def _default_workspace_path(explicit_path: str | None = None) -> str:
@@ -155,8 +365,7 @@ def _build_worker_prompt(
         f"Internal instruction:\n{instruction}\n"
     )
 
-
-def _build_assistant_prompt(
+def _build_conversation_prompt(
     *,
     backend_name: str,
     chat_session: ChatSession,
@@ -165,20 +374,70 @@ def _build_assistant_prompt(
 ) -> str:
     return (
         "You are the user-facing Pexo assistant.\n"
-        "The user is talking to Pexo directly, not to an external AI console.\n"
-        "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
-        "For simple conversation, answer directly in plain language.\n"
-        "Only use supervision, orchestration, or multi-step task flow when the request actually needs it.\n"
-        "For real work, use Pexo memory, artifacts, agents, tools, and task flow when it materially improves the result.\n"
-        "Ask at most one clarification question only when it is actually required.\n"
-        "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
-        "Do not tell the user to open Codex, Gemini, or Claude. You are already acting on their behalf.\n\n"
+        "This turn is conversation mode.\n"
+        "Do not start or continue a structured Pexo task for this turn.\n"
+        "Do not invoke Supervisor-style orchestration for greetings, smoke tests, casual chat, or short direct questions.\n"
+        "If the user is simply testing the chat, answer plainly that Pexo is online and ready.\n"
+        "Ask a clarification question only if the request cannot be answered responsibly without one.\n"
+        "Keep the reply short, plain, and natural.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
         f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
+
+
+def _build_lookup_prompt(
+    *,
+    backend_name: str,
+    chat_session: ChatSession,
+    latest_user_message: str,
+    history_excerpt: str,
+    local_context: str,
+) -> str:
+    return (
+        "You are the user-facing Pexo assistant.\n"
+        "This turn is brain lookup mode.\n"
+        "The user is asking what Pexo already knows, stores, or remembers.\n"
+        "Answer from the local Pexo context below.\n"
+        "Do not start or continue a structured Pexo task for this turn.\n"
+        "Do not ask a clarification question unless the user's request is genuinely ambiguous.\n"
+        "If the local context does not contain the answer, say that plainly.\n"
+        "Keep the reply concise and practical.\n\n"
+        f"Direct chat backend: {backend_name}\n"
+        f"Direct chat session: {chat_session.id}\n"
+        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        f"Recent direct chat transcript:\n{history_excerpt}\n\n"
+        f"Local Pexo context:\n{local_context}\n\n"
+        f"Latest user message:\n{latest_user_message}\n"
+    )
+
+
+def _build_task_prompt(
+    *,
+    backend_name: str,
+    chat_session: ChatSession,
+    latest_user_message: str,
+    history_excerpt: str,
+) -> str:
+    return (
+        "You are the user-facing Pexo assistant.\n"
+        "This turn is task mode.\n"
+        "The user is asking Pexo to accomplish real work.\n"
+        "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
+        "Prefer handling straightforward one-step work directly.\n"
+        "Use structured Pexo task flow only when the work is clearly multi-step, needs durable coordination, or truly needs one clarification question.\n"
+        "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
+        "Keep the reply plain and outcome-focused.\n\n"
+        f"Direct chat backend: {backend_name}\n"
+        f"Direct chat session: {chat_session.id}\n"
+        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        f"Recent direct chat transcript:\n{history_excerpt}\n\n"
+        f"Latest user message:\n{latest_user_message}\n"
+    )
+
+
 def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int) -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as handle:
         output_path = Path(handle.name)
@@ -430,12 +689,30 @@ def send_chat_message(
         session.title = _session_title(user_message)
 
     _store_message(db, session.id, "user", user_message)
-    assistant_prompt = _build_assistant_prompt(
-        backend_name=backend_name,
-        chat_session=session,
-        latest_user_message=user_message,
-        history_excerpt=_history_excerpt(db, session.id),
-    )
+    history_excerpt = _history_excerpt(db, session.id)
+    mode = _infer_chat_mode(session, user_message)
+    if mode == "brain_lookup":
+        assistant_prompt = _build_lookup_prompt(
+            backend_name=backend_name,
+            chat_session=session,
+            latest_user_message=user_message,
+            history_excerpt=history_excerpt,
+            local_context=_build_brain_lookup_context(db, user_message),
+        )
+    elif mode == "task":
+        assistant_prompt = _build_task_prompt(
+            backend_name=backend_name,
+            chat_session=session,
+            latest_user_message=user_message,
+            history_excerpt=history_excerpt,
+        )
+    else:
+        assistant_prompt = _build_conversation_prompt(
+            backend_name=backend_name,
+            chat_session=session,
+            latest_user_message=user_message,
+            history_excerpt=history_excerpt,
+        )
     raw_result = run_direct_chat_backend(
         backend_name,
         assistant_prompt,
@@ -448,7 +725,7 @@ def send_chat_message(
     details = dict(session.details or {})
     details["last_user_message"] = user_message
     details["last_assistant_message"] = assistant_text
-    details["mode"] = "assistant"
+    details["mode"] = mode
     details["connected_backend"] = backend_name
     session.details = details
 
@@ -460,7 +737,7 @@ def send_chat_message(
         details={
             "status": "answered",
             "backend": backend_name,
-            "mode": "assistant",
+            "mode": mode,
         },
     )
 
