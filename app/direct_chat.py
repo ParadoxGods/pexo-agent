@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from .cache import invalidate_many
 from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, connect_clients
+from .database import ensure_db_ready
 from .models import ChatMessage, ChatSession
 from .paths import PROJECT_ROOT
 from .routers.orchestrator import (
@@ -279,6 +280,7 @@ def create_chat_session(
     workspace_path: str | None = None,
     title: str | None = None,
 ) -> dict:
+    ensure_db_ready()
     backend_name = _resolve_backend_name(backend)
     _ensure_backend_connected(backend_name)
     session = ChatSession(
@@ -305,6 +307,7 @@ def update_chat_session(
     backend: str | None = None,
     workspace_path: str | None = None,
 ) -> dict:
+    ensure_db_ready()
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session is None:
         raise RuntimeError("Chat session not found.")
@@ -329,6 +332,7 @@ def update_chat_session(
 
 
 def delete_chat_session(db: Session, session_id: str) -> dict:
+    ensure_db_ready()
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session is None:
         raise RuntimeError("Chat session not found.")
@@ -340,6 +344,7 @@ def delete_chat_session(db: Session, session_id: str) -> dict:
 
 
 def get_chat_session_payload(db: Session, session_id: str, *, message_limit: int = 120) -> dict:
+    ensure_db_ready()
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session is None:
         raise RuntimeError("Chat session not found.")
@@ -359,6 +364,7 @@ def get_chat_session_payload(db: Session, session_id: str, *, message_limit: int
 
 
 def list_chat_sessions(db: Session, limit: int = 20) -> dict:
+    ensure_db_ready()
     safe_limit = max(1, min(limit, 100))
     sessions = (
         db.query(ChatSession)
@@ -394,6 +400,7 @@ def send_chat_message(
     message: str,
     timeout_seconds: int = 300,
 ) -> dict:
+    ensure_db_ready()
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session is None:
         raise RuntimeError("Chat session not found.")

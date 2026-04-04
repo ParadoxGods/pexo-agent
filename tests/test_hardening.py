@@ -588,6 +588,7 @@ class HardeningTests(unittest.TestCase):
         mock_exec.assert_called_once()
 
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._local_pexo_http_available", return_value=True)
     @patch("app.launcher._write_update_stamp")
     @patch("app.launcher._prepare_packaged_update_helper")
     @patch("app.launcher._build_packaged_update_plan")
@@ -596,6 +597,7 @@ class HardeningTests(unittest.TestCase):
         mock_build_plan,
         mock_prepare,
         mock_write_stamp,
+        _mock_local_server,
         _mock_checkout,
     ):
         mock_build_plan.return_value = {
@@ -603,9 +605,12 @@ class HardeningTests(unittest.TestCase):
             "operation": "skip",
         }
 
-        self.assertEqual(launcher_module.run_update(), 0)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(launcher_module.run_update(), 0)
         mock_prepare.assert_not_called()
         mock_write_stamp.assert_called_once()
+        self.assertIn("Restart it", stdout.getvalue())
 
     @patch("app.launcher._read_install_metadata")
     @patch("app.launcher._fetch_release_manifest")
@@ -703,7 +708,23 @@ class HardeningTests(unittest.TestCase):
         with redirect_stderr(stderr):
             self.assertEqual(launcher_module.run_server(no_browser=True), 1)
         self.assertIn("Pexo already appears to be running", stderr.getvalue())
+        self.assertIn("If you just updated Pexo", stderr.getvalue())
         mock_uvicorn_run.assert_not_called()
+
+    @patch("builtins.input", side_effect=EOFError)
+    @patch("app.launcher.create_chat_session")
+    @patch("app.launcher.ensure_db_ready")
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"mcp": True}})
+    def test_run_chat_mode_bootstraps_database_before_opening_terminal_chat(self, _mock_status, mock_db_ready, mock_create_chat, _mock_input):
+        mock_create_chat.return_value = {
+            "id": "chat-session-1",
+            "backend": "codex",
+            "workspace_path": str(PROJECT_ROOT),
+        }
+
+        self.assertEqual(launcher_module.run_chat_mode(), 0)
+        mock_db_ready.assert_called_once()
+        mock_create_chat.assert_called_once()
 
     @patch("app.launcher._restart_launcher_process", return_value=0)
     @patch("app.launcher.promote_runtime")

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .client_connect import SUPPORTED_CLIENTS, SUPPORTED_SCOPES, connect_clients
 from .cli import build_parser as build_cli_parser
-from .database import SessionLocal
+from .database import SessionLocal, ensure_db_ready
 from .direct_chat import create_chat_session, get_chat_session_payload, send_chat_message, update_chat_session
 from .paths import (
     ARTIFACTS_DIR,
@@ -391,6 +391,8 @@ def run_update() -> int:
         completed = subprocess.run(["git", "pull", "--ff-only"], cwd=str(PROJECT_ROOT), check=False)
         if completed.returncode == 0:
             _write_update_stamp()
+            if _local_pexo_http_available("127.0.0.1", 9999):
+                print("A Pexo server is already running. Restart it to load the updated build.")
         return completed.returncode
 
     try:
@@ -401,10 +403,14 @@ def run_update() -> int:
 
     if plan["operation"] == "skip":
         print(f"Installed package detected. Pexo v{plan['version']} is already current.")
+        if _local_pexo_http_available("127.0.0.1", 9999):
+            print("A Pexo server is already running. Restart it if you need the in-memory server to load the current build.")
         _write_update_stamp()
         return 0
 
     print(f"Installed package detected. Preparing update to v{plan['version']}...")
+    if _local_pexo_http_available("127.0.0.1", 9999):
+        print("A Pexo server is already running. Restart it after the update completes to load the new build.")
     helper_path, plan_path = _prepare_packaged_update_helper(plan)
     return _exec_update_helper(helper_path, plan_path)
 
@@ -453,7 +459,11 @@ def run_server(no_browser: bool = False) -> int:
     port = 9999
     if _port_is_in_use(host, port):
         if _local_pexo_http_available(host, port):
-            print(f"Pexo already appears to be running at http://{host}:{port}", file=sys.stderr)
+            print(
+                f"Pexo already appears to be running at http://{host}:{port}. "
+                "If you just updated Pexo, stop the running server and start it again to load the new build.",
+                file=sys.stderr,
+            )
         else:
             print(f"Port {port} is already in use on {host}. Stop the existing process or free the port before starting Pexo.", file=sys.stderr)
         return 1
@@ -513,6 +523,7 @@ def run_connect(target: str = "all", scope: str = "user", dry_run: bool = False,
 
 
 def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> int:
+    ensure_db_ready()
     status = build_runtime_status()
     if not status["installed_profiles"].get("mcp", False):
         promotion_result = promote_runtime("mcp")
