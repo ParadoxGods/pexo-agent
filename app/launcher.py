@@ -199,15 +199,9 @@ def _package_uninstall_guidance() -> str:
 
 def _print_start_banner() -> None:
     banner = PEXO_ASCII_BANNER.strip("\n")
-    if sys.stdout.isatty():
-        cyan = "\033[96m"
-        green = "\033[92m"
-        reset = "\033[0m"
-        print(f"{cyan}{banner}{reset}")
-        print(f"{green}PEXO | Primary EXecution Operator | local-first control plane{reset}")
-    else:
-        print(banner)
-        print("PEXO | Primary EXecution Operator | local-first control plane")
+    print(banner)
+    print("")
+    print("PEXO | Primary EXecution Operator | local-first control plane")
 
 
 def _github_api_request(url: str) -> urllib.request.Request:

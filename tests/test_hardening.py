@@ -656,6 +656,8 @@ class HardeningTests(unittest.TestCase):
             rendered = output.getvalue()
             self.assertIn("PEXO", rendered)
             self.assertIn("Primary EXecution Operator", rendered)
+            self.assertNotIn("\033[", rendered)
+            self.assertIn("\n\nPEXO | Primary EXecution Operator | local-first control plane", rendered)
             mock_uvicorn_run.assert_called_once()
         finally:
             if original_no_browser is None:
