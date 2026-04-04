@@ -1357,25 +1357,25 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             self.assertEqual(session["backend"], "gemini")
 
-            first_reply = send_chat_message(db, session_id=session["id"], message="Design a futuristic landing page.")
-            self.assertEqual(first_reply["reply"]["status"], "clarification_required")
-
             mock_run_backend.side_effect = [
-                json.dumps([{"id": "task-1", "description": "Build the landing page", "assigned_agent": "Developer"}]),
-                "Implemented the landing page.",
-                "Reviewed the landing page and verified the result.",
+                "Pexo is online and ready to help.",
+                "Understood. I will keep it responsive, minimal, and high-contrast.",
             ]
+
+            first_reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
+            self.assertEqual(first_reply["reply"]["status"], "answered")
+            self.assertIn("ready", first_reply["reply"]["user_message"].lower())
 
             second_reply = send_chat_message(
                 db,
                 session_id=session["id"],
                 message="Keep it responsive, minimal, and high-contrast.",
             )
-            self.assertEqual(second_reply["reply"]["status"], "complete")
-            self.assertIn("All tasks completed", second_reply["reply"]["user_message"])
+            self.assertEqual(second_reply["reply"]["status"], "answered")
+            self.assertIn("responsive", second_reply["reply"]["user_message"].lower())
 
             payload = get_chat_session_payload(db, session["id"])
-            self.assertEqual(payload["session"]["status"], "complete")
+            self.assertEqual(payload["session"]["status"], "answered")
             self.assertGreaterEqual(len(payload["messages"]), 4)
 
             self.assertEqual(db.query(ChatSession).count(), 1)
@@ -1390,9 +1390,8 @@ class HardeningTests(unittest.TestCase):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         mock_run_backend.side_effect = [
-            json.dumps([{"id": "task-1", "description": "Create the plan", "assigned_agent": "Developer"}]),
-            "Completed the plan.",
-            "Verified the plan and finalized it.",
+            "Pexo is online and ready.",
+            "I can keep the plan local-first and simple.",
         ]
 
         client = TestClient(app)
@@ -1400,22 +1399,40 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(create_response.status_code, 200)
         session_id = create_response.json()["id"]
 
-        first_message = client.post(f"/chat/sessions/{session_id}/messages", json={"message": "Create a website launch plan."})
+        first_message = client.post(f"/chat/sessions/{session_id}/messages", json={"message": "This is a direct chat smoke test."})
         self.assertEqual(first_message.status_code, 200)
-        self.assertEqual(first_message.json()["reply"]["status"], "clarification_required")
+        self.assertEqual(first_message.json()["reply"]["status"], "answered")
 
         second_message = client.post(
             f"/chat/sessions/{session_id}/messages",
             json={"message": "Keep it local-first and very simple."},
         )
         self.assertEqual(second_message.status_code, 200)
-        self.assertEqual(second_message.json()["reply"]["status"], "complete")
+        self.assertEqual(second_message.json()["reply"]["status"], "answered")
 
         snapshot = client.get("/admin/snapshot")
         self.assertEqual(snapshot.status_code, 200)
         payload = snapshot.json()
         self.assertGreaterEqual(payload["stats"]["chat_count"], 1)
         self.assertGreaterEqual(len(payload["recent_chats"]), 1)
+
+    def test_direct_chat_defaults_workspace_away_from_windows_system_directory(self):
+        original_windir = os.environ.get("WINDIR")
+        os.environ["WINDIR"] = r"C:\Windows"
+        try:
+            with patch("app.direct_chat.Path.cwd", return_value=Path(r"C:\Windows\System32")):
+                from app.direct_chat import _default_workspace_path
+
+                self.assertNotEqual(_default_workspace_path(), r"C:\Windows\System32")
+                self.assertEqual(
+                    os.path.normcase(os.path.realpath(_default_workspace_path())),
+                    os.path.normcase(os.path.realpath(str(Path.home()))),
+                )
+        finally:
+            if original_windir is None:
+                os.environ.pop("WINDIR", None)
+            else:
+                os.environ["WINDIR"] = original_windir
 
     def test_artifact_upload_endpoint_accepts_file_content(self):
         os.environ["PEXO_NO_BROWSER"] = "1"

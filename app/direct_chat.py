@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -16,16 +14,8 @@ from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, con
 from .database import ensure_db_ready
 from .models import ChatMessage, ChatSession
 from .paths import PROJECT_ROOT
-from .routers.orchestrator import (
-    PromptRequest,
-    SimpleContinueRequest,
-    continue_simple_task,
-    get_simple_task_status,
-    start_simple_task,
-)
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
-DIRECT_CHAT_TURN_LIMIT = 8
 
 
 def serialize_chat_session(session: ChatSession, *, message_count: int | None = None) -> dict:
@@ -69,9 +59,13 @@ def _default_workspace_path(explicit_path: str | None = None) -> str:
     if explicit_path:
         return str(Path(explicit_path).expanduser().resolve(strict=False))
     try:
-        return str(Path.cwd().resolve(strict=False))
+        candidate = Path.cwd().resolve(strict=False)
     except OSError:
-        return str(PROJECT_ROOT)
+        candidate = PROJECT_ROOT
+    windows_dir = Path(os.environ.get("WINDIR") or r"C:\Windows").resolve(strict=False)
+    if candidate == windows_dir or windows_dir in candidate.parents:
+        return str(Path.home().resolve(strict=False))
+    return str(candidate)
 
 
 def list_chat_backends(scope: str = "user") -> dict:
@@ -162,16 +156,29 @@ def _build_worker_prompt(
     )
 
 
-def _coerce_backend_result(text: str) -> Any:
-    payload = (text or "").strip()
-    if not payload:
-        return ""
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
-        return payload
-
-
+def _build_assistant_prompt(
+    *,
+    backend_name: str,
+    chat_session: ChatSession,
+    latest_user_message: str,
+    history_excerpt: str,
+) -> str:
+    return (
+        "You are the user-facing Pexo assistant.\n"
+        "The user is talking to Pexo directly, not to an external AI console.\n"
+        "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
+        "For simple conversation, answer directly in plain language.\n"
+        "Only use supervision, orchestration, or multi-step task flow when the request actually needs it.\n"
+        "For real work, use Pexo memory, artifacts, agents, tools, and task flow when it materially improves the result.\n"
+        "Ask at most one clarification question only when it is actually required.\n"
+        "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
+        "Do not tell the user to open Codex, Gemini, or Claude. You are already acting on their behalf.\n\n"
+        f"Direct chat backend: {backend_name}\n"
+        f"Direct chat session: {chat_session.id}\n"
+        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        f"Recent direct chat transcript:\n{history_excerpt}\n\n"
+        f"Latest user message:\n{latest_user_message}\n"
+    )
 def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int) -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as handle:
         output_path = Path(handle.name)
@@ -423,66 +430,25 @@ def send_chat_message(
         session.title = _session_title(user_message)
 
     _store_message(db, session.id, "user", user_message)
+    assistant_prompt = _build_assistant_prompt(
+        backend_name=backend_name,
+        chat_session=session,
+        latest_user_message=user_message,
+        history_excerpt=_history_excerpt(db, session.id),
+    )
+    raw_result = run_direct_chat_backend(
+        backend_name,
+        assistant_prompt,
+        session.workspace_path,
+        timeout_seconds=timeout_seconds,
+    )
+    assistant_text = (raw_result or "").strip() or "Pexo is ready for the next step."
 
-    if session.pexo_session_id:
-        current_state = get_simple_task_status(session.pexo_session_id, db)
-    else:
-        current_state = None
-
-    if not session.pexo_session_id or (current_state and current_state.get("status") == "complete"):
-        payload = start_simple_task(
-            PromptRequest(user_id="default_user", prompt=user_message, session_id=None),
-            db,
-        )
-        session.pexo_session_id = payload.get("session_id")
-    elif current_state and current_state.get("status") == "clarification_required":
-        payload = continue_simple_task(
-            SimpleContinueRequest(session_id=session.pexo_session_id, clarification_answer=user_message),
-            db,
-        )
-    else:
-        payload = current_state or start_simple_task(
-            PromptRequest(user_id="default_user", prompt=user_message, session_id=None),
-            db,
-        )
-        if not session.pexo_session_id:
-            session.pexo_session_id = payload.get("session_id")
-
-    iterations = 0
-    while payload.get("status") == "agent_action_required" and iterations < DIRECT_CHAT_TURN_LIMIT:
-        iterations += 1
-        prompt = _build_worker_prompt(
-            backend_name=backend_name,
-            chat_session=session,
-            role=payload.get("role"),
-            instruction=payload.get("agent_instruction") or payload.get("instruction") or "",
-            latest_user_message=user_message,
-            history_excerpt=_history_excerpt(db, session.id),
-        )
-        raw_result = run_direct_chat_backend(
-            backend_name,
-            prompt,
-            session.workspace_path,
-            timeout_seconds=timeout_seconds,
-        )
-        payload = continue_simple_task(
-            SimpleContinueRequest(
-                session_id=session.pexo_session_id,
-                result_data=_coerce_backend_result(raw_result),
-            ),
-            db,
-        )
-
-    assistant_text = payload.get("user_message") or payload.get("response") or "Pexo updated the current task."
-    if payload.get("status") == "agent_action_required" and iterations >= DIRECT_CHAT_TURN_LIMIT:
-        assistant_text = "Pexo reached the current agent-turn limit for this reply. Send another message to continue."
-
-    session.status = payload.get("status") or "idle"
+    session.status = "answered"
     details = dict(session.details or {})
     details["last_user_message"] = user_message
     details["last_assistant_message"] = assistant_text
-    details["last_role"] = payload.get("role")
-    details["next_action"] = payload.get("next_action") or payload.get("status")
+    details["mode"] = "assistant"
     details["connected_backend"] = backend_name
     session.details = details
 
@@ -492,11 +458,9 @@ def send_chat_message(
         "assistant",
         assistant_text,
         details={
-            "pexo_session_id": session.pexo_session_id,
-            "status": payload.get("status"),
-            "role": payload.get("role"),
-            "next_action": payload.get("next_action"),
-            "question": payload.get("question"),
+            "status": "answered",
+            "backend": backend_name,
+            "mode": "assistant",
         },
     )
 
@@ -506,11 +470,11 @@ def send_chat_message(
     return {
         **get_chat_session_payload(db, session.id),
         "reply": {
-            "status": payload.get("status"),
+            "status": "answered",
             "user_message": assistant_text,
-            "question": payload.get("question"),
-            "role": payload.get("role"),
-            "next_action": payload.get("next_action"),
+            "question": None,
+            "role": None,
+            "next_action": None,
             "pexo_session_id": session.pexo_session_id,
         },
     }
