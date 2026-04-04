@@ -530,9 +530,11 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "ill act as the user-facing pexo assistant",
         "ill operate as the user-facing pexo assistant",
         "ill speak directly to you as pexo",
+        "ill reply as pexo from here",
         "i'll act as the user-facing pexo assistant",
         "i'll operate as the user-facing pexo assistant",
         "i'll speak directly to you as pexo",
+        "i'll reply as pexo from here",
         "i am pexo speaking directly to the user",
         "i am pexo speaking directly to you",
         "send the task, question, or workflow you want handled",
@@ -572,6 +574,7 @@ def _build_backend_retry_prompt(original_prompt: str, *, mode: str, user_message
         "Answer the user's latest message directly.\n"
         "Do not describe your role.\n"
         "Do not say you are speaking directly as Pexo.\n"
+        "Do not say you will reply as Pexo from here.\n"
         "Do not ask what they want to do unless they explicitly asked for that.\n"
     )
     if mode == "brain_lookup":
@@ -660,6 +663,14 @@ def _ensure_backend_connected(backend_name: str) -> None:
     report = connect_clients(target=backend_name, scope="user", dry_run=False)
     if report["status"] == "failed":
         raise RuntimeError(f"Unable to connect {backend_name} to the Pexo MCP server.")
+
+
+def _best_effort_backend_connection(backend_name: str) -> str | None:
+    try:
+        _ensure_backend_connected(backend_name)
+    except RuntimeError as exc:
+        return str(exc)
+    return None
 
 
 def _wrap_command(invoker: str, args: list[str]) -> list[str]:
@@ -932,7 +943,10 @@ def create_chat_session(
 ) -> dict:
     ensure_db_ready()
     backend_name = _resolve_backend_name(backend)
-    _ensure_backend_connected(backend_name)
+    backend_warning = _best_effort_backend_connection(backend_name)
+    details = {"connected_backend": backend_name}
+    if backend_warning:
+        details["backend_warning"] = backend_warning
     session = ChatSession(
         id=str(uuid.uuid4()),
         title=title or "New Chat",
@@ -940,7 +954,7 @@ def create_chat_session(
         workspace_path=_default_workspace_path(workspace_path),
         pexo_session_id=None,
         status="idle",
-        details={"connected_backend": backend_name},
+        details=details,
     )
     db.add(session)
     db.commit()
@@ -966,10 +980,14 @@ def update_chat_session(
         session.title = title.strip() or session.title
     if backend is not None:
         backend_name = _resolve_backend_name(backend)
-        _ensure_backend_connected(backend_name)
         session.backend = backend_name
         details = dict(session.details or {})
         details["connected_backend"] = backend_name
+        backend_warning = _best_effort_backend_connection(backend_name)
+        if backend_warning:
+            details["backend_warning"] = backend_warning
+        else:
+            details.pop("backend_warning", None)
         session.details = details
     if workspace_path is not None:
         session.workspace_path = _default_workspace_path(workspace_path)
@@ -1059,12 +1077,6 @@ def send_chat_message(
     if not session.workspace_path:
         session.workspace_path = _default_workspace_path()
 
-    details = dict(session.details or {})
-    if details.get("connected_backend") != backend_name:
-        _ensure_backend_connected(backend_name)
-        details["connected_backend"] = backend_name
-        session.details = details
-
     user_message = (message or "").strip()
     if not user_message:
         raise RuntimeError("Chat message cannot be empty.")
@@ -1076,6 +1088,17 @@ def send_chat_message(
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
+    details = dict(session.details or {})
+    if mode == "task" and (
+        details.get("connected_backend") != backend_name or details.get("backend_warning")
+    ):
+        details["connected_backend"] = backend_name
+        backend_warning = _best_effort_backend_connection(backend_name)
+        if backend_warning:
+            details["backend_warning"] = backend_warning
+        else:
+            details.pop("backend_warning", None)
+        session.details = details
     if mode == "brain_lookup":
         assistant_prompt = _build_lookup_prompt(
             backend_name=backend_name,

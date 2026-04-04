@@ -1540,6 +1540,19 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    @patch("app.direct_chat._best_effort_backend_connection", return_value="Unable to connect gemini to the Pexo MCP server.")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_session_creation_tolerates_backend_connection_warning(self, mock_backend_name, mock_best_effort):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            self.assertEqual(session["backend"], "gemini")
+            self.assertIn("backend_warning", session["details"])
+        finally:
+            db.close()
+
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
@@ -1557,6 +1570,33 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")
             self.assertEqual(reply["reply"]["status"], "answered")
             self.assertIn("ready", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._best_effort_backend_connection")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_retries_backend_connection_for_task_mode_when_session_has_warning(self, mock_backend_name, mock_best_effort, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            mock_best_effort.side_effect = [
+                "Unable to connect gemini to the Pexo MCP server.",
+                None,
+            ]
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "I can design that landing page."
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product.",
+            )
+
+            self.assertEqual(mock_best_effort.call_count, 2)
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertNotIn("backend_warning", reply["session"]["details"])
         finally:
             db.close()
 
