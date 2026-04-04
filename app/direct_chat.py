@@ -25,7 +25,10 @@ PREFERRED_CONVERSATION_BACKENDS = ("gemini", "codex", "claude")
 PREFERRED_TASK_BACKENDS = ("codex", "gemini", "claude")
 FAST_CHAT_TIMEOUT_SECONDS = 6
 FAST_LOOKUP_TIMEOUT_SECONDS = 10
-FACTUAL_CHAT_TIMEOUT_SECONDS = 18
+FACTUAL_CHAT_TIMEOUT_SECONDS = 10
+SECONDARY_CHAT_TIMEOUT_SECONDS = 4
+SECONDARY_LOOKUP_TIMEOUT_SECONDS = 5
+SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS = 5
 LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
@@ -637,11 +640,35 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in LOCAL_FIRST_FACT_INTENTS
 
 
-def _conversation_timeout_seconds(user_message: str, timeout_seconds: int) -> int:
+def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None) -> bool:
     normalized = _normalize_chat_text(user_message)
-    if _looks_like_general_knowledge_question(normalized):
+    if not _looks_like_general_knowledge_question(normalized):
+        return False
+    if direct_fact_intent is None:
+        direct_fact_intent = _infer_direct_fact_intent(user_message)
+    if direct_fact_intent is not None:
+        return False
+    return _build_local_conversation_reply(user_message) is None
+
+
+def _conversation_timeout_seconds(user_message: str, timeout_seconds: int) -> int:
+    if _is_general_knowledge_turn(user_message):
         return min(timeout_seconds, FACTUAL_CHAT_TIMEOUT_SECONDS)
     return min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
+
+
+def _conversation_timeout_for_attempt(user_message: str, timeout_seconds: int, attempt_index: int) -> int:
+    if attempt_index <= 0:
+        return _conversation_timeout_seconds(user_message, timeout_seconds)
+    if _is_general_knowledge_turn(user_message):
+        return min(timeout_seconds, SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS)
+    return min(timeout_seconds, SECONDARY_CHAT_TIMEOUT_SECONDS)
+
+
+def _lookup_timeout_for_attempt(timeout_seconds: int, attempt_index: int) -> int:
+    if attempt_index <= 0:
+        return min(timeout_seconds, FAST_LOOKUP_TIMEOUT_SECONDS)
+    return min(timeout_seconds, SECONDARY_LOOKUP_TIMEOUT_SECONDS)
 
 
 def _build_backend_unavailable_reply(backend_name: str, *, mode: str) -> str:
@@ -655,6 +682,22 @@ def _build_backend_unavailable_reply(backend_name: str, *, mode: str) -> str:
         f"I couldn't get a quick answer from {label} just now, but Pexo is still running. "
         "Try again, switch backends with /backend <name>, or give me a more concrete task."
     )
+
+
+def _should_retry_without_model(exc: RuntimeError) -> bool:
+    message = str(exc).strip().lower()
+    if not message or "timed out" in message:
+        return False
+    retryable_hints = (
+        "unknown model",
+        "unsupported model",
+        "model not found",
+        "invalid model",
+        "unrecognized",
+        "invalid choice",
+        "no such option",
+    )
+    return any(hint in message for hint in retryable_hints)
 
 
 def _default_workspace_path(explicit_path: str | None = None) -> str:
@@ -798,12 +841,26 @@ def _build_conversation_prompt(
         "Reply as Pexo in a natural, direct way.\n"
         "This is normal conversation, not task orchestration.\n"
         "Answer the latest user message directly.\n"
+        "If it is a simple factual question, answer with one short factual sentence.\n"
+        "If you are uncertain, say so plainly in one short sentence instead of stalling.\n"
         "Do not narrate your role, mode, or internal process.\n"
         "Do not tell the user you are acting as Pexo. Just answer.\n"
         "Do not ask what they want to do unless they explicitly asked for that.\n"
         "Keep the reply short and human.\n\n"
         f"{_local_chat_facts()}\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
+        f"Latest user message:\n{latest_user_message}\n"
+    )
+
+
+def _build_quick_conversation_prompt(*, latest_user_message: str) -> str:
+    return (
+        "Reply as Pexo in one short direct answer.\n"
+        "Answer the user's latest message directly.\n"
+        "Do not narrate your role, mode, or process.\n"
+        "If the user asked a simple factual question, answer with the fact plainly.\n"
+        "If you are uncertain, say so in one short sentence.\n\n"
+        f"{_local_chat_facts()}\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
 
@@ -853,7 +910,39 @@ def _build_task_prompt(
     )
 
 
-def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None) -> str:
+def _backend_needs_mcp(mode: str) -> bool:
+    return mode == "task"
+
+
+def _backend_needs_workspace(mode: str) -> bool:
+    return mode == "task"
+
+
+def _available_backends_for_mode(mode: str) -> list[str]:
+    order = PREFERRED_CHAT_BACKENDS
+    if mode in {"conversation", "brain_lookup"}:
+        order = PREFERRED_CONVERSATION_BACKENDS
+    elif mode == "task":
+        order = PREFERRED_TASK_BACKENDS
+    available: list[str] = []
+    for candidate in order:
+        plan = build_client_connection_plan(candidate, scope="user")
+        if plan["available"]:
+            available.append(candidate)
+    return available
+
+
+def _conversation_backend_candidates(primary_backend: str, *, mode: str) -> list[str]:
+    candidates = [primary_backend]
+    if mode not in {"conversation", "brain_lookup"}:
+        return candidates
+    for candidate in _available_backends_for_mode(mode):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False, encoding="utf-8") as handle:
         output_path = Path(handle.name)
     args = [
@@ -861,24 +950,20 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
         "--skip-git-repo-check",
         "--color",
         "never",
-        "--full-auto",
     ]
+    if mode == "task":
+        args.append("--full-auto")
     if model_override:
         args.extend(["-m", model_override])
-    args.extend(
-        [
-            "-C",
-            workspace_path,
-            "-o",
-            str(output_path),
-            prompt,
-        ]
-    )
+    if workspace_path and _backend_needs_workspace(mode):
+        args.extend(["-C", workspace_path])
+    args.extend(["-o", str(output_path), prompt])
     command = _wrap_command(plan["invoker"], args)
     try:
         try:
             completed = subprocess.run(
                 command,
+                cwd=workspace_path if workspace_path else None,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -899,19 +984,20 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
         output_path.unlink(missing_ok=True)
 
 
-def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None) -> str:
+def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
     args = [
         "--prompt",
         prompt,
         "--output-format",
         "text",
-        "--yolo",
-        "--allowed-mcp-server-names",
-        "pexo",
     ]
+    if mode == "task":
+        args.extend(["--yolo"])
+    if _backend_needs_mcp(mode):
+        args.extend(["--allowed-mcp-server-names", "pexo"])
     if model_override:
         args.extend(["-m", model_override])
-    if workspace_path:
+    if workspace_path and _backend_needs_workspace(mode):
         args.extend(["--include-directories", workspace_path])
     command = _wrap_command(plan["invoker"], args)
     try:
@@ -931,7 +1017,7 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     return (completed.stdout or "").strip()
 
 
-def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None) -> str:
+def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task") -> str:
     args = []
     if model_override:
         args.extend(["--model", model_override])
@@ -968,24 +1054,24 @@ def run_direct_chat_backend(
     model_override = _select_backend_model(backend_name, mode)
     if backend_name == "codex":
         try:
-            return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override)
-        except RuntimeError:
-            if model_override:
-                return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None)
+            return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode)
+        except RuntimeError as exc:
+            if model_override and _should_retry_without_model(exc):
+                return _run_codex_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode)
             raise
     if backend_name == "gemini":
         try:
-            return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override)
-        except RuntimeError:
-            if model_override:
-                return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None)
+            return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode)
+        except RuntimeError as exc:
+            if model_override and _should_retry_without_model(exc):
+                return _run_gemini_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode)
             raise
     if backend_name == "claude":
         try:
-            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override)
-        except RuntimeError:
-            if model_override:
-                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None)
+            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override, mode=mode)
+        except RuntimeError as exc:
+            if model_override and _should_retry_without_model(exc):
+                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None, mode=mode)
             raise
     raise RuntimeError(f"Unsupported backend '{backend_name}'.")
 
@@ -1178,6 +1264,10 @@ def send_chat_message(
     backend_name = _resolve_backend_name("auto" if backend_policy == "auto" else (session.backend or "auto"), mode=mode)
     session.backend = backend_name
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
+    general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
+        user_message,
+        direct_fact_intent=direct_fact_intent,
+    )
     local_first = _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
     details = dict(session.details or {})
     details["backend_policy"] = backend_policy
@@ -1207,71 +1297,102 @@ def send_chat_message(
             history_excerpt=history_excerpt,
         )
     else:
-        assistant_prompt = _build_conversation_prompt(
-            backend_name=backend_name,
-            chat_session=session,
-            latest_user_message=user_message,
-            history_excerpt=history_excerpt,
-        )
+        if general_knowledge_turn:
+            assistant_prompt = _build_quick_conversation_prompt(latest_user_message=user_message)
+        else:
+            assistant_prompt = _build_conversation_prompt(
+                backend_name=backend_name,
+                chat_session=session,
+                latest_user_message=user_message,
+                history_excerpt=history_excerpt,
+            )
     assistant_text = None
     response_path = "backend"
     backend_elapsed_ms: int | None = None
     started_at = time.monotonic()
     backend_timeout = timeout_seconds
     if mode == "brain_lookup":
-        backend_timeout = min(timeout_seconds, FAST_LOOKUP_TIMEOUT_SECONDS)
+        backend_timeout = _lookup_timeout_for_attempt(timeout_seconds, 0)
     elif mode == "conversation":
-        backend_timeout = _conversation_timeout_seconds(user_message, timeout_seconds)
+        backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
 
     if local_first:
         assistant_text = _build_local_conversation_reply(user_message)
         response_path = "local_direct"
     else:
-        try:
-            backend_started_at = time.monotonic()
-            raw_result = run_direct_chat_backend(
-                backend_name,
-                assistant_prompt,
-                session.workspace_path,
-                timeout_seconds=backend_timeout,
-                mode=mode,
+        backend_candidates = [backend_name]
+        should_try_backend_fallbacks = (
+            backend_policy == "auto"
+            and (
+                mode == "brain_lookup"
+                or general_knowledge_turn
             )
-            backend_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
-            if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
-                direct_fact_intent,
-                raw_result or "",
-            ):
-                retry_started_at = time.monotonic()
+        )
+        if should_try_backend_fallbacks:
+            backend_candidates = _conversation_backend_candidates(backend_name, mode=mode)
+        backend_errors: dict[str, str] = {}
+        attempted_backends: list[str] = []
+        for attempt_index, candidate_backend in enumerate(backend_candidates):
+            attempted_backends.append(candidate_backend)
+            candidate_timeout = timeout_seconds
+            if mode == "brain_lookup":
+                candidate_timeout = _lookup_timeout_for_attempt(timeout_seconds, attempt_index)
+            elif mode == "conversation":
+                candidate_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, attempt_index)
+            try:
+                backend_started_at = time.monotonic()
                 raw_result = run_direct_chat_backend(
-                    backend_name,
-                    _build_backend_retry_prompt(
-                        assistant_prompt,
-                        mode=mode,
-                        user_message=user_message,
-                    ),
+                    candidate_backend,
+                    assistant_prompt,
                     session.workspace_path,
-                    timeout_seconds=backend_timeout,
+                    timeout_seconds=candidate_timeout,
                     mode=mode,
                 )
-                backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
-                response_path = "backend_retry"
-            assistant_text = _normalize_backend_reply(
-                db,
-                mode=mode,
-                user_message=user_message,
-                assistant_text=raw_result or "",
-                direct_fact_intent=direct_fact_intent,
-            )
-        except RuntimeError:
-            assistant_text = _maybe_build_local_reply(
-                db,
-                mode=mode,
-                user_message=user_message,
-            )
-            response_path = "local_fallback"
-            if assistant_text is None:
-                assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
-                response_path = "backend_unavailable"
+                candidate_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
+                backend_elapsed_ms = (backend_elapsed_ms or 0) + candidate_elapsed_ms
+                if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
+                    direct_fact_intent,
+                    raw_result or "",
+                ):
+                    retry_started_at = time.monotonic()
+                    raw_result = run_direct_chat_backend(
+                        candidate_backend,
+                        _build_backend_retry_prompt(
+                            assistant_prompt,
+                            mode=mode,
+                            user_message=user_message,
+                        ),
+                        session.workspace_path,
+                        timeout_seconds=candidate_timeout,
+                        mode=mode,
+                    )
+                    backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
+                    response_path = "backend_retry" if attempt_index == 0 else "backend_fallback_retry"
+                elif attempt_index > 0:
+                    response_path = "backend_fallback"
+                assistant_text = _normalize_backend_reply(
+                    db,
+                    mode=mode,
+                    user_message=user_message,
+                    assistant_text=raw_result or "",
+                    direct_fact_intent=direct_fact_intent,
+                )
+                backend_name = candidate_backend
+                session.backend = candidate_backend
+                break
+            except RuntimeError as exc:
+                backend_errors[candidate_backend] = str(exc)
+                if attempt_index == len(backend_candidates) - 1:
+                    assistant_text = _maybe_build_local_reply(
+                        db,
+                        mode=mode,
+                        user_message=user_message,
+                    )
+                    response_path = "local_fallback"
+                    if assistant_text is None:
+                        assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
+                        response_path = "backend_unavailable"
+                continue
 
     total_latency_ms = int((time.monotonic() - started_at) * 1000)
 
@@ -1283,6 +1404,12 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
+    if not local_first:
+        details["attempted_backends"] = attempted_backends
+        if backend_errors:
+            details["backend_errors"] = backend_errors
+        else:
+            details.pop("backend_errors", None)
     if backend_elapsed_ms is not None:
         details["backend_latency_ms"] = backend_elapsed_ms
     else:

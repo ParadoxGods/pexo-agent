@@ -899,6 +899,51 @@ class HardeningTests(unittest.TestCase):
         mock_run_gemini.assert_called_once()
         self.assertEqual(mock_run_gemini.call_args.kwargs["model_override"], "gemini-2.5-flash")
 
+    @patch("app.direct_chat._run_gemini_turn")
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_run_direct_chat_backend_does_not_retry_model_after_timeout(self, mock_plan, mock_run_gemini):
+        mock_plan.return_value = {
+            "available": True,
+            "invoker": "gemini",
+        }
+        mock_run_gemini.side_effect = RuntimeError("Gemini direct chat timed out after 10 seconds.")
+
+        with self.assertRaises(RuntimeError):
+            direct_chat_module.run_direct_chat_backend(
+                "gemini",
+                "who is the president",
+                str(PROJECT_ROOT),
+                timeout_seconds=10,
+                mode="conversation",
+            )
+
+        mock_run_gemini.assert_called_once()
+
+    @patch("app.direct_chat._run_gemini_turn")
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_run_direct_chat_backend_retries_without_model_for_invalid_model_error(self, mock_plan, mock_run_gemini):
+        mock_plan.return_value = {
+            "available": True,
+            "invoker": "gemini",
+        }
+        mock_run_gemini.side_effect = [
+            RuntimeError("Unknown model 'gemini-2.5-flash'."),
+            "ok",
+        ]
+
+        result = direct_chat_module.run_direct_chat_backend(
+            "gemini",
+            "hello",
+            str(PROJECT_ROOT),
+            timeout_seconds=10,
+            mode="conversation",
+        )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(mock_run_gemini.call_count, 2)
+        self.assertEqual(mock_run_gemini.call_args_list[0].kwargs["model_override"], "gemini-2.5-flash")
+        self.assertIsNone(mock_run_gemini.call_args_list[1].kwargs["model_override"])
+
     @patch("app.direct_chat.build_client_connection_plan")
     def test_resolve_backend_name_prefers_gemini_for_conversation_and_codex_for_tasks(self, mock_plan):
         def fake_plan(client, scope="user"):
@@ -1743,9 +1788,10 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._conversation_backend_candidates", return_value=["gemini", "codex"])
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_backend_candidates, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -1759,6 +1805,33 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(reply["session"]["details"]["response_path"], "backend_unavailable")
             self.assertIn("still running", reply["reply"]["user_message"].lower())
             self.assertIn("gemini", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._conversation_backend_candidates", return_value=["gemini", "codex"])
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_tries_fallback_backend_for_general_question_in_auto_mode(self, mock_backend_name, mock_connect, mock_backend_candidates, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                RuntimeError("Gemini direct chat timed out after 10 seconds."),
+                "The president is Alex Example.",
+            ]
+
+            reply = send_chat_message(db, session_id=session["id"], message="who is the president")
+
+            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertEqual(reply["session"]["details"]["response_path"], "backend_fallback")
+            self.assertEqual(reply["session"]["details"]["attempted_backends"], ["gemini", "codex"])
+            self.assertEqual(reply["session"]["backend"], "codex")
+            self.assertIn("president", reply["reply"]["user_message"].lower())
+            first_prompt = mock_run_backend.call_args_list[0].args[1]
+            self.assertNotIn("Recent direct chat transcript", first_prompt)
         finally:
             db.close()
 
