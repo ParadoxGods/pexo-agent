@@ -1794,6 +1794,54 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_routes_task_follow_up_after_task_turn(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                "I can design that landing page.",
+                "I'll keep it clean and premium.",
+            ]
+
+            first = send_chat_message(db, session_id=session["id"], message="Design a modern landing page for my product.")
+            second = send_chat_message(db, session_id=session["id"], message="yes, keep it clean and premium")
+
+            self.assertEqual(first["session"]["details"]["mode"], "task")
+            self.assertEqual(second["session"]["details"]["mode"], "task")
+            self.assertEqual(second["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("keep it clean and premium", second["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_answers_whats_next_from_task_session_context(self, mock_backend_name, mock_connect):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            chat_session = db.query(ChatSession).filter(ChatSession.id == session["id"]).first()
+            chat_session.details = {
+                "mode": "task",
+                "response_path": "backend_retry",
+                "last_assistant_message": "I can handle that. I'll start with the structure, visual direction, and first concrete implementation step.",
+            }
+            db.commit()
+
+            reply = send_chat_message(db, session_id=session["id"], message="what should you do next?")
+
+            self.assertEqual(reply["session"]["details"]["mode"], "conversation")
+            self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("next i'll start with", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._fast_web_fact_lookup", return_value={"answer": "According to Wikipedia, the incumbent president is Donald Trump.", "source": "wikipedia_search", "title": "List of presidents of the United States"})
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
@@ -1925,7 +1973,7 @@ class HardeningTests(unittest.TestCase):
 
             reply = send_chat_message(db, session_id=session["id"], message="how are you")
 
-            self.assertEqual(mock_run_backend.call_count, 1)
+            self.assertEqual(mock_run_backend.call_count, 0)
             self.assertIn("ready", reply["reply"]["user_message"].lower())
         finally:
             db.close()
@@ -2030,7 +2078,7 @@ class HardeningTests(unittest.TestCase):
             preference_reply = send_chat_message(db, session_id=session["id"], message="what is your favorite color")
             feedback_reply = send_chat_message(db, session_id=session["id"], message="this is bad")
 
-            self.assertEqual(mock_run_backend.call_count, 3)
+            self.assertEqual(mock_run_backend.call_count, 2)
             self.assertIn("ready", status_reply["reply"]["user_message"].lower())
             self.assertIn("don't have personal preferences", preference_reply["reply"]["user_message"].lower())
             self.assertIn("simpler and more direct", feedback_reply["reply"]["user_message"].lower())
@@ -2135,6 +2183,50 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_help_framed_task_stays_local_first(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="can you help me design a landing page?",
+            )
+
+            mock_run_backend.assert_not_called()
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("i can help with that", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_routes_create_agent_request_to_task_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "I can create that frontend agent."
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="create a new frontend design agent for me",
+            )
+
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
     def test_direct_chat_task_mode_rejects_meta_filler(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
@@ -2156,6 +2248,32 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(reply["session"]["details"]["mode"], "task")
             self.assertIn("i can handle that", reply["reply"]["user_message"].lower())
             self.assertNotIn("respond as pexo", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_task_mode_rejects_im_pexo_meta_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                "I’m Pexo. What are we working on?",
+                "I'm ready. What's next?",
+            ]
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="create a new frontend design agent for me",
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 0)
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertIn("define the agent", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

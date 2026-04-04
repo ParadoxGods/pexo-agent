@@ -206,6 +206,31 @@ def _looks_like_task(text: str) -> bool:
     return any(_contains_hint(text, hint) for hint in TASK_HINTS)
 
 
+def _looks_like_task_follow_up(text: str) -> bool:
+    if not text:
+        return False
+    follow_up_prefixes = (
+        "yes",
+        "yeah",
+        "yep",
+        "no,",
+        "no ",
+        "keep it",
+        "make it",
+        "also",
+        "add ",
+        "include ",
+        "use ",
+        "with ",
+        "without ",
+        "and ",
+        "then ",
+        "more ",
+        "less ",
+    )
+    return text.startswith(follow_up_prefixes)
+
+
 def _looks_like_general_knowledge_question(text: str) -> bool:
     if not text:
         return False
@@ -235,11 +260,15 @@ def _looks_like_general_knowledge_question(text: str) -> bool:
 def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
     text = _normalize_chat_text(latest_user_message)
     previous_mode = str((chat_session.details or {}).get("mode") or "").strip().lower()
+    previous_response_path = str((chat_session.details or {}).get("response_path") or "").strip().lower()
 
-    if _looks_like_brain_lookup(text):
-        return "brain_lookup"
     if _looks_like_task(text):
         return "task"
+    if previous_mode == "task" and previous_response_path.startswith(("backend", "local_fallback", "local_direct")):
+        if _looks_like_task_follow_up(text):
+            return "task"
+    if _looks_like_brain_lookup(text):
+        return "brain_lookup"
     if previous_mode == "task" and text and not _looks_like_conversation(text):
         return "task"
     return "conversation"
@@ -973,6 +1002,33 @@ def _build_session_aware_conversation_reply(chat_session: ChatSession, user_mess
     if not text:
         return None
 
+    if any(
+        phrase in text
+        for phrase in (
+            "what should you do next",
+            "what should we do next",
+            "what do you do next",
+            "what happens next",
+            "what's next",
+            "whats next",
+        )
+    ):
+        details = dict(chat_session.details or {})
+        previous_mode = str(details.get("mode") or "").strip().lower()
+        task_next_step = str(details.get("task_next_step") or "").strip()
+        task_constraint = str(details.get("task_constraint") or "").strip()
+        last_assistant_message = str(details.get("last_assistant_message") or "").strip()
+        if previous_mode == "task":
+            if task_next_step:
+                if task_constraint:
+                    return f"Next I'll {task_next_step}, and I'll keep it {task_constraint}."
+                return f"Next I'll {task_next_step}."
+            match = re.search(r"\bI(?:'|’)ll\s+(.+)", last_assistant_message, flags=re.I)
+            if match:
+                next_step = match.group(1).strip().rstrip(".")
+                return f"Next I'll {next_step}."
+            return "Next I'll continue the task with the first concrete implementation step."
+
     if not any(
         phrase in text
         for phrase in (
@@ -1012,6 +1068,22 @@ def _build_session_aware_conversation_reply(chat_session: ChatSession, user_mess
 
 def _build_local_lookup_reply(db: Session, user_message: str) -> str:
     text = _normalize_chat_text(user_message)
+    if any(
+        phrase in text
+        for phrase in (
+            "what do you know about me",
+            "what do you know about my preferences",
+            "what do you know about my profile",
+            "summarize the profile you know for me",
+            "summarise the profile you know for me",
+        )
+    ):
+        profile_summary = _profile_summary(db)
+        memory_summary = _memory_summary(db, user_message)
+        return "Here's what Pexo knows about you locally:\n\n" + "\n\n".join(
+            section for section in (profile_summary, memory_summary) if section
+        )
+
     broad_lookup = any(
         _contains_hint(text, phrase) for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")
     )
@@ -1066,6 +1138,7 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "tell me what you need",
         "tell me what you want",
         "natural, direct, and concise",
+        "what are we working on",
     )
     if any(phrase in normalized for phrase in generic_phrases):
         return True
@@ -1077,6 +1150,10 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
 
 def _build_local_task_reply(user_message: str) -> str:
     text = _normalize_chat_text(user_message)
+    if text.startswith(("can you help me", "help me ")):
+        return "Yes. I can help with that. I'll start by framing the structure, visual direction, and first build step."
+    if "agent" in text and any(_contains_hint(text, hint) for hint in ("create", "new", "make", "add")):
+        return "I can handle that. I'll define the agent's role, capabilities, and first working prompt."
     if any(_contains_hint(text, hint) for hint in ("design", "build", "landing page", "website", "dashboard", "homepage")):
         return "I can handle that. I'll start with the structure, visual direction, and first concrete implementation step."
     if any(_contains_hint(text, hint) for hint in ("review", "audit", "analyze", "analyse", "inspect")):
@@ -1084,6 +1161,73 @@ def _build_local_task_reply(user_message: str) -> str:
     if any(_contains_hint(text, hint) for hint in ("fix", "debug", "repair", "broken", "error", "bug")):
         return "I can handle that. I'll start by isolating the failure and narrowing the likely cause."
     return "I can handle that. I'll start with a short plan and the first concrete step."
+
+
+def _build_local_task_follow_up_reply(user_message: str) -> str | None:
+    text = _normalize_chat_text(user_message)
+    if text.startswith("yes, keep it "):
+        return f"Understood. I'll keep it {user_message.strip()[13:].strip().rstrip('.')}."
+    if text.startswith("keep it "):
+        return f"Understood. I'll keep it {user_message.strip()[8:].strip().rstrip('.')}."
+    if text.startswith("yes, use "):
+        return f"Understood. I'll use {user_message.strip()[9:].strip().rstrip('.')}."
+    if text.startswith("use "):
+        return f"Understood. I'll use {user_message.strip()[4:].strip().rstrip('.')}."
+    if text.startswith("yes, include "):
+        return f"Understood. I'll include {user_message.strip()[13:].strip().rstrip('.')}."
+    if text.startswith("include "):
+        return f"Understood. I'll include {user_message.strip()[8:].strip().rstrip('.')}."
+    if text.startswith("yes, add "):
+        return f"Understood. I'll add {user_message.strip()[9:].strip().rstrip('.')}."
+    if text.startswith("add "):
+        return f"Understood. I'll add {user_message.strip()[4:].strip().rstrip('.')}."
+    return None
+
+
+def _extract_task_constraint(user_message: str) -> str | None:
+    text = _normalize_chat_text(user_message)
+    if text.startswith("yes, keep it "):
+        return user_message.strip()[13:].strip().rstrip(".")
+    if text.startswith("keep it "):
+        return user_message.strip()[8:].strip().rstrip(".")
+    if text.startswith("yes, use "):
+        return f"use {user_message.strip()[9:].strip().rstrip('.')}"
+    if text.startswith("use "):
+        return f"use {user_message.strip()[4:].strip().rstrip('.')}"
+    if text.startswith("yes, include "):
+        return f"include {user_message.strip()[13:].strip().rstrip('.')}"
+    if text.startswith("include "):
+        return f"include {user_message.strip()[8:].strip().rstrip('.')}"
+    if text.startswith("yes, add "):
+        return f"add {user_message.strip()[9:].strip().rstrip('.')}"
+    if text.startswith("add "):
+        return f"add {user_message.strip()[4:].strip().rstrip('.')}"
+    return None
+
+
+def _extract_task_next_step(assistant_text: str) -> str | None:
+    normalized = _normalize_chat_text(assistant_text)
+    if not normalized:
+        return None
+    match = re.search(r"\bI(?:'|’)ll\s+(.+?)(?:\.\s*|$)", assistant_text, flags=re.I)
+    if not match:
+        return None
+    candidate = match.group(1).strip().rstrip(".")
+    lowered = candidate.lower()
+    if lowered.startswith(("keep it ", "use ", "include ", "add ")):
+        return None
+    return candidate
+
+
+def _prefer_local_task_reply_first(user_message: str, previous_mode: str) -> bool:
+    text = _normalize_chat_text(user_message)
+    if previous_mode == "task" and _looks_like_task_follow_up(text):
+        return True
+    if text.startswith(("can you help me", "help me ")):
+        return True
+    if "agent" in text and any(_contains_hint(text, hint) for hint in ("create", "new", "make", "add")):
+        return True
+    return False
 
 
 def _normalize_backend_reply(
@@ -1134,6 +1278,8 @@ def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> st
         return _build_local_conversation_reply(user_message)
     if mode == "brain_lookup":
         return _build_local_lookup_reply(db, user_message)
+    if mode == "task":
+        return _build_local_task_reply(user_message)
     return None
 
 
@@ -1142,7 +1288,7 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
         return True
     if mode != "conversation":
         return False
-    return direct_fact_intent in LOCAL_FIRST_FACT_INTENTS
+    return direct_fact_intent in (LOCAL_FIRST_FACT_INTENTS | {"status"})
 
 
 def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None) -> bool:
@@ -1828,7 +1974,19 @@ def send_chat_message(
         user_message,
         direct_fact_intent=direct_fact_intent,
     )
-    local_first = bool(session_local_reply) or _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
+    previous_mode = str((session.details or {}).get("mode") or "").strip().lower()
+    task_follow_up_local_reply = (
+        _build_local_task_follow_up_reply(user_message)
+        if mode == "task" and previous_mode == "task"
+        else None
+    )
+    local_first = (
+        bool(session_local_reply)
+        or preference_memory is not None
+        or task_follow_up_local_reply is not None
+        or (mode == "task" and _prefer_local_task_reply_first(user_message, previous_mode))
+        or _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
+    )
     details = dict(session.details or {})
     details["backend_policy"] = backend_policy
     if mode == "task" and (
@@ -1892,7 +2050,7 @@ def send_chat_message(
         backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
 
     if local_first:
-        assistant_text = session_local_reply or _maybe_build_local_reply(
+        assistant_text = session_local_reply or task_follow_up_local_reply or _maybe_build_local_reply(
             db,
             mode=mode,
             user_message=user_message,
@@ -2007,6 +2165,17 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
+    if mode == "task":
+        task_next_step = _extract_task_next_step(assistant_text or "")
+        task_constraint = _extract_task_constraint(user_message)
+        if task_next_step:
+            details["task_next_step"] = task_next_step
+        elif response_path != "local_direct":
+            details.pop("task_next_step", None)
+        if task_constraint:
+            details["task_constraint"] = task_constraint
+    elif mode != "task":
+        details.pop("task_constraint", None)
     if preference_memory is not None:
         details["learned_preference"] = preference_memory.content
     else:
