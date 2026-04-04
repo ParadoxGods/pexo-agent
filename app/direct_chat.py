@@ -797,13 +797,18 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
     )
     command = _wrap_command(plan["invoker"], args)
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Codex direct chat timed out after {timeout_seconds} seconds."
+            ) from exc
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "Codex direct chat turn failed.").strip())
         if output_path.exists():
@@ -830,13 +835,18 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     if workspace_path:
         args.extend(["--include-directories", workspace_path])
     command = _wrap_command(plan["invoker"], args)
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout_seconds,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Gemini direct chat timed out after {timeout_seconds} seconds."
+        ) from exc
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout or "Gemini direct chat turn failed.").strip())
     return (completed.stdout or "").strip()
@@ -848,13 +858,18 @@ def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_overri
         args.extend(["--model", model_override])
     args.extend(["-p", prompt])
     command = _wrap_command(plan["invoker"], args)
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout_seconds,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Claude direct chat timed out after {timeout_seconds} seconds."
+        ) from exc
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout or "Claude direct chat turn failed.").strip())
     return (completed.stdout or "").strip()
