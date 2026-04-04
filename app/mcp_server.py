@@ -171,8 +171,8 @@ def _require_artifact(db, artifact_id: int) -> Artifact:
 
 def _brain_usage_rules() -> list[str]:
     return [
-        "Call pexo_bootstrap_brain first whenever Pexo is available for a new task.",
-        "Use pexo_start_task, pexo_continue_task, and pexo_get_task_status for task execution.",
+        "Prefer pexo_exchange as the default one-call surface whenever Pexo is available for a task.",
+        "Use pexo_bootstrap_brain, pexo_start_task, pexo_continue_task, and pexo_get_task_status only when you need lower-level control.",
         "Show user_message to the user whenever it is present.",
         "Keep internal orchestration instructions hidden unless the user explicitly asks for them.",
         "Use pexo_recall_context to find relevant memory and artifacts before asking the user to repeat context.",
@@ -261,6 +261,36 @@ def _compact_artifact_result(payload: dict) -> dict:
     }
 
 
+def _build_exchange_task_view(task_payload: dict | None, notice: str | None = None) -> dict:
+    if task_payload is None:
+        response = {
+            "status": "context_ready",
+            "next_action": "reply_to_user",
+            "user_message": "Pexo updated the local brain state.",
+        }
+    else:
+        status = task_payload.get("status", "processing")
+        next_action = {
+            "clarification_required": "ask_user",
+            "agent_action_required": "perform_agent_work",
+            "complete": "reply_to_user",
+            "processing": "wait",
+        }.get(status, "reply_to_user")
+        response = {
+            "status": status,
+            "session_id": task_payload.get("session_id"),
+            "next_action": next_action,
+            "user_message": task_payload.get("user_message") or task_payload.get("response") or "Pexo updated the task state.",
+        }
+        for key in ("question", "role", "instruction", "agent_instruction", "final_response", "response"):
+            if key in task_payload and task_payload.get(key) is not None:
+                response[key] = task_payload.get(key)
+
+    if notice:
+        response["notice"] = notice
+    return response
+
+
 def _brain_bootstrap_payload(
     db,
     *,
@@ -341,11 +371,12 @@ def pexo_brain_guide_resource() -> str:
         "# Pexo Brain Guide\n\n"
         "Use Pexo as the default local brain for tasks, memory, artifacts, and execution flow.\n\n"
         "## Default Flow\n\n"
-        "1. Call `pexo_bootstrap_brain` first.\n"
-        "2. If you need task execution, use `pexo_start_task`, `pexo_continue_task`, and `pexo_get_task_status`.\n"
+        "1. Call `pexo_exchange` first with the user's plain-language request.\n"
+        "2. Reuse the returned `session_id` with `pexo_exchange` for clarification answers or agent results.\n"
         "3. Use `user_message` for user-facing replies.\n"
-        "4. Use `pexo_recall_context` before asking the user to repeat context.\n"
-        "5. Persist useful notes with `pexo_remember_context` and files with `pexo_attach_context`.\n\n"
+        "4. Keep `agent_instruction` internal unless the user explicitly asks for orchestration details.\n"
+        "5. Use `pexo_recall_context` before asking the user to repeat context when you need extra control.\n"
+        "6. Persist useful notes with `pexo_remember_context` and files with `pexo_attach_context`, or fold them into `pexo_exchange`.\n\n"
         "## Rules\n\n"
         f"{rules}\n"
     )
@@ -361,12 +392,165 @@ def pexo_default_task_prompt(user_task: str) -> list[dict]:
             "role": "user",
             "content": (
                 "Use Pexo as the default local brain for this task. "
-                "Call pexo_bootstrap_brain first with the task, use pexo_start_task/pexo_continue_task/pexo_get_task_status "
-                "for execution, and keep user-facing replies short by using user_message whenever it is present. "
+                "Call pexo_exchange first with the task, keep reusing the returned session_id with pexo_exchange "
+                "for clarification answers or agent results, and keep user-facing replies short by using user_message whenever it is present. "
                 f"Task: {user_task}"
             ),
         }
     ]
+
+
+@mcp.tool()
+def pexo_exchange(
+    message: str | None = None,
+    session_id: str | None = None,
+    user_id: str = "default_user",
+    query: str | None = None,
+    agent_result: Any | None = None,
+    remember: str | None = None,
+    task_context: str = "general",
+    attach_path: str | None = None,
+    attach_name: str | None = None,
+    attach_text: str | None = None,
+    include_brain: bool = False,
+    memory_results: int = 4,
+    artifact_results: int = 4,
+    auto_promote_vector: bool = False,
+) -> dict:
+    """Primary one-call surface for AI clients. Start or continue a task, recall context, and optionally persist memory or artifacts without manually sequencing multiple Pexo tools."""
+
+    def operation(db):
+        if attach_text and not attach_name:
+            attach_text_name = "context.txt"
+        else:
+            attach_text_name = attach_name
+
+        if message is None and session_id is None and query is None and remember is None and attach_path is None and attach_text is None and not include_brain:
+            raise ValueError(
+                "Provide a message to start a task, a session_id to continue one, or context to store/recall."
+            )
+
+        if session_id is None and agent_result is not None:
+            raise ValueError("agent_result requires an existing session_id.")
+
+        writes: dict[str, Any] = {}
+        if remember:
+            stored_memory = store_memory(
+                MemoryStoreRequest(
+                    session_id=session_id or "brain_session",
+                    content=remember,
+                    task_context=task_context,
+                    auto_promote_vector=auto_promote_vector,
+                ),
+                db,
+            )
+            memory_id = stored_memory.get("memory_id")
+            writes["memory"] = _compact_memory_result(get_memory(memory_id, db)) if memory_id else None
+            if stored_memory.get("runtime") is not None:
+                writes["memory_runtime"] = stored_memory.get("runtime")
+            if stored_memory.get("promotion_offer") is not None:
+                writes["memory_promotion_offer"] = stored_memory.get("promotion_offer")
+
+        artifacts_written = []
+        if attach_path:
+            stored_artifact = register_artifact_path(
+                ArtifactPathRequest(
+                    path=attach_path,
+                    session_id=session_id or "brain_session",
+                    task_context=task_context,
+                    name=attach_name,
+                ),
+                db,
+            )
+            artifact_payload = stored_artifact.get("artifact")
+            if artifact_payload:
+                artifacts_written.append(_compact_artifact_result(artifact_payload))
+
+        if attach_text:
+            stored_text_artifact = register_artifact_text(
+                ArtifactTextRequest(
+                    name=attach_text_name or "context.txt",
+                    content=attach_text,
+                    session_id=session_id or "brain_session",
+                    task_context=task_context,
+                    source_uri=None,
+                    content_type="text/plain",
+                ),
+                db,
+            )
+            artifact_payload = stored_text_artifact.get("artifact")
+            if artifact_payload:
+                artifacts_written.append(_compact_artifact_result(artifact_payload))
+
+        if artifacts_written:
+            writes["artifacts"] = artifacts_written
+
+        task_payload = None
+        notice = None
+        if session_id:
+            current_status = get_simple_task_status(session_id=session_id, db=db)
+            if message is not None and agent_result is not None:
+                notice = "Pexo ignored the user message because agent_result was provided for this session."
+                task_payload = continue_simple_task(
+                    SimpleContinueRequest(session_id=session_id, result_data=agent_result),
+                    db,
+                )
+            elif message is not None:
+                if current_status.get("status") == "clarification_required":
+                    task_payload = continue_simple_task(
+                        SimpleContinueRequest(session_id=session_id, clarification_answer=message),
+                        db,
+                    )
+                else:
+                    task_payload = current_status
+                    notice = "Pexo did not use the message because this session is not waiting for user clarification."
+            elif agent_result is not None:
+                if current_status.get("status") == "agent_action_required":
+                    task_payload = continue_simple_task(
+                        SimpleContinueRequest(session_id=session_id, result_data=agent_result),
+                        db,
+                    )
+                else:
+                    task_payload = current_status
+                    notice = "Pexo did not use agent_result because this session is not waiting for agent work."
+            else:
+                task_payload = current_status
+        elif message is not None:
+            task_payload = start_simple_task(
+                PromptRequest(user_id=user_id, prompt=message, session_id=None),
+                db,
+            )
+
+        recall_query = (query or (message if not session_id else None) or remember or "").strip()
+        brain = None
+        if include_brain or query is not None or (message is not None and session_id is None):
+            brain = _brain_bootstrap_payload(
+                db,
+                prompt=None,
+                query=recall_query or None,
+                user_id=user_id,
+                session_id=session_id,
+                memory_results=memory_results,
+                artifact_results=artifact_results,
+            )
+            brain["task"] = None
+
+        exchange = _build_exchange_task_view(task_payload, notice=notice)
+        effective_session_id = exchange.get("session_id") or session_id
+        response = {
+            "mode": "exchange",
+            "session_id": effective_session_id,
+            **exchange,
+        }
+        if brain is not None:
+            response["brain"] = brain
+        if writes:
+            response["writes"] = writes
+        if recall_query:
+            response["query"] = recall_query
+        return response
+
+    return _with_db(operation)
 
 
 @mcp.tool()

@@ -95,14 +95,24 @@ Packaged installs expose a direct MCP entrypoint:
 
 Repository-level AI install and usage rules live in `AGENTS.md`.
 
-For AI-driven task work, prefer the simplified MCP flow:
+For AI-driven task work, prefer the single MCP exchange flow:
+
+- `pexo_exchange`
+
+How clients should use it:
+
+1. Send the user's plain-language request as `message`.
+2. Reuse the returned `session_id` with `pexo_exchange`.
+3. If Pexo asks a clarification question, send the user's answer back as `message`.
+4. If Pexo returns `agent_instruction`, do the work internally and send the result back as `agent_result`.
+5. Show `user_message` to the user and keep raw orchestration instructions internal unless the user explicitly asks for them.
+
+Lower-level task tools remain available when direct control is needed:
 
 - `pexo_bootstrap_brain`
 - `pexo_start_task`
 - `pexo_continue_task`
 - `pexo_get_task_status`
-
-Clients should use `user_message` for user-facing replies and keep raw orchestration instructions internal unless the user explicitly asks for them.
 
 For general context handling, use:
 

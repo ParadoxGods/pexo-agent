@@ -96,10 +96,22 @@ When using Pexo from Codex, Claude, or Gemini, treat Pexo as the default local b
 
 Default call order:
 
-1. `pexo_bootstrap_brain`
-2. `pexo_start_task`
-3. `pexo_continue_task`
-4. `pexo_get_task_status`
+1. `pexo_exchange`
+2. Reuse the returned `session_id` with `pexo_exchange`
+
+Default exchange behavior:
+
+- First call: send the user's plain-language request as `message`
+- If Pexo asks a clarification question, send the user's answer back as `message` with the same `session_id`
+- If Pexo returns `agent_instruction`, do the work internally and send the result back as `agent_result` with the same `session_id`
+- Show only `user_message` to the user unless they explicitly ask for internals
+
+Lower-level tools remain available if you need direct control:
+
+- `pexo_bootstrap_brain`
+- `pexo_start_task`
+- `pexo_continue_task`
+- `pexo_get_task_status`
 
 Use these context tools around that flow:
 
@@ -110,6 +122,7 @@ Use these context tools around that flow:
 
 Prefer the simplified task tools over the raw orchestration tools:
 
+- `pexo_exchange`
 - `pexo_start_task`
 - `pexo_continue_task`
 - `pexo_get_task_status`

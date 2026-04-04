@@ -30,6 +30,7 @@ from app.mcp_server import (
     pexo_attach_context,
     pexo_attach_text_context,
     pexo_bootstrap_brain,
+    pexo_exchange,
     pexo_delete_artifact,
     pexo_create_agent,
     pexo_delete_agent,
@@ -442,6 +443,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
+        self.assertIn("pexo_exchange", readme)
         self.assertIn("pexo_bootstrap_brain", readme)
         self.assertIn("pexo_start_task", readme)
         self.assertIn("pexo_continue_task", readme)
@@ -473,6 +475,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Do not touch the current repo", agents_doc)
         self.assertIn("Do not execute raw remote scripts", agents_doc)
         self.assertIn("## Simple Task Flow", agents_doc)
+        self.assertIn("pexo_exchange", agents_doc)
         self.assertIn("pexo_bootstrap_brain", agents_doc)
         self.assertIn("pexo_start_task", agents_doc)
         self.assertIn("pexo_continue_task", agents_doc)
@@ -1535,13 +1538,42 @@ class HardeningTests(unittest.TestCase):
         self.assertTrue(any("Brain bootstrap note" in item["content"] for item in recall["memory"]["results"]))
         self.assertGreaterEqual(len(recall["artifacts"]["results"]), 1)
 
+        exchange = pexo_exchange(
+            message="Summarize the current local brain state.",
+            remember="Exchange recorded this bootstrap check.",
+            task_context="brain-test",
+            attach_text="Saved exchange note.",
+            attach_name="exchange-note.txt",
+        )
+        self.assertEqual(exchange["mode"], "exchange")
+        self.assertEqual(exchange["status"], "clarification_required")
+        self.assertEqual(exchange["next_action"], "ask_user")
+        self.assertIn("brain", exchange)
+        self.assertIn("writes", exchange)
+        self.assertEqual(exchange["writes"]["memory"]["task_context"], "brain-test")
+        self.assertEqual(len(exchange["writes"]["artifacts"]), 1)
+
+        exchange_continue = pexo_exchange(
+            session_id=exchange["session_id"],
+            message="Keep it lightweight and local-first.",
+        )
+        self.assertEqual(exchange_continue["status"], "agent_action_required")
+        self.assertEqual(exchange_continue["next_action"], "perform_agent_work")
+        self.assertEqual(exchange_continue["role"], "Supervisor")
+
+        exchange_submit = pexo_exchange(
+            session_id=exchange["session_id"],
+            agent_result=[{"id": "task-1", "description": "Write the plan", "assigned_agent": "Developer"}],
+        )
+        self.assertIn(exchange_submit["status"], {"agent_action_required", "complete"})
+
         bootstrap = pexo_bootstrap_brain(
             prompt="Summarize the current local brain state.",
             query="brain",
         )
         self.assertEqual(bootstrap["mode"], "brain")
         self.assertIn("operating_contract", bootstrap)
-        self.assertIn("pexo_bootstrap_brain", " ".join(bootstrap["operating_contract"]))
+        self.assertIn("pexo_exchange", " ".join(bootstrap["operating_contract"]))
         self.assertEqual(bootstrap["task"]["status"], "clarification_required")
         self.assertGreaterEqual(len(bootstrap["memory"]["results"]), 1)
         self.assertGreaterEqual(len(bootstrap["artifacts"]["results"]), 1)
@@ -1556,7 +1588,7 @@ class HardeningTests(unittest.TestCase):
             resource_items = asyncio.run(resource_items)
         resource_items = list(resource_items)
         resource_text = "\n".join(getattr(item, "text", str(item)) for item in resource_items)
-        self.assertIn("pexo_bootstrap_brain", resource_text)
+        self.assertIn("pexo_exchange", resource_text)
         self.assertIn("pexo_recall_context", resource_text)
 
     def test_mcp_genesis_tool_lifecycle(self):
