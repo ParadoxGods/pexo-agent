@@ -18,6 +18,10 @@ def open_browser():
 async def lifespan(app: FastAPI):
     # Initialize local persistence before serving requests.
     init_db()
+    
+    # Cogmachine: Start the autonomous memory efficiency engine
+    memory.start_autonomous_memory_cogmachine()
+    
     if os.environ.get("PEXO_NO_BROWSER") != "1":
         threading.Thread(target=open_browser, daemon=True).start()
     yield

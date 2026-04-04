@@ -377,21 +377,34 @@ def apply_memory_retention(db: Session) -> int:
     return len(stale_memories)
 
 
-def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.85) -> list[list[int]]:
+def normalize_for_likeness(text: str) -> str:
     """
-    Scans the memory collection for near-duplicate entries using vector similarity.
-    Returns a list of clusters (lists of memory IDs) that are semantically similar.
+    Normalizes text to detect "like-words" by stripping punctuation, 
+    lowercasing, and sorting unique words.
+    """
+    import re
+    if not text:
+        return ""
+    # Strip everything but alphanumeric, then split into unique sorted words
+    words = re.sub(r'[^\w\s]', '', text.lower()).split()
+    return " ".join(sorted(list(set(words))))
+
+
+def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.65) -> list[list[int]]:
+    """
+    Scans the memory collection for near-duplicate entries using both 
+    word-set normalization and vector similarity.
     """
     collection = get_memory_collection()
     if collection is None:
         return []
 
-    # Fetch recent active memories to check for likeness
+    # Efficiency: Scan larger batches for the "Cogmachine"
     candidates = (
         db.query(Memory)
         .filter(Memory.is_archived.is_(False), Memory.is_compacted.is_(False))
         .order_by(Memory.created_at.desc())
-        .limit(100)
+        .limit(500)
         .all()
     )
     if not candidates:
@@ -399,35 +412,49 @@ def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.85) ->
 
     clusters = []
     processed_ids = set()
+    
+    # Pre-compute normalized versions for fast "like-word" lookup
+    normalized_map = {m.id: normalize_for_likeness(m.content) for m in candidates}
 
     for memory in candidates:
-        if memory.id in processed_ids or not memory.chroma_id:
+        if memory.id in processed_ids:
             continue
-
-        # Search for neighbors in ChromaDB
-        results = collection.query(
-            query_texts=[memory.content],
-            n_results=5,
-            include=["distances", "metadatas"]
-        )
 
         cluster = [memory.id]
         processed_ids.add(memory.id)
+        
+        # 1. Immediate "Like-Word" Match (Lexical Redundancy)
+        norm_content = normalized_map.get(memory.id)
+        for other_id, other_norm in normalized_map.items():
+            if other_id == memory.id or other_id in processed_ids:
+                continue
+            if norm_content == other_norm:
+                cluster.append(other_id)
+                processed_ids.add(other_id)
 
-        if results and results["ids"] and results["distances"]:
-            # ChromaDB distances: 0 is identical, higher is more different. 
-            # threshold 0.15 roughly corresponds to 0.85 similarity
-            for i, other_chroma_id in enumerate(results["ids"][0]):
-                distance = results["distances"][0][i]
-                if other_chroma_id == memory.chroma_id:
-                    continue
-                
-                if distance < (1.0 - similarity_threshold):
-                    # Find the SQL record for this chroma_id
-                    other_mem = db.query(Memory).filter(Memory.chroma_id == other_chroma_id).first()
-                    if other_mem and other_mem.id not in processed_ids:
-                        cluster.append(other_mem.id)
-                        processed_ids.add(other_mem.id)
+        # 2. Semantic Likeness (Vector Overlap)
+        if memory.chroma_id:
+            try:
+                # Query more results to catch wider "likeness" clusters
+                results = collection.query(
+                    query_texts=[memory.content],
+                    n_results=15,
+                    include=["distances"]
+                )
+                if results and results["ids"] and results["distances"]:
+                    # threshold 0.35 distance corresponds to 0.65 similarity (very broad paraphrasing)
+                    for i, other_chroma_id in enumerate(results["ids"][0]):
+                        distance = results["distances"][0][i]
+                        if other_chroma_id == memory.chroma_id:
+                            continue
+                        
+                        if distance < (1.0 - similarity_threshold):
+                            other_mem = db.query(Memory).filter(Memory.chroma_id == other_chroma_id).first()
+                            if other_mem and other_mem.id not in processed_ids:
+                                cluster.append(other_mem.id)
+                                processed_ids.add(other_mem.id)
+            except Exception:
+                pass
         
         if len(cluster) > 1:
             clusters.append(cluster)
@@ -437,19 +464,20 @@ def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.85) ->
 
 def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     """
-    Uses an LLM to consolidate a cluster of similar memories into one high-quality entry.
+    Uses an LLM to consolidate a cluster of similar memories into one 
+    ruthlessly efficient, high-density entry.
     """
     memories = db.query(Memory).filter(Memory.id.in_(memory_ids)).all()
     if len(memories) < 2:
         return None
 
-    # Pick the most recent session_id and task_context
     primary = memories[0]
     content_block = "\n".join([f"- {m.content}" for m in memories])
     
     prompt = (
-        "The following memories were identified as semantically similar or redundant. "
-        "Merge them into a single, dense, factual memory that preserves all unique details but removes repetition. "
+        "You are the Swarm Efficiency Manager. The following memories are redundant, repetitive, or use 'like-words' "
+        "to describe the same result. Your goal is to eliminate all fluff and consolidate them into ONE singular, "
+        "high-density factual record. If two memories differ only by phrasing, keep only the most accurate version. "
         "Output ONLY the final merged text.\n\n"
         f"{content_block}"
     )
@@ -457,7 +485,7 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     merged_content = None
     for backend in _adaptive_backend_order():
         try:
-            res = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=20)
+            res = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=25)
             if res and "Error:" not in res:
                 merged_content = res.strip()
                 break
@@ -465,10 +493,22 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
             continue
 
     if not merged_content:
-        # Fallback: just use the longest one if LLM fails
-        merged_content = max([m.content for m in memories], key=len)
+        return None
 
-    # Create new consolidated memory
+    # Cogmachine logic: If the new content is essentially identical to an existing one, 
+    # just pick one instead of creating a new record.
+    norm_merged = normalize_for_likeness(merged_content)
+    for m in memories:
+        if normalize_for_likeness(m.content) == norm_merged:
+            # Found an existing one that perfectly captures the merge result. Use it.
+            for other_m in memories:
+                if other_m.id != m.id:
+                    other_m.is_archived = True
+                    other_m.compacted_into_id = m.id
+            db.commit()
+            return m.id
+
+    # Create new high-efficiency record
     new_memory = Memory(
         session_id=primary.session_id,
         task_context=primary.task_context,
@@ -479,7 +519,6 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     db.flush()
     _upsert_memory_embedding(new_memory)
 
-    # Archive old ones
     for m in memories:
         m.is_archived = True
         m.compacted_into_id = new_memory.id
@@ -488,24 +527,40 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     return new_memory.id
 
 
-def deduplicate_memories(db: Session) -> int:
+def deduplicate_memories(db: Session) -> dict:
     """
-    Sweeps through memory to find and merge duplicates. Returns number of merges performed.
+    Sweeps memory to merge duplicates. Returns metrics on efficiency gains.
     """
     clusters = find_semantic_duplicates(db)
     merge_count = 0
+    total_chars_before = 0
+    total_chars_after = 0
+    
     for cluster in clusters:
-        if merge_memory_cluster(db, cluster):
+        # Measure efficiency gain
+        mems = db.query(Memory).filter(Memory.id.in_(cluster)).all()
+        before = sum(len(m.content) for m in mems)
+        
+        merged_id = merge_memory_cluster(db, cluster)
+        if merged_id:
+            merged = db.query(Memory).filter(Memory.id == merged_id).first()
+            total_chars_before += before
+            total_chars_after += len(merged.content) if merged else 0
             merge_count += 1
-    return merge_count
+            
+    return {
+        "merges": merge_count,
+        "efficiency_gain_chars": total_chars_before - total_chars_after
+    }
 
 
 def maintain_memory_health(db: Session, task_context: str | None = None) -> dict:
-    dedup_count = deduplicate_memories(db)
+    dedup_metrics = deduplicate_memories(db)
     compaction_result = compact_memories_for_context(db, task_context)
     archived_count = apply_memory_retention(db)
     return {
-        "deduplicated_clusters": dedup_count,
+        "deduplicated_clusters": dedup_metrics["merges"],
+        "efficiency_gain_chars": dedup_metrics["efficiency_gain_chars"],
         "compacted_count": compaction_result["compacted_count"],
         "summary_memory_id": compaction_result["summary_memory_id"],
         "archived_count": archived_count,
@@ -518,6 +573,47 @@ def maintain_memory_health_bg(task_context: str | None = None) -> None:
         maintain_memory_health(db, task_context)
     finally:
         db.close()
+
+
+def autonomous_memory_cogmachine_loop() -> None:
+    """
+    Perpetual background loop that ensures memory efficiency.
+    """
+    import logging
+    import time
+    
+    logger = logging.getLogger("pexo.memory_cogmachine")
+    logger.info("Memory Cogmachine started.")
+    
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                # Proactive sweep of ALL context-less or global memories
+                dedup_count = deduplicate_memories(db)
+                if dedup_count > 0:
+                    logger.info(f"Memory Cogmachine cleaned up {dedup_count} redundant memory clusters.")
+                
+                # Global retention check
+                archived = apply_memory_retention(db)
+                if archived > 0:
+                    logger.info(f"Memory Cogmachine archived {archived} stale memories.")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Memory Cogmachine error: {e}")
+        
+        # Sleep for 10 minutes between global sweeps to preserve local resources
+        time.sleep(600)
+
+
+def start_autonomous_memory_cogmachine() -> None:
+    """
+    Spawns the memory efficiency background thread.
+    """
+    import threading
+    thread = threading.Thread(target=autonomous_memory_cogmachine_loop, daemon=True)
+    thread.start()
 
 
 class MemoryStoreRequest(BaseModel):
