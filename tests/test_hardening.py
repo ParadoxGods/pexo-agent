@@ -1453,14 +1453,11 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             self.assertEqual(session["backend"], "gemini")
 
-            mock_run_backend.side_effect = [
-                "Pexo is online and ready to help.",
-                "Understood. I will keep it responsive, minimal, and high-contrast.",
-            ]
+            mock_run_backend.return_value = "Understood. I will keep it responsive, minimal, and high-contrast."
 
             first_reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
             self.assertEqual(first_reply["reply"]["status"], "answered")
-            self.assertIn("ready", first_reply["reply"]["user_message"].lower())
+            self.assertIn("online", first_reply["reply"]["user_message"].lower())
 
             second_reply = send_chat_message(
                 db,
@@ -1469,6 +1466,7 @@ class HardeningTests(unittest.TestCase):
             )
             self.assertEqual(second_reply["reply"]["status"], "answered")
             self.assertIn("responsive", second_reply["reply"]["user_message"].lower())
+            mock_run_backend.assert_called_once()
 
             payload = get_chat_session_payload(db, session["id"])
             self.assertEqual(payload["session"]["status"], "answered")
@@ -1488,15 +1486,13 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.return_value = "Pexo is online and ready."
 
             reply = send_chat_message(db, session_id=session["id"], message="This is a test chat.")
 
-            prompt = mock_run_backend.call_args.args[1]
-            self.assertIn("This turn is conversation mode.", prompt)
-            self.assertIn("Do not start or continue a structured Pexo task", prompt)
+            mock_run_backend.assert_not_called()
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")
             self.assertEqual(reply["reply"]["status"], "answered")
+            self.assertIn("online", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -1518,15 +1514,12 @@ class HardeningTests(unittest.TestCase):
                 db,
             )
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.return_value = "Pexo has a stored README artifact."
 
             reply = send_chat_message(db, session_id=session["id"], message="Tell me the readme we have stored.")
 
-            prompt = mock_run_backend.call_args.args[1]
-            self.assertIn("This turn is brain lookup mode.", prompt)
-            self.assertIn("Local Pexo context:", prompt)
-            self.assertIn("README.md", prompt)
+            mock_run_backend.assert_not_called()
             self.assertEqual(reply["session"]["details"]["mode"], "brain_lookup")
+            self.assertIn("README.md", reply["reply"]["user_message"])
         finally:
             db.close()
 
@@ -1560,10 +1553,7 @@ class HardeningTests(unittest.TestCase):
     def test_chat_api_and_snapshot_include_direct_chat(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
-        mock_run_backend.side_effect = [
-            "Pexo is online and ready.",
-            "I can keep the plan local-first and simple.",
-        ]
+        mock_run_backend.return_value = "I can keep the plan local-first and simple."
 
         client = TestClient(app)
         create_response = client.post("/chat/sessions", json={"backend": "auto", "workspace_path": str(PROJECT_ROOT)})
@@ -1580,6 +1570,7 @@ class HardeningTests(unittest.TestCase):
         )
         self.assertEqual(second_message.status_code, 200)
         self.assertEqual(second_message.json()["reply"]["status"], "answered")
+        mock_run_backend.assert_called_once()
 
         snapshot = client.get("/admin/snapshot")
         self.assertEqual(snapshot.status_code, 200)

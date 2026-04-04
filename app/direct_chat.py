@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -123,15 +124,24 @@ def _normalize_chat_text(message: str) -> str:
     return " ".join((message or "").strip().lower().split())
 
 
+def _contains_hint(text: str, hint: str) -> bool:
+    normalized_hint = hint.strip().lower()
+    if not normalized_hint:
+        return False
+    if " " in normalized_hint:
+        return normalized_hint in text
+    return re.search(rf"\b{re.escape(normalized_hint)}\b", text) is not None
+
+
 def _looks_like_conversation(text: str) -> bool:
     if not text:
         return True
-    if any(hint in text for hint in CONVERSATION_HINTS):
+    if any(_contains_hint(text, hint) for hint in CONVERSATION_HINTS):
         return True
     words = text.split()
-    if len(words) <= 10 and not any(hint in text for hint in TASK_HINTS + BRAIN_LOOKUP_HINTS):
+    if len(words) <= 10 and not any(_contains_hint(text, hint) for hint in TASK_HINTS + BRAIN_LOOKUP_HINTS):
         return True
-    if text.endswith("?") and not any(hint in text for hint in TASK_HINTS):
+    if text.endswith("?") and not any(_contains_hint(text, hint) for hint in TASK_HINTS):
         return True
     return False
 
@@ -139,13 +149,13 @@ def _looks_like_conversation(text: str) -> bool:
 def _looks_like_brain_lookup(text: str) -> bool:
     if not text:
         return False
-    return any(hint in text for hint in BRAIN_LOOKUP_HINTS)
+    return any(_contains_hint(text, hint) for hint in BRAIN_LOOKUP_HINTS)
 
 
 def _looks_like_task(text: str) -> bool:
     if not text:
         return False
-    return any(hint in text for hint in TASK_HINTS)
+    return any(_contains_hint(text, hint) for hint in TASK_HINTS)
 
 
 def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
@@ -263,6 +273,64 @@ def _build_brain_lookup_context(db: Session, query: str) -> str:
         _artifact_summary(db, query),
     ]
     return "\n\n".join(section for section in sections if section)
+
+
+def _build_local_conversation_reply(user_message: str) -> str | None:
+    text = _normalize_chat_text(user_message)
+    if not text:
+        return "Pexo is online and ready."
+
+    if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
+        return "You're welcome. Pexo is ready for the next step."
+
+    if any(_contains_hint(text, hint) for hint in ("what can you do", "help")):
+        return (
+            "Pexo is online. I can keep local memory, search stored artifacts, manage agents, "
+            "and coordinate real work when a task actually needs it."
+        )
+
+    if _contains_hint(text, "who are you"):
+        return "I'm Pexo, your local-first control plane for memory, artifacts, agents, and task flow."
+
+    if any(_contains_hint(text, hint) for hint in ("are you there", "are you online", "testing", "test", "hello", "hi", "hey")):
+        return "Pexo is online and ready. Ask for a task, stored context, or an agent change when you're ready."
+
+    return None
+
+
+def _build_local_lookup_reply(db: Session, user_message: str) -> str:
+    text = _normalize_chat_text(user_message)
+    broad_lookup = any(
+        _contains_hint(text, phrase) for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")
+    )
+
+    sections: list[str] = []
+    if broad_lookup or any(_contains_hint(text, hint) for hint in ("profile", "runtime")):
+        sections.append(_profile_summary(db))
+    if broad_lookup or any(_contains_hint(text, hint) for hint in ("agent", "agents")):
+        sections.append(_agent_summary(db))
+    if broad_lookup or any(_contains_hint(text, hint) for hint in ("memory", "remember", "recall")):
+        sections.append(_memory_summary(db, user_message))
+    if broad_lookup or any(_contains_hint(text, hint) for hint in ("artifact", "artifacts", "readme", "stored")):
+        sections.append(_artifact_summary(db, user_message))
+
+    if not sections:
+        sections.extend(
+            [
+                _memory_summary(db, user_message),
+                _artifact_summary(db, user_message),
+            ]
+        )
+
+    return "Here’s what Pexo has locally:\n\n" + "\n\n".join(section for section in sections if section)
+
+
+def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> str | None:
+    if mode == "conversation":
+        return _build_local_conversation_reply(user_message)
+    if mode == "brain_lookup":
+        return _build_local_lookup_reply(db, user_message)
+    return None
 
 
 def _default_workspace_path(explicit_path: str | None = None) -> str:
@@ -713,13 +781,19 @@ def send_chat_message(
             latest_user_message=user_message,
             history_excerpt=history_excerpt,
         )
-    raw_result = run_direct_chat_backend(
-        backend_name,
-        assistant_prompt,
-        session.workspace_path,
-        timeout_seconds=timeout_seconds,
+    assistant_text = _maybe_build_local_reply(
+        db,
+        mode=mode,
+        user_message=user_message,
     )
-    assistant_text = (raw_result or "").strip() or "Pexo is ready for the next step."
+    if assistant_text is None:
+        raw_result = run_direct_chat_backend(
+            backend_name,
+            assistant_prompt,
+            session.workspace_path,
+            timeout_seconds=timeout_seconds,
+        )
+        assistant_text = (raw_result or "").strip() or "Pexo is ready for the next step."
 
     session.status = "answered"
     details = dict(session.details or {})
