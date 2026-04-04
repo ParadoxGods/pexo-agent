@@ -15,7 +15,11 @@ $ManifestPath = Join-Path $BundleRoot "pexo-install-manifest.json"
 
 function Write-Step {
     param([int]$Percent, [string]$Status)
-    Write-Host ("[{0,3}%] {1}" -f $Percent, $Status)
+    $width = 28
+    $filled = [Math]::Min($width, [Math]::Max(0, [int][Math]::Round(($Percent / 100) * $width)))
+    $bar = ('#' * $filled) + ('-' * ($width - $filled))
+    Write-Progress -Activity "Installing Pexo" -Status $Status -PercentComplete $Percent
+    Write-Host ("[{0}] {1,3}% {2}" -f $bar, $Percent, $Status)
 }
 
 function Test-CommandAvailable {
@@ -140,6 +144,7 @@ function Write-Summary {
     Write-Host "PEXO_INSTALL_SUMMARY_JSON=$json"
 }
 
+Write-Step -Percent 5 -Status "Preparing install bundle"
 $wheelPath = Get-WheelPath
 $version = Get-WheelVersion -WheelPath $wheelPath
 Test-WheelChecksum -WheelPath $wheelPath
@@ -205,11 +210,13 @@ if (-not [string]::IsNullOrWhiteSpace($BackupPath)) { $setupArgs += @("--backup-
 Invoke-Checked -Percent 72 -Status "Running headless setup" -FilePath $commandPath -ArgumentList $setupArgs
 
 if ($ConnectClients -ne "none") {
-    Invoke-Checked -Percent 88 -Status "Connecting supported AI clients" -FilePath $commandPath -ArgumentList @("connect", $ConnectClients, "--scope", "user")
+    Invoke-Checked -Percent 84 -Status "Connecting supported AI clients" -FilePath $commandPath -ArgumentList @("connect", $ConnectClients, "--scope", "user")
 }
 
+Invoke-Checked -Percent 92 -Status "Priming local runtime" -FilePath $commandPath -ArgumentList @("warmup", "--quiet")
+
 if (-not $SkipDoctor) {
-    Invoke-Checked -Percent 96 -Status "Running Pexo doctor" -FilePath $commandPath -ArgumentList @("doctor")
+    Invoke-Checked -Percent 97 -Status "Running Pexo doctor" -FilePath $commandPath -ArgumentList @("doctor")
 }
 
 Write-Step -Percent 100 -Status "Pexo install completed"

@@ -65,6 +65,14 @@ from email.parser import Parser
 from pathlib import Path
 
 
+def _print_progress(percent: int, status: str) -> None:
+    width = 28
+    bounded = max(0, min(100, int(percent)))
+    filled = min(width, int(round((bounded / 100) * width)))
+    bar = ("#" * filled) + ("-" * (width - filled))
+    print(f"[{bar}] {bounded:3d}% {status}", flush=True)
+
+
 def _request(url: str) -> urllib.request.Request:
     return urllib.request.Request(
         url,
@@ -188,6 +196,19 @@ def _sync_dependencies(target_python: str, wheel_path: Path) -> int:
     return int(completed.returncode)
 
 
+def _warmup(target_python: str) -> None:
+    try:
+        subprocess.run(
+            [target_python, "-m", "app.launcher", "warmup", "--quiet"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=45,
+        )
+    except Exception:
+        return
+
+
 def main() -> int:
     plan_path = Path(sys.argv[1]).resolve()
     temp_root = plan_path.parent
@@ -197,7 +218,8 @@ def main() -> int:
         checksum_path = temp_root / "SHA256SUMS.txt"
 
         print(f"Updating Pexo to {plan['version']}...")
-        print("Downloading release assets...")
+        _print_progress(5, "Preparing update plan")
+        _print_progress(20, "Downloading release assets")
         _download(plan["wheel_url"], wheel_path)
         _download(plan["checksum_url"], checksum_path)
 
@@ -217,7 +239,8 @@ def main() -> int:
             return 1
 
         install_label = plan.get("install_label") or "Installing update..."
-        print(install_label)
+        _print_progress(45, "Verifying release checksum")
+        _print_progress(70, install_label)
         target_python = plan["target_python"]
         if plan.get("operation") == "full":
             subprocess.run(
@@ -230,6 +253,8 @@ def main() -> int:
             if completed_code != 0:
                 return completed_code
         _overlay_wheel(wheel_path)
+        _print_progress(88, "Priming local runtime")
+        _warmup(target_python)
 
         _write_metadata(
             Path(plan["install_metadata_path"]),
@@ -239,7 +264,7 @@ def main() -> int:
             dependency_fingerprint=plan.get("dependency_fingerprint", ""),
         )
         Path(plan["update_stamp_path"]).write_text(str(int(time.time())), encoding="utf-8")
-        print(f"Pexo updated to {plan['version']}.")
+        _print_progress(100, f"Pexo updated to {plan['version']}.")
 
         return 0
     finally:
@@ -320,6 +345,17 @@ def _print_start_banner() -> None:
     print(banner)
     print("")
     print("PEXO | Primary EXecution Operator | local-first control plane")
+
+
+def _render_progress_bar(percent: int, status: str, *, width: int = 28) -> str:
+    bounded = max(0, min(100, int(percent)))
+    filled = min(width, int(round((bounded / 100) * width)))
+    bar = ("#" * filled) + ("-" * (width - filled))
+    return f"[{bar}] {bounded:3d}% {status}"
+
+
+def _print_progress_bar(percent: int, status: str) -> None:
+    print(_render_progress_bar(percent, status))
 
 
 def _github_api_request(url: str) -> urllib.request.Request:
@@ -745,6 +781,7 @@ def _maybe_stop_existing_server_for_update(host: str, port: int) -> str:
 def run_server(no_browser: bool = False) -> int:
     status = build_runtime_status()
     if not status["installed_profiles"].get("full", False):
+        _print_progress_bar(10, "Preparing full runtime")
         promotion_result = promote_runtime("full")
         if promotion_result["status"] != "success":
             print(
@@ -752,6 +789,9 @@ def run_server(no_browser: bool = False) -> int:
                 file=sys.stderr,
             )
             return 1
+        _print_progress_bar(80, "Priming full runtime")
+        run_warmup(quiet=True)
+        _print_progress_bar(100, "Full runtime installed")
         print("Full runtime installed. Restarting Pexo to activate the new environment...")
         return _restart_launcher_process()
 
@@ -788,6 +828,7 @@ def run_server(no_browser: bool = False) -> int:
 def run_mcp() -> int:
     status = build_runtime_status()
     if not status["installed_profiles"].get("mcp", False):
+        _print_progress_bar(10, "Preparing MCP runtime")
         promotion_result = promote_runtime("mcp")
         if promotion_result["status"] != "success":
             print(
@@ -795,6 +836,9 @@ def run_mcp() -> int:
                 file=sys.stderr,
             )
             return 1
+        _print_progress_bar(80, "Priming MCP runtime")
+        run_warmup(quiet=True)
+        _print_progress_bar(100, "MCP runtime installed")
         return _restart_launcher_process()
 
     from .mcp_server import start_mcp_server
@@ -834,6 +878,34 @@ def run_connect(target: str = "all", scope: str = "user", dry_run: bool = False,
     if report["status"] == "partial" and report["target"] != "all":
         return 1
     return 0
+
+
+def run_warmup(quiet: bool = False) -> int:
+    def step(percent: int, status: str) -> None:
+        if not quiet:
+            _print_progress_bar(percent, status)
+
+    try:
+        step(10, "Preparing local state")
+        PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
+        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+        DYNAMIC_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+
+        step(35, "Bootstrapping database")
+        ensure_db_ready()
+
+        step(60, "Loading runtime state")
+        build_runtime_status()
+
+        step(80, "Priming client integrations")
+        connect_clients(target="all", scope="user", dry_run=True, verify_existing=False)
+
+        step(100, "Pexo is primed")
+        return 0
+    except Exception as exc:
+        if not quiet:
+            print(f"Warmup failed: {exc}", file=sys.stderr)
+        return 1
 
 
 def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> int:
@@ -1029,6 +1101,8 @@ def build_parser() -> argparse.ArgumentParser:
     connect_parser.add_argument("--dry-run", action="store_true", help="Print the connection plan without changing client configuration.")
     connect_parser.add_argument("--json", action="store_true", help="Emit connection results as JSON.")
     subparsers.add_parser("uninstall", help="Show uninstall guidance for the current delivery mode.")
+    warmup_parser = subparsers.add_parser("warmup", help="Prime local Pexo state after install or update.")
+    warmup_parser.add_argument("--quiet", action="store_true", help="Suppress warmup progress output.")
     chat_parser = subparsers.add_parser("chat", help="Start Pexo direct chat in the terminal.")
     chat_parser.add_argument("--backend", default="auto", choices=["auto", *SUPPORTED_CLIENTS])
     chat_parser.add_argument("--workspace", default="", help="Workspace path to expose to the hidden AI worker.")
@@ -1045,6 +1119,7 @@ def print_help() -> None:
     print("  pexo --chat          Starts a direct terminal chat with Pexo")
     print("  pexo promote [full]  Installs or upgrades the local runtime dependency profile")
     print("  pexo update          Updates the current Pexo installation")
+    print("  pexo warmup          Primes local state after install or update")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
     print("  pexo connect all     Connects Codex, Claude, and Gemini to pexo-mcp when installed")
     print("  pexo --mcp           Starts Pexo as a native MCP server (stdio)")
@@ -1306,6 +1381,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_doctor(as_json=args.json)
     if args.command == "connect":
         return run_connect(target=args.client, scope=args.scope, dry_run=args.dry_run, as_json=args.json)
+    if args.command == "warmup":
+        return run_warmup(quiet=args.quiet)
     if args.command == "uninstall":
         return print_uninstall_guidance()
     if args.command == "chat":

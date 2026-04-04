@@ -25,7 +25,16 @@ done
 print_step() {
     local percent="$1"
     local status="$2"
-    printf '[%3s%%] %s\n' "$percent" "$status"
+    local width=28
+    local filled=$(( percent * width / 100 ))
+    local empty=$(( width - filled ))
+    local bar
+    printf -v bar '%*s' "$filled" ''
+    bar="${bar// /#}"
+    local gap
+    printf -v gap '%*s' "$empty" ''
+    gap="${gap// /-}"
+    printf '[%s%s] %3s%% %s\n' "$bar" "$gap" "$percent" "$status"
 }
 
 resolve_python_command() {
@@ -123,6 +132,7 @@ PY
 }
 
 PYTHON_CMD="$(resolve_python_command)" || { echo "Python 3.11 or newer is required." >&2; exit 1; }
+print_step 5 "Preparing install bundle"
 WHEEL_PATH="$(find_wheel)"
 VERSION="$(wheel_version "$WHEEL_PATH")"
 verify_wheel_checksum "$WHEEL_PATH"
@@ -191,12 +201,15 @@ if [ -n "$BACKUP_PATH" ]; then SETUP_ARGS+=(--backup-path "$BACKUP_PATH"); fi
 "$COMMAND_PATH" "${SETUP_ARGS[@]}"
 
 if [ "$CONNECT_CLIENTS" != "none" ]; then
-    print_step 88 "Connecting supported AI clients"
+    print_step 84 "Connecting supported AI clients"
     "$COMMAND_PATH" connect "$CONNECT_CLIENTS" --scope user
 fi
 
+print_step 92 "Priming local runtime"
+"$COMMAND_PATH" warmup --quiet
+
 if [ "$SKIP_DOCTOR" -eq 0 ]; then
-    print_step 96 "Running Pexo doctor"
+    print_step 97 "Running Pexo doctor"
     "$COMMAND_PATH" doctor
 fi
 

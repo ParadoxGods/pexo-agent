@@ -790,6 +790,8 @@ if ($HeadlessSetup) {
     Invoke-TrackedProcess -Percent 95 -StartMessage "Applying headless profile setup..." -HeartbeatMessage "Applying headless profile setup... still working" -FilePath ".\venv\Scripts\python.exe" -ArgumentList $headlessArgs -WorkingDirectory $PexoDir
 }
 
+Invoke-TrackedProcess -Percent 97 -StartMessage "Priming local runtime..." -HeartbeatMessage "Priming local runtime... still working" -FilePath $launcherPath -ArgumentList @("warmup", "--quiet") -WorkingDirectory $PexoDir
+
 $databasePath = Join-Path $PexoDir "pexo.db"
 $memoryStorePath = Join-Path $PexoDir "chroma_db"
 $effectiveBackupPath = if ($HeadlessSetup -and -not [string]::IsNullOrWhiteSpace($BackupPath)) { $BackupPath } elseif ($HeadlessSetup) { "not set" } else { "not configured during install" }

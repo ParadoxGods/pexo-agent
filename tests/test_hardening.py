@@ -344,6 +344,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Installing Python dependencies (", powershell_installer)
         self.assertIn("still working", powershell_installer)
         self.assertIn("Same-shell PATH activation verified", powershell_installer)
+        self.assertIn("Priming local runtime", powershell_installer)
+        self.assertIn('ArgumentList @("warmup", "--quiet")', powershell_installer)
         self.assertIn("Ready-to-paste Windows MCP config", powershell_installer)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", powershell_installer)
         self.assertIn("--headless-setup", shell_installer)
@@ -353,6 +355,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("git_checkout_detached_at", shell_installer)
         self.assertIn("Protected checkout left untouched", shell_installer)
         self.assertIn("Same-shell PATH activation verified", shell_installer)
+        self.assertIn("Priming local runtime", shell_installer)
+        self.assertIn('"$PEXO_DIR/pexo" warmup --quiet', shell_installer)
         self.assertIn("print_progress 100", shell_installer)
         self.assertIn("Installing Python dependencies (", shell_installer)
         self.assertIn("still working", shell_installer)
@@ -560,6 +564,7 @@ class HardeningTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("pexo --chat", output)
         self.assertIn("Starts a direct terminal chat with Pexo", output)
+        self.assertIn("pexo warmup", output)
 
     def test_checkout_wrappers_advertise_terminal_chat_mode(self):
         windows_wrapper = Path("pexo.bat").read_text(encoding="utf-8")
@@ -578,11 +583,16 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("pipx", install_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", install_ps)
         self.assertIn(".pexo-install.json", install_ps)
+        self.assertIn("Write-Progress", install_ps)
+        self.assertIn("Priming local runtime", install_ps)
+        self.assertIn('ArgumentList @("warmup", "--quiet")', install_ps)
         self.assertIn("install.ps1", install_cmd)
         self.assertIn("SHA256SUMS.txt", install_sh)
         self.assertIn("pipx install --force", install_sh)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", install_sh)
         self.assertIn(".pexo-install.json", install_sh)
+        self.assertIn("Priming local runtime", install_sh)
+        self.assertIn('"$COMMAND_PATH" warmup --quiet', install_sh)
         self.assertIn("Resetting managed runtime environment", install_ps)
         self.assertIn("Resetting managed runtime environment", install_sh)
         self.assertIn(".pexo-deps-profile", install_ps)
@@ -840,9 +850,27 @@ class HardeningTests(unittest.TestCase):
         helper = launcher_module.PACKAGED_UPDATE_HELPER
         self.assertIn("_overlay_wheel", helper)
         self.assertIn("_sync_dependencies", helper)
+        self.assertIn("_print_progress", helper)
+        self.assertIn("_warmup", helper)
+        self.assertIn('"-m", "app.launcher", "warmup", "--quiet"', helper)
         self.assertIn("Requires-Dist", helper)
         self.assertIn("zipfile.ZipFile", helper)
         self.assertNotIn('[target_python, "-m", "pip", *plan["pip_args"], str(wheel_path)]', helper)
+
+    @patch("app.launcher.connect_clients", return_value={"status": "partial", "results": []})
+    @patch("app.launcher.build_runtime_status", return_value={"active_profile": "mcp"})
+    @patch("app.launcher.ensure_db_ready")
+    def test_run_warmup_primes_local_state(self, mock_db_ready, _mock_runtime_status, mock_connect_clients):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "state"
+            artifacts = root / "artifacts"
+            tools = root / "dynamic_tools"
+            with patch.object(launcher_module, "PROJECT_ROOT", root), patch.object(launcher_module, "ARTIFACTS_DIR", artifacts), patch.object(launcher_module, "DYNAMIC_TOOLS_DIR", tools):
+                self.assertEqual(launcher_module.run_warmup(quiet=True), 0)
+
+        mock_db_ready.assert_called_once()
+        _mock_runtime_status.assert_called_once()
+        mock_connect_clients.assert_called_once_with(target="all", scope="user", dry_run=True, verify_existing=False)
 
     @patch("app.direct_chat._run_gemini_turn", return_value="ok")
     @patch("app.direct_chat.build_client_connection_plan")
@@ -933,24 +961,28 @@ class HardeningTests(unittest.TestCase):
         mock_db_ready.assert_called_once()
         mock_create_chat.assert_called_once()
 
+    @patch("app.launcher.run_warmup", return_value=0)
     @patch("app.launcher._restart_launcher_process", return_value=0)
     @patch("app.launcher.promote_runtime")
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": False}})
-    def test_run_server_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart):
+    def test_run_server_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart, mock_warmup):
         mock_promote.return_value = {"status": "success"}
 
         self.assertEqual(launcher_module.run_server(no_browser=True), 0)
         mock_promote.assert_called_once_with("full")
+        mock_warmup.assert_called_once_with(quiet=True)
         mock_restart.assert_called_once()
 
+    @patch("app.launcher.run_warmup", return_value=0)
     @patch("app.launcher._restart_launcher_process", return_value=0)
     @patch("app.launcher.promote_runtime")
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"mcp": False}})
-    def test_run_mcp_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart):
+    def test_run_mcp_restarts_after_successful_runtime_promotion(self, _mock_status, mock_promote, mock_restart, mock_warmup):
         mock_promote.return_value = {"status": "success"}
 
         self.assertEqual(launcher_module.run_mcp(), 0)
         mock_promote.assert_called_once_with("mcp")
+        mock_warmup.assert_called_once_with(quiet=True)
         mock_restart.assert_called_once()
 
     @patch("app.client_connect.running_from_repo_checkout", return_value=False)
@@ -1646,7 +1678,7 @@ class HardeningTests(unittest.TestCase):
             date_reply = send_chat_message(db, session_id=session["id"], message="what day is it")
             time_reply = send_chat_message(db, session_id=session["id"], message="what time is it")
 
-            self.assertEqual(mock_run_backend.call_count, 3)
+            mock_run_backend.assert_not_called()
             self.assertEqual(name_reply["reply"]["user_message"], "My name is Pexo.")
             self.assertIn("Today is", date_reply["reply"]["user_message"])
             self.assertIn("It is", time_reply["reply"]["user_message"])
@@ -1662,12 +1694,30 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.side_effect = RuntimeError("Codex direct chat timed out after 45 seconds.")
+            mock_run_backend.side_effect = RuntimeError("Codex direct chat timed out after 6 seconds.")
 
-            reply = send_chat_message(db, session_id=session["id"], message="what day is it")
+            reply = send_chat_message(db, session_id=session["id"], message="how are you")
 
             self.assertEqual(mock_run_backend.call_count, 1)
-            self.assertIn("Today is", reply["reply"]["user_message"])
+            self.assertIn("ready", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="codex")
+    def test_direct_chat_answers_direct_local_facts_without_waiting_on_backend(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            reply = send_chat_message(db, session_id=session["id"], message="what time is it")
+
+            mock_run_backend.assert_not_called()
+            self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("It is", reply["reply"]["user_message"])
         finally:
             db.close()
 
@@ -1731,7 +1781,7 @@ class HardeningTests(unittest.TestCase):
 
             reply = send_chat_message(db, session_id=session["id"], message="what day is it")
 
-            self.assertEqual(mock_run_backend.call_count, 2)
+            mock_run_backend.assert_not_called()
             self.assertIn("Today is", reply["reply"]["user_message"])
         finally:
             db.close()

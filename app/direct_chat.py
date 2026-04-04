@@ -21,7 +21,9 @@ from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Pr
 from .paths import PROJECT_ROOT
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
-FAST_CHAT_TIMEOUT_SECONDS = 45
+FAST_CHAT_TIMEOUT_SECONDS = 6
+FAST_LOOKUP_TIMEOUT_SECONDS = 10
+LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
     "gemini": "PEXO_CHAT_FAST_MODEL_GEMINI",
@@ -600,6 +602,12 @@ def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> st
     return None
 
 
+def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> bool:
+    if mode != "conversation":
+        return False
+    return direct_fact_intent in LOCAL_FIRST_FACT_INTENTS
+
+
 def _default_workspace_path(explicit_path: str | None = None) -> str:
     if explicit_path:
         return str(Path(explicit_path).expanduser().resolve(strict=False))
@@ -1108,6 +1116,7 @@ def send_chat_message(
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
+    local_first = _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
     details = dict(session.details or {})
     if mode == "task" and (
         details.get("connected_backend") != backend_name or details.get("backend_warning")
@@ -1142,48 +1151,65 @@ def send_chat_message(
             history_excerpt=history_excerpt,
         )
     assistant_text = None
+    response_path = "backend"
+    backend_elapsed_ms: int | None = None
+    started_at = time.monotonic()
     backend_timeout = timeout_seconds
-    if mode in {"conversation", "brain_lookup"}:
+    if mode == "brain_lookup":
+        backend_timeout = min(timeout_seconds, FAST_LOOKUP_TIMEOUT_SECONDS)
+    elif mode == "conversation":
         backend_timeout = min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
 
-    try:
-        raw_result = run_direct_chat_backend(
-            backend_name,
-            assistant_prompt,
-            session.workspace_path,
-            timeout_seconds=backend_timeout,
-            mode=mode,
-        )
-        if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
-            direct_fact_intent,
-            raw_result or "",
-        ):
+    if local_first:
+        assistant_text = _build_local_conversation_reply(user_message)
+        response_path = "local_direct"
+    else:
+        try:
+            backend_started_at = time.monotonic()
             raw_result = run_direct_chat_backend(
                 backend_name,
-                _build_backend_retry_prompt(
-                    assistant_prompt,
-                    mode=mode,
-                    user_message=user_message,
-                ),
+                assistant_prompt,
                 session.workspace_path,
                 timeout_seconds=backend_timeout,
                 mode=mode,
             )
-        assistant_text = _normalize_backend_reply(
-            db,
-            mode=mode,
-            user_message=user_message,
-            assistant_text=raw_result or "",
-            direct_fact_intent=direct_fact_intent,
-        )
-    except RuntimeError:
-        assistant_text = _maybe_build_local_reply(
-            db,
-            mode=mode,
-            user_message=user_message,
-        )
-        if assistant_text is None:
-            raise
+            backend_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
+            if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
+                direct_fact_intent,
+                raw_result or "",
+            ):
+                retry_started_at = time.monotonic()
+                raw_result = run_direct_chat_backend(
+                    backend_name,
+                    _build_backend_retry_prompt(
+                        assistant_prompt,
+                        mode=mode,
+                        user_message=user_message,
+                    ),
+                    session.workspace_path,
+                    timeout_seconds=backend_timeout,
+                    mode=mode,
+                )
+                backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
+                response_path = "backend_retry"
+            assistant_text = _normalize_backend_reply(
+                db,
+                mode=mode,
+                user_message=user_message,
+                assistant_text=raw_result or "",
+                direct_fact_intent=direct_fact_intent,
+            )
+        except RuntimeError:
+            assistant_text = _maybe_build_local_reply(
+                db,
+                mode=mode,
+                user_message=user_message,
+            )
+            response_path = "local_fallback"
+            if assistant_text is None:
+                raise
+
+    total_latency_ms = int((time.monotonic() - started_at) * 1000)
 
     session.status = "answered"
     details = dict(session.details or {})
@@ -1191,6 +1217,12 @@ def send_chat_message(
     details["last_assistant_message"] = assistant_text
     details["mode"] = mode
     details["connected_backend"] = backend_name
+    details["response_path"] = response_path
+    details["total_latency_ms"] = total_latency_ms
+    if backend_elapsed_ms is not None:
+        details["backend_latency_ms"] = backend_elapsed_ms
+    else:
+        details.pop("backend_latency_ms", None)
     session.details = details
 
     assistant_record = _store_message(
@@ -1202,6 +1234,9 @@ def send_chat_message(
             "status": "answered",
             "backend": backend_name,
             "mode": mode,
+            "response_path": response_path,
+            "total_latency_ms": total_latency_ms,
+            "backend_latency_ms": backend_elapsed_ms,
         },
     )
 

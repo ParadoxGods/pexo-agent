@@ -712,6 +712,8 @@ if [ "$HEADLESS_SETUP" -eq 1 ]; then
     run_tracked 95 "Applying headless profile setup..." "Applying headless profile setup... still working" "$(venv_python)" "${HEADLESS_ARGS[@]}"
 fi
 
+run_tracked 97 "Priming local runtime..." "Priming local runtime... still working" "$PEXO_DIR/pexo" warmup --quiet
+
 DATABASE_PATH="$PEXO_DIR/pexo.db"
 VECTOR_STORE_PATH="$PEXO_DIR/chroma_db"
 if [ "$HEADLESS_SETUP" -eq 1 ]; then
