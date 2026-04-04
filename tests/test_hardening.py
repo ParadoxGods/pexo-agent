@@ -2098,12 +2098,12 @@ class HardeningTests(unittest.TestCase):
                 db,
             )
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.return_value = "The stored README.md artifact says Pexo is a local-first orchestration layer."
 
             reply = send_chat_message(db, session_id=session["id"], message="Tell me the readme we have stored.")
 
-            mock_run_backend.assert_called_once()
+            mock_run_backend.assert_not_called()
             self.assertEqual(reply["session"]["details"]["mode"], "brain_lookup")
+            self.assertEqual(reply["session"]["details"]["response_path"], "local_direct")
             self.assertIn("README.md", reply["reply"]["user_message"])
         finally:
             db.close()
@@ -2129,6 +2129,33 @@ class HardeningTests(unittest.TestCase):
             self.assertIn("The user is asking Pexo to accomplish real work.", prompt)
             self.assertIn("Use structured Pexo task flow only when the work is clearly multi-step", prompt)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_task_mode_rejects_meta_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                "I’ll reply as Pexo from here: direct, natural, and without the internal orchestration unless you ask for it.",
+                "I'm ready. What's next?",
+            ]
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product.",
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertIn("i can handle that", reply["reply"]["user_message"].lower())
+            self.assertNotIn("respond as pexo", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

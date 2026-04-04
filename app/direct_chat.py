@@ -160,7 +160,16 @@ def _session_title(message: str) -> str:
 
 
 def _normalize_chat_text(message: str) -> str:
-    return " ".join((message or "").strip().lower().split())
+    normalized = (message or "").strip().lower()
+    normalized = (
+        normalized.replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2014", "-")
+        .replace("\u2013", "-")
+    )
+    return " ".join(normalized.split())
 
 
 def _contains_hint(text: str, hint: str) -> bool:
@@ -1037,10 +1046,12 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "ill operate as the user-facing pexo assistant",
         "ill speak directly to you as pexo",
         "ill reply as pexo from here",
+        "ill respond as pexo from here",
         "i'll act as the user-facing pexo assistant",
         "i'll operate as the user-facing pexo assistant",
         "i'll speak directly to you as pexo",
         "i'll reply as pexo from here",
+        "i'll respond as pexo from here",
         "i am pexo speaking directly to the user",
         "i am pexo speaking directly to you",
         "send the text or task you want handled",
@@ -1054,8 +1065,25 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
         "how may i help",
         "tell me what you need",
         "tell me what you want",
+        "natural, direct, and concise",
     )
-    return any(phrase in normalized for phrase in generic_phrases)
+    if any(phrase in normalized for phrase in generic_phrases):
+        return True
+    if "what's next" in normalized or "whats next" in normalized:
+        if any(starter in normalized for starter in ("i'm ready", "im ready", "ready for the next step", "ready when you are")):
+            return True
+    return False
+
+
+def _build_local_task_reply(user_message: str) -> str:
+    text = _normalize_chat_text(user_message)
+    if any(_contains_hint(text, hint) for hint in ("design", "build", "landing page", "website", "dashboard", "homepage")):
+        return "I can handle that. I'll start with the structure, visual direction, and first concrete implementation step."
+    if any(_contains_hint(text, hint) for hint in ("review", "audit", "analyze", "analyse", "inspect")):
+        return "I can handle that. I'll start by inspecting the current state and identifying the highest-value issues."
+    if any(_contains_hint(text, hint) for hint in ("fix", "debug", "repair", "broken", "error", "bug")):
+        return "I can handle that. I'll start by isolating the failure and narrowing the likely cause."
+    return "I can handle that. I'll start with a short plan and the first concrete step."
 
 
 def _normalize_backend_reply(
@@ -1078,7 +1106,7 @@ def _normalize_backend_reply(
         return local_reply
 
     if mode == "task":
-        return "Pexo is ready to handle the task. Tell me the outcome you want, and I'll continue from there."
+        return _build_local_task_reply(user_message)
     return "Pexo is online and ready."
 
 
@@ -1110,6 +1138,8 @@ def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> st
 
 
 def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> bool:
+    if mode == "brain_lookup":
+        return True
     if mode != "conversation":
         return False
     return direct_fact_intent in LOCAL_FIRST_FACT_INTENTS
@@ -1862,7 +1892,11 @@ def send_chat_message(
         backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
 
     if local_first:
-        assistant_text = session_local_reply or _build_local_conversation_reply(user_message)
+        assistant_text = session_local_reply or _maybe_build_local_reply(
+            db,
+            mode=mode,
+            user_message=user_message,
+        )
         response_path = "local_direct"
     else:
         web_fact = _fast_web_fact_lookup(user_message) if general_knowledge_turn else None
