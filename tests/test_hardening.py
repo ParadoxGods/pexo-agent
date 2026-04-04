@@ -699,16 +699,36 @@ class HardeningTests(unittest.TestCase):
             else:
                 os.environ["PEXO_NO_BROWSER"] = original_no_browser
 
+    @patch("app.launcher._maybe_restart_existing_server", return_value="unavailable")
     @patch("app.launcher._local_pexo_http_available", return_value=True)
     @patch("app.launcher._port_is_in_use", return_value=True)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
-    def test_run_server_reports_existing_pexo_instance_clearly(self, mock_uvicorn_run, _mock_status, _mock_port_in_use, _mock_pexo_http):
+    def test_run_server_reports_existing_pexo_instance_clearly(self, mock_uvicorn_run, _mock_status, _mock_port_in_use, _mock_pexo_http, _mock_restart_prompt):
         stderr = StringIO()
         with redirect_stderr(stderr):
             self.assertEqual(launcher_module.run_server(no_browser=True), 1)
         self.assertIn("Pexo already appears to be running", stderr.getvalue())
         self.assertIn("If you just updated Pexo", stderr.getvalue())
+        mock_uvicorn_run.assert_not_called()
+
+    @patch("app.launcher._maybe_restart_existing_server", return_value="restarted")
+    @patch("app.launcher._local_pexo_http_available", return_value=True)
+    @patch("app.launcher._port_is_in_use", side_effect=[True, False])
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
+    @patch("uvicorn.run")
+    def test_run_server_can_replace_existing_pexo_instance(self, mock_uvicorn_run, _mock_status, _mock_port_in_use, _mock_pexo_http, mock_restart_prompt):
+        self.assertEqual(launcher_module.run_server(no_browser=True), 0)
+        mock_restart_prompt.assert_called_once_with("127.0.0.1", 9999)
+        mock_uvicorn_run.assert_called_once()
+
+    @patch("app.launcher._maybe_restart_existing_server", return_value="declined")
+    @patch("app.launcher._local_pexo_http_available", return_value=True)
+    @patch("app.launcher._port_is_in_use", return_value=True)
+    @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
+    @patch("uvicorn.run")
+    def test_run_server_exits_cleanly_when_user_keeps_existing_instance(self, mock_uvicorn_run, _mock_status, _mock_port_in_use, _mock_pexo_http, _mock_restart_prompt):
+        self.assertEqual(launcher_module.run_server(no_browser=True), 0)
         mock_uvicorn_run.assert_not_called()
 
     @patch("builtins.input", side_effect=EOFError)

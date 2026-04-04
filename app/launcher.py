@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import signal
 import sqlite3
 import socket
 import subprocess
@@ -437,6 +439,155 @@ def _local_pexo_http_available(host: str, port: int) -> bool:
     return False
 
 
+def _can_prompt_for_restart() -> bool:
+    return bool(getattr(sys.stdin, "isatty", lambda: False)()) and bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def _find_listening_pids(port: int) -> list[int]:
+    pids: set[int] = set()
+    if os.name == "nt":
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"$ErrorActionPreference='SilentlyContinue'; Get-NetTCPConnection -State Listen -LocalPort {port} | "
+                "Select-Object -ExpandProperty OwningProcess -Unique",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            for line in completed.stdout.splitlines():
+                value = line.strip()
+                if value.isdigit():
+                    pids.add(int(value))
+        if not pids:
+            completed = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode == 0:
+                for line in completed.stdout.splitlines():
+                    if "LISTENING" not in line.upper():
+                        continue
+                    match = re.search(rf":{port}\s+.+LISTENING\s+(\d+)\s*$", line, re.IGNORECASE)
+                    if match:
+                        pids.add(int(match.group(1)))
+    else:
+        if shutil_which("lsof"):
+            completed = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode == 0:
+                for line in completed.stdout.splitlines():
+                    value = line.strip()
+                    if value.isdigit():
+                        pids.add(int(value))
+        if not pids and shutil_which("fuser"):
+            completed = subprocess.run(
+                ["fuser", f"{port}/tcp"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode == 0:
+                for value in re.findall(r"\d+", completed.stdout + " " + completed.stderr):
+                    pids.add(int(value))
+        if not pids and shutil_which("ss"):
+            completed = subprocess.run(
+                ["ss", "-ltnp", f"sport = :{port}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode == 0:
+                for value in re.findall(r"pid=(\d+)", completed.stdout):
+                    pids.add(int(value))
+    pids.discard(os.getpid())
+    return sorted(pids)
+
+
+def _pid_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _terminate_pid(pid: int) -> bool:
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return completed.returncode == 0
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not _pid_exists(pid):
+            return True
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return not _pid_exists(pid)
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        if not _pid_exists(pid):
+            return True
+        time.sleep(0.05)
+    return not _pid_exists(pid)
+
+
+def _stop_local_pexo_server(host: str, port: int) -> bool:
+    pids = _find_listening_pids(port)
+    if not pids:
+        return False
+    stopped_any = False
+    for pid in pids:
+        stopped_any = _terminate_pid(pid) or stopped_any
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if not _port_is_in_use(host, port):
+            return stopped_any
+        time.sleep(0.1)
+    return False
+
+
+def _maybe_restart_existing_server(host: str, port: int) -> str:
+    if not _can_prompt_for_restart():
+        return "unavailable"
+    try:
+        answer = input(
+            f"Pexo is already running at http://{host}:{port}. "
+            "Stop the old server and start the current build instead? [Y/n]: "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("")
+        return "declined"
+    if answer not in {"", "y", "yes"}:
+        print("Keeping the existing Pexo server running.")
+        return "declined"
+    print("Stopping the running Pexo server...")
+    return "restarted" if _stop_local_pexo_server(host, port) else "failed"
+
+
 def run_server(no_browser: bool = False) -> int:
     status = build_runtime_status()
     if not status["installed_profiles"].get("full", False):
@@ -459,14 +610,23 @@ def run_server(no_browser: bool = False) -> int:
     port = 9999
     if _port_is_in_use(host, port):
         if _local_pexo_http_available(host, port):
-            print(
-                f"Pexo already appears to be running at http://{host}:{port}. "
-                "If you just updated Pexo, stop the running server and start it again to load the new build.",
-                file=sys.stderr,
-            )
+            restart_result = _maybe_restart_existing_server(host, port)
+            if restart_result == "restarted":
+                if _port_is_in_use(host, port):
+                    print(f"Pexo is still running at http://{host}:{port} after the restart attempt.", file=sys.stderr)
+                    return 1
+            elif restart_result == "declined":
+                return 0
+            else:
+                print(
+                    f"Pexo already appears to be running at http://{host}:{port}. "
+                    "If you just updated Pexo, stop the running server and start it again to load the new build.",
+                    file=sys.stderr,
+                )
+                return 1
         else:
             print(f"Port {port} is already in use on {host}. Stop the existing process or free the port before starting Pexo.", file=sys.stderr)
-        return 1
+            return 1
     uvicorn.run("app.main:app", host=host, port=port, workers=1, use_colors=False)
     return 0
 
