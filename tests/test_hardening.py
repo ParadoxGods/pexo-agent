@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from sqlalchemy import inspect
 import app.routers.memory as memory_router
 import app.runtime as runtime_module
 import app.launcher as launcher_module
+import app.database as database_module
 import app.direct_chat as direct_chat_module
 from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
@@ -177,6 +179,25 @@ class HardeningTests(unittest.TestCase):
             )
         finally:
             db.close()
+
+    def test_apply_sqlite_pragmas_tolerates_locked_wal_upgrade(self):
+        statements = []
+
+        class FakeCursor:
+            def execute(self, statement):
+                statements.append(statement)
+                if statement == "PRAGMA journal_mode=WAL":
+                    raise sqlite3.OperationalError("database is locked")
+
+        database_module._apply_sqlite_pragmas(FakeCursor())
+        self.assertEqual(
+            statements,
+            [
+                "PRAGMA busy_timeout = 30000",
+                "PRAGMA journal_mode=WAL",
+                "PRAGMA synchronous=NORMAL",
+            ],
+        )
 
     def test_init_db_adds_memory_lifecycle_columns(self):
         init_db()

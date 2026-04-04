@@ -1,3 +1,5 @@
+import sqlite3
+
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from .paths import PEXO_DB_PATH
@@ -13,13 +15,21 @@ engine = create_engine(
 )
 
 
+def _apply_sqlite_pragmas(cursor) -> None:
+    cursor.execute("PRAGMA busy_timeout = 30000")
+    for statement in ("PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"):
+        try:
+            cursor.execute(statement)
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+
+
 @event.listens_for(engine, "connect")
 def _configure_sqlite_connection(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout = 30000")
+        _apply_sqlite_pragmas(cursor)
     finally:
         cursor.close()
 
