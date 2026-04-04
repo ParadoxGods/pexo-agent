@@ -92,12 +92,12 @@ Useful commands:
 
 ## Simple Task Flow
 
-When using Pexo from Codex, Claude, or Gemini, treat Pexo as the default local brain.
+When using Pexo from Codex, Claude, or Gemini, treat Pexo as the default local brain. If the Pexo MCP server is connected, use it automatically for ordinary tasks even when the user does not explicitly say "use Pexo".
 
 Default call order:
 
-1. `pexo_exchange`
-2. Reuse the returned `session_id` with `pexo_exchange`
+1. `pexo`
+2. Reuse the returned `session_id` with `pexo`
 
 Default exchange behavior:
 
@@ -108,6 +108,7 @@ Default exchange behavior:
 
 Lower-level tools remain available if you need direct control:
 
+- `pexo_exchange`
 - `pexo_bootstrap_brain`
 - `pexo_start_task`
 - `pexo_continue_task`
@@ -122,6 +123,7 @@ Use these context tools around that flow:
 
 Prefer the simplified task tools over the raw orchestration tools:
 
+- `pexo`
 - `pexo_exchange`
 - `pexo_start_task`
 - `pexo_continue_task`

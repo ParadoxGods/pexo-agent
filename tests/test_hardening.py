@@ -27,6 +27,7 @@ from app.main import app
 from app.database import SessionLocal, engine, init_db
 from app.mcp_server import (
     mcp,
+    pexo,
     pexo_attach_context,
     pexo_attach_text_context,
     pexo_bootstrap_brain,
@@ -443,6 +444,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
+        self.assertIn("use it automatically", readme)
+        self.assertIn("`pexo`", readme)
         self.assertIn("pexo_exchange", readme)
         self.assertIn("pexo_bootstrap_brain", readme)
         self.assertIn("pexo_start_task", readme)
@@ -475,6 +478,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Do not touch the current repo", agents_doc)
         self.assertIn("Do not execute raw remote scripts", agents_doc)
         self.assertIn("## Simple Task Flow", agents_doc)
+        self.assertIn('even when the user does not explicitly say "use Pexo"', agents_doc)
+        self.assertIn("`pexo`", agents_doc)
         self.assertIn("pexo_exchange", agents_doc)
         self.assertIn("pexo_bootstrap_brain", agents_doc)
         self.assertIn("pexo_start_task", agents_doc)
@@ -1538,6 +1543,15 @@ class HardeningTests(unittest.TestCase):
         self.assertTrue(any("Brain bootstrap note" in item["content"] for item in recall["memory"]["results"]))
         self.assertGreaterEqual(len(recall["artifacts"]["results"]), 1)
 
+        auto_exchange = pexo(
+            message="Summarize the current local brain state.",
+            remember="Auto exchange recorded this bootstrap check.",
+            task_context="brain-test",
+        )
+        self.assertEqual(auto_exchange["mode"], "exchange")
+        self.assertEqual(auto_exchange["status"], "clarification_required")
+        self.assertEqual(auto_exchange["next_action"], "ask_user")
+
         exchange = pexo_exchange(
             message="Summarize the current local brain state.",
             remember="Exchange recorded this bootstrap check.",
@@ -1573,7 +1587,7 @@ class HardeningTests(unittest.TestCase):
         )
         self.assertEqual(bootstrap["mode"], "brain")
         self.assertIn("operating_contract", bootstrap)
-        self.assertIn("pexo_exchange", " ".join(bootstrap["operating_contract"]))
+        self.assertIn("pexo", " ".join(bootstrap["operating_contract"]))
         self.assertEqual(bootstrap["task"]["status"], "clarification_required")
         self.assertGreaterEqual(len(bootstrap["memory"]["results"]), 1)
         self.assertGreaterEqual(len(bootstrap["artifacts"]["results"]), 1)
@@ -1588,7 +1602,7 @@ class HardeningTests(unittest.TestCase):
             resource_items = asyncio.run(resource_items)
         resource_items = list(resource_items)
         resource_text = "\n".join(getattr(item, "text", str(item)) for item in resource_items)
-        self.assertIn("pexo_exchange", resource_text)
+        self.assertIn("`pexo`", resource_text)
         self.assertIn("pexo_recall_context", resource_text)
 
     def test_mcp_genesis_tool_lifecycle(self):
