@@ -993,6 +993,31 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_resolve_backend_name_deprioritizes_single_timed_out_backend(self, mock_plan):
+        def fake_plan(client, scope="user"):
+            return {
+                "available": client in {"codex", "gemini"},
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+        init_db()
+        db = SessionLocal()
+        try:
+            direct_chat_module._record_backend_attempt(
+                db,
+                mode="task",
+                backend_name="codex",
+                success=False,
+                error="Codex direct chat timed out after 25 seconds.",
+            )
+            db.commit()
+
+            self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="task", db=db), "gemini")
+        finally:
+            db.close()
+
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
@@ -1674,7 +1699,7 @@ class HardeningTests(unittest.TestCase):
         init_db()
         db = SessionLocal()
         try:
-            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            session = create_chat_session(db, backend="gemini", workspace_path=str(PROJECT_ROOT))
             self.assertEqual(session["backend"], "gemini")
 
             mock_run_backend.side_effect = [
@@ -2042,6 +2067,36 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="codex")
+    def test_direct_chat_does_not_try_secondary_backend_for_task_worker(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            first_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product with a clean premium look.",
+            )
+            self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
+
+            mock_run_backend.side_effect = RuntimeError("Codex direct chat timed out after 25 seconds.")
+            second_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="continue",
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 1)
+            self.assertEqual(second_reply["session"]["details"]["response_path"], "task_session_blocked")
+            self.assertEqual(second_reply["session"]["details"]["attempted_backends"], ["codex"])
+            self.assertEqual(second_reply["session"]["details"]["backend_errors"]["codex"], "Codex direct chat timed out after 25 seconds.")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
@@ -2166,11 +2221,6 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.side_effect = [
-                '[{"id":"task-1","description":"Build the landing page","assigned_agent":"Developer"}]',
-                "Built the landing page structure and hero section.",
-                "The landing page is complete and ready for review.",
-            ]
 
             reply = send_chat_message(
                 db,
@@ -2178,9 +2228,12 @@ class HardeningTests(unittest.TestCase):
                 message="Design a modern landing page for my product.",
             )
 
+            mock_run_backend.assert_not_called()
             self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "agent_action_required")
+            self.assertEqual(reply["session"]["details"]["pexo_task_role"], "Developer")
             self.assertTrue(reply["reply"]["pexo_session_id"])
+            self.assertIn("next developer step", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -2236,22 +2289,30 @@ class HardeningTests(unittest.TestCase):
         init_db()
         db = SessionLocal()
         try:
-            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            session = create_chat_session(db, backend="gemini", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.side_effect = [
                 "I’ll reply as Pexo from here: direct, natural, and without the internal orchestration unless you ask for it.",
                 "Built the landing page structure and hero section.",
                 "The landing page is complete and ready for review.",
             ]
 
-            reply = send_chat_message(
+            first_reply = send_chat_message(
                 db,
                 session_id=session["id"],
                 message="Design a modern landing page for my product.",
             )
+            self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
-            self.assertEqual(mock_run_backend.call_count, 3)
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="continue",
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 2)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertIn("landing page is complete", reply["reply"]["user_message"].lower())
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertIn("landing page structure and hero section", reply["reply"]["user_message"].lower())
             self.assertNotIn("respond as pexo", reply["reply"]["user_message"].lower())
         finally:
             db.close()
@@ -2264,22 +2325,30 @@ class HardeningTests(unittest.TestCase):
         init_db()
         db = SessionLocal()
         try:
-            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            session = create_chat_session(db, backend="gemini", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.side_effect = [
                 "I’m Pexo. What are we working on?",
                 "Defined the frontend design agent role and capabilities.",
                 "The frontend design agent is ready.",
             ]
 
-            reply = send_chat_message(
+            first_reply = send_chat_message(
                 db,
                 session_id=session["id"],
                 message="create a new frontend design agent for me",
             )
+            self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "agent_action_required")
 
-            self.assertEqual(mock_run_backend.call_count, 3)
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="continue",
+            )
+
+            self.assertEqual(mock_run_backend.call_count, 2)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertIn("frontend design agent is ready", reply["reply"]["user_message"].lower())
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertIn("frontend design agent role and capabilities", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -2361,11 +2430,6 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.side_effect = [
-                '[{"id":"task-1","description":"Build the landing page","assigned_agent":"Developer"}]',
-                "Built the landing page structure and hero section.",
-                "The landing page is complete and ready for review.",
-            ]
 
             reply = send_chat_message(
                 db,
@@ -2375,9 +2439,10 @@ class HardeningTests(unittest.TestCase):
 
             self.assertEqual(reply["session"]["details"]["mode"], "task")
             self.assertTrue(reply["reply"]["pexo_session_id"])
-            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
-            self.assertIn("landing page is complete", reply["reply"]["user_message"].lower())
-            self.assertEqual(mock_run_backend.call_count, 3)
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "agent_action_required")
+            self.assertEqual(reply["session"]["details"]["pexo_task_role"], "Developer")
+            self.assertIn("next developer step", reply["reply"]["user_message"].lower())
+            mock_run_backend.assert_not_called()
         finally:
             db.close()
 
@@ -2400,9 +2465,7 @@ class HardeningTests(unittest.TestCase):
             self.assertTrue(first_reply["reply"]["pexo_session_id"])
 
             mock_run_backend.side_effect = [
-                '[{"id":"task-1","description":"Fix the landing page layout","assigned_agent":"Developer"}]',
                 "Adjusted the landing page layout to fix the issue.",
-                "The landing page layout fix is complete.",
             ]
 
             second_reply = send_chat_message(
@@ -2416,7 +2479,7 @@ class HardeningTests(unittest.TestCase):
                 first_reply["reply"]["pexo_session_id"],
                 second_reply["reply"]["pexo_session_id"],
             )
-            self.assertIn("layout fix is complete", second_reply["reply"]["user_message"].lower())
+            self.assertIn("adjusted the landing page layout", second_reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
