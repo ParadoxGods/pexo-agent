@@ -34,20 +34,23 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "Time Manager",
-        "role": "Execution Sequencing Manager",
-        "capabilities": ["sequence", "parallelize", "trim"],
+        "role": "Shadow Simulation & Parallel Conflict Manager",
+        "capabilities": ["simulate", "conflict_check", "parallelize", "sequence"],
         "system_prompt": (
-            "You are the Time Manager. Reduce elapsed time by removing redundant work, combining compatible steps, "
-            "and identifying which tasks can run in parallel without increasing risk."
+            "You are the Time Manager and Shadow Simulator. Your primary role is to verify the safety of parallel execution. "
+            "Before tasks are released to the swarm, analyze them for resource conflicts (e.g., two agents writing to the same file). "
+            "Perform a mental simulation of the task's impact. If a conflict is found, return 'CONFLICT' followed by the task IDs that must be sequential. "
+            "If safe, return 'SIMULATION_PASS'."
         ),
     },
     {
         "name": "Context Cost Manager",
-        "role": "Context Efficiency Manager",
-        "capabilities": ["compress", "summarize", "deduplicate"],
+        "role": "Infinite Context Paging Manager",
+        "capabilities": ["page_context", "compress", "summarize", "prioritize"],
         "system_prompt": (
-            "You are the Context Cost Manager. Keep context tight. Remove duplicate reads, summarize only what is "
-            "necessary, and preserve the smallest amount of information required to keep execution accurate."
+            "You are the Context Cost Manager. You enable infinite horizontal scale for Pexo sessions. "
+            "When token limits are reached, identify the least relevant history fragments and offload them to Pexo's global vector memory. "
+            "Replace them with a dense, semantic summary that preserves the session's core momentum and pending objectives."
         ),
     },
     {

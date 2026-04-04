@@ -486,6 +486,16 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
 
     # Resume graph
     new_state = invoke_pexo_graph(state)
+    
+    # Dynamic Context Paging: Infinite Horizontal Scale
+    if estimate_context_tokens(new_state) > 12000: # Threshold for standard models
+        from .memory import compact_memories_for_context
+        compaction = compact_memories_for_context(db, task_context="session_paging")
+        if compaction.get("summary_memory_id"):
+            # Offload completed tasks to memory and keep only the summary
+            new_state["completed_tasks"] = [{"task": {"id": "paging-summary"}, "result": f"Context Paged. Summary ID: {compaction['summary_memory_id']}"}]
+            new_state["reviewed_tasks"] = []
+
     db_state.data = new_state
     db_state.context_size_tokens = estimate_context_tokens(new_state)
     db.commit()

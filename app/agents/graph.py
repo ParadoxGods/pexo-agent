@@ -230,6 +230,45 @@ def genesis_node(state: PexoState):
         }
     return {"waiting_for_ai": False}
 
+def shadow_node(state: PexoState):
+    """Shadow Simulation: Verifies safety and identifies conflicts before execution."""
+    tasks = state.get("tasks", [])
+    completed = state.get("completed_tasks", [])
+    active_ids = set(state.get("active_tasks", []))
+    completed_ids = {t.get("task", {}).get("id") for t in completed}
+    
+    # Find all tasks that are 'ready' but not yet simulated or active
+    ready_tasks = []
+    for task in tasks:
+        if task.get("id") not in completed_ids and task.get("id") not in active_ids:
+            requires = task.get("requires") or []
+            if all(req_id in completed_ids for req_id in requires):
+                ready_tasks.append(task)
+    
+    if not ready_tasks:
+        return {"waiting_for_ai": False}
+
+    context = _get_context(state)
+    timer = _resolve_agent_context(context["agent_registry"], "Time Manager", "Time Manager")
+    
+    instruction = (
+        f"{timer['system_prompt']}\n\n"
+        f"--- READY TASKS TO SIMULATE ---\n"
+        f"{json.dumps(ready_tasks, indent=2)}\n\n"
+        f"--- ACTIVE WORKERS ---\n"
+        f"{list(active_ids)}\n\n"
+        f"--- NON-NEGOTIABLE OUTPUT CONTRACT ---\n"
+        f"Identify if any ready tasks conflict with each other or active workers. "
+        f"If a conflict exists, return 'CONFLICT: [task-id] requires [task-id]'. "
+        f"If all are safe, return 'SIMULATION_PASS'."
+    )
+    
+    return {
+        "current_agent": "Time Manager",
+        "current_instruction": instruction,
+        "waiting_for_ai": True
+    }
+
 def manager_node(state: PexoState):
     if state.get("current_agent") != "Code Organization Manager":
         context = _get_context(state)
@@ -264,16 +303,25 @@ def router(state: PexoState):
     if current_agent == "Supervisor":
         if not tasks:
             return "supervisor"
+        return "shadow"
+
+    if current_agent == "Time Manager":
+        # Check for conflicts from Shadow Node
+        instruction = state.get("current_instruction", "")
+        if "CONFLICT" in instruction:
+            # We need to stay in shadow or go back to supervisor to fix the DAG?
+            # For now, just stay until AI provides a safe path
+            return "shadow"
         
-        # Check if first task is Genesis Architect
-        first_pending = None
+        # Check if next task is Genesis Architect
+        next_pending = None
         completed_ids = {t.get("task", {}).get("id") for t in completed}
         for t in tasks:
             if t.get("id") not in completed_ids:
-                first_pending = t
+                next_pending = t
                 break
         
-        if first_pending and first_pending.get("assigned_agent") == "Genesis Architect":
+        if next_pending and next_pending.get("assigned_agent") == "Genesis Architect":
             return "genesis"
         return "developer"
 
@@ -282,19 +330,10 @@ def router(state: PexoState):
 
     if current_agent == "Quality Assurance Manager":
         if len(completed) < len(tasks):
-            # Check if next task is Genesis Architect
-            next_pending = None
-            completed_ids = {t.get("task", {}).get("id") for t in completed}
-            for t in tasks:
-                if t.get("id") not in completed_ids:
-                    next_pending = t
-                    break
-            if next_pending and next_pending.get("assigned_agent") == "Genesis Architect":
-                return "genesis"
-            return "developer"
+            return "shadow"
         return "manager"
 
-    if current_agent not in ["Supervisor", "Code Organization Manager", "Quality Assurance Manager"]:
+    if current_agent not in ["Supervisor", "Code Organization Manager", "Quality Assurance Manager", "Time Manager"]:
         return "reviewer"
 
     if current_agent == "Code Organization Manager":
@@ -368,15 +407,17 @@ if StateGraph is None:
 else:
     workflow = StateGraph(PexoState)
     workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("shadow", shadow_node)
     workflow.add_node("developer", developer_node)
     workflow.add_node("reviewer", reviewer_node)
     workflow.add_node("manager", manager_node)
     workflow.add_node("genesis", genesis_node)
 
     workflow.set_entry_point("supervisor")
-    workflow.add_conditional_edges("supervisor", router, {END: END, "developer": "developer", "genesis": "genesis"})
+    workflow.add_conditional_edges("supervisor", router, {END: END, "shadow": "shadow"})
+    workflow.add_conditional_edges("shadow", router, {END: END, "developer": "developer", "genesis": "genesis"})
     workflow.add_conditional_edges("developer", router, {END: END, "reviewer": "reviewer"})
-    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager", "genesis": "genesis"})
+    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager", "genesis": "genesis", "shadow": "shadow"})
     workflow.add_conditional_edges("genesis", router, {END: END, "developer": "developer"})
     workflow.add_conditional_edges("manager", router, {END: END})
 
