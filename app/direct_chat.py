@@ -298,6 +298,117 @@ def _format_local_date() -> str:
     return f"{now.strftime('%A')}, {now.strftime('%B')} {day}, {now.year}"
 
 
+def _format_local_time() -> str:
+    return datetime.now().astimezone().strftime("%I:%M %p").lstrip("0")
+
+
+def _local_chat_facts() -> str:
+    now = datetime.now().astimezone()
+    timezone_name = str(now.tzinfo or "").strip() or "local time"
+    return (
+        "Local facts you may rely on for this reply:\n"
+        "- Assistant name: Pexo\n"
+        f"- Today: {_format_local_date()}\n"
+        f"- Current time: {_format_local_time()}\n"
+        f"- Timezone: {timezone_name}\n"
+        "- Status: online and ready\n"
+    )
+
+
+def _infer_direct_fact_intent(user_message: str) -> str | None:
+    text = _normalize_chat_text(user_message)
+    if not text:
+        return None
+
+    if any(_contains_hint(text, hint) for hint in ("what is your name", "what's your name", "your name")):
+        return "identity"
+    if any(
+        phrase in text
+        for phrase in (
+            "what day is it",
+            "what day is it today",
+            "what day is today",
+            "what is todays day",
+            "what is today's day",
+            "what is today",
+            "what's today",
+            "todays date",
+            "today's date",
+            "what is todays date",
+            "what is today's date",
+        )
+    ):
+        return "date"
+    if any(
+        phrase in text
+        for phrase in (
+            "what time is it",
+            "what's the time",
+            "what is the time",
+            "current time",
+        )
+    ):
+        return "time"
+    if any(_contains_hint(text, hint) for hint in ("are you there", "are you online", "hello", "hi", "hey")):
+        return "availability"
+    if any(_contains_hint(text, hint) for hint in ("how are you",)):
+        return "status"
+    return None
+
+
+def _reply_satisfies_direct_fact_intent(intent: str | None, assistant_text: str) -> bool:
+    if not intent:
+        return True
+
+    normalized = _normalize_chat_text(assistant_text)
+    if not normalized:
+        return False
+
+    if intent == "identity":
+        return "pexo" in normalized or "my name is" in normalized
+
+    if intent == "date":
+        return bool(
+            re.search(r"\b20\d{2}\b", normalized)
+            or "today is" in normalized
+            or any(month in normalized for month in (
+                "january",
+                "february",
+                "march",
+                "april",
+                "may",
+                "june",
+                "july",
+                "august",
+                "september",
+                "october",
+                "november",
+                "december",
+            ))
+            or any(day in normalized for day in (
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ))
+        )
+
+    if intent == "time":
+        return bool(
+            re.search(r"\b\d{1,2}:\d{2}\b", assistant_text)
+            or "am" in normalized
+            or "pm" in normalized
+        )
+
+    if intent in {"availability", "status"}:
+        return any(word in normalized for word in ("online", "ready", "here", "available", "good"))
+
+    return True
+
+
 def _build_local_conversation_reply(user_message: str) -> str | None:
     text = _normalize_chat_text(user_message)
     if not text:
@@ -333,7 +444,7 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
             "current time",
         )
     ):
-        return f"It is {datetime.now().astimezone().strftime('%I:%M %p').lstrip('0')}."
+        return f"It is {_format_local_time()}."
 
     if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
         return "You're welcome. Pexo is ready for the next step."
@@ -431,9 +542,19 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
     return any(phrase in normalized for phrase in generic_phrases)
 
 
-def _normalize_backend_reply(db: Session, *, mode: str, user_message: str, assistant_text: str) -> str:
+def _normalize_backend_reply(
+    db: Session,
+    *,
+    mode: str,
+    user_message: str,
+    assistant_text: str,
+    direct_fact_intent: str | None = None,
+) -> str:
     cleaned = (assistant_text or "").strip()
-    if cleaned and not _looks_like_generic_backend_filler(cleaned):
+    if cleaned and not _looks_like_generic_backend_filler(cleaned) and _reply_satisfies_direct_fact_intent(
+        direct_fact_intent,
+        cleaned,
+    ):
         return cleaned
 
     local_reply = _maybe_build_local_reply(db, mode=mode, user_message=user_message)
@@ -456,7 +577,7 @@ def _build_backend_retry_prompt(original_prompt: str, *, mode: str, user_message
     if mode == "brain_lookup":
         correction += "Use the local Pexo context already provided and answer in one short practical paragraph.\n"
     elif mode == "conversation":
-        correction += "Reply in one short natural sentence.\n"
+        correction += "Reply in one short natural sentence using the local facts already provided when relevant.\n"
     else:
         correction += "Reply with the next useful action or answer.\n"
     correction += f"\nLatest user message to answer directly:\n{user_message}\n"
@@ -595,18 +716,14 @@ def _build_conversation_prompt(
     history_excerpt: str,
 ) -> str:
     return (
-        "You are Pexo speaking directly to the user.\n"
-        "This turn is normal conversation, not structured task orchestration.\n"
-        "Answer like a calm, natural local assistant.\n"
-        "Do not describe your role, mode, or internal process.\n"
-        "Do not start Supervisor-style orchestration for greetings, casual chat, smoke tests, or short direct questions.\n"
-        "If the user asks a short direct question, answer it directly.\n"
-        "Ask a clarification question only if the request truly cannot be answered responsibly without one.\n"
-        "Keep the reply short, clear, and human.\n\n"
-        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant' or 'Send the task you want handled'.\n\n"
-        f"Direct chat backend: {backend_name}\n"
-        f"Direct chat session: {chat_session.id}\n"
-        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        "Reply as Pexo in a natural, direct way.\n"
+        "This is normal conversation, not task orchestration.\n"
+        "Answer the latest user message directly.\n"
+        "Do not narrate your role, mode, or internal process.\n"
+        "Do not tell the user you are acting as Pexo. Just answer.\n"
+        "Do not ask what they want to do unless they explicitly asked for that.\n"
+        "Keep the reply short and human.\n\n"
+        f"{_local_chat_facts()}\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
@@ -621,17 +738,14 @@ def _build_lookup_prompt(
     local_context: str,
 ) -> str:
     return (
-        "You are Pexo speaking directly to the user.\n"
+        "Reply as Pexo in a natural, direct way.\n"
         "The user is asking what Pexo already knows, stores, or remembers.\n"
         "Answer from the local Pexo context below.\n"
         "Do not start or continue structured task orchestration for this turn.\n"
-        "Do not ask a clarification question unless the user's request is genuinely ambiguous.\n"
+        "Do not narrate your role or process.\n"
         "If the local context does not contain the answer, say that plainly.\n"
-        "Keep the reply concise, natural, and practical.\n\n"
-        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
-        f"Direct chat backend: {backend_name}\n"
-        f"Direct chat session: {chat_session.id}\n"
-        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        "Keep the reply concise and practical.\n\n"
+        f"{_local_chat_facts()}\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Local Pexo context:\n{local_context}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
@@ -646,17 +760,15 @@ def _build_task_prompt(
     history_excerpt: str,
 ) -> str:
     return (
-        "You are Pexo speaking directly to the user.\n"
+        "Reply as Pexo in a natural, direct way.\n"
         "The user is asking Pexo to accomplish real work.\n"
         "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
         "Prefer handling straightforward one-step work directly.\n"
         "Use structured Pexo task flow only when the work is clearly multi-step, needs durable coordination, or truly needs one clarification question.\n"
         "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
+        "Do not narrate your role or process.\n"
         "Keep the reply natural, direct, and outcome-focused.\n\n"
-        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
-        f"Direct chat backend: {backend_name}\n"
-        f"Direct chat session: {chat_session.id}\n"
-        f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
+        f"{_local_chat_facts()}\n"
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
@@ -948,6 +1060,7 @@ def send_chat_message(
     _store_message(db, session.id, "user", user_message)
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
+    direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
     if mode == "brain_lookup":
         assistant_prompt = _build_lookup_prompt(
             backend_name=backend_name,
@@ -983,7 +1096,10 @@ def send_chat_message(
             timeout_seconds=backend_timeout,
             mode=mode,
         )
-        if _looks_like_generic_backend_filler(raw_result or ""):
+        if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
+            direct_fact_intent,
+            raw_result or "",
+        ):
             raw_result = run_direct_chat_backend(
                 backend_name,
                 _build_backend_retry_prompt(
@@ -1000,6 +1116,7 @@ def send_chat_message(
             mode=mode,
             user_message=user_message,
             assistant_text=raw_result or "",
+            direct_fact_intent=direct_fact_intent,
         )
     except RuntimeError:
         assistant_text = _maybe_build_local_reply(

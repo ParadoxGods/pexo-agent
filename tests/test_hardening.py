@@ -1608,6 +1608,27 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_falls_back_to_local_direct_answer_when_backend_misses_the_question(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                "I'm online and ready.",
+                "I'm still online and ready.",
+            ]
+
+            reply = send_chat_message(db, session_id=session["id"], message="what day is it")
+
+            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertIn("Today is", reply["reply"]["user_message"])
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
     def test_direct_chat_routes_lookup_requests_to_brain_lookup_mode(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()

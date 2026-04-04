@@ -1,12 +1,29 @@
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from .paths import PEXO_DB_PATH
 
 # Pure local SQLite database. Zero external dependencies.
 DATABASE_URL = f"sqlite:///{PEXO_DB_PATH.as_posix()}"
 
-# connect_args={"check_same_thread": False} is needed for SQLite in FastAPI
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# connect_args={"check_same_thread": False} is needed for SQLite in FastAPI.
+# timeout + WAL/busy_timeout make rapid chat/UI access much less fragile.
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False, "timeout": 30},
+)
+
+
+@event.listens_for(engine, "connect")
+def _configure_sqlite_connection(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout = 30000")
+    finally:
+        cursor.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 _db_initialized = False
