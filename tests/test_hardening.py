@@ -1417,22 +1417,19 @@ class HardeningTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["recent_chats"]), 1)
 
     def test_direct_chat_defaults_workspace_away_from_windows_system_directory(self):
-        original_windir = os.environ.get("WINDIR")
-        os.environ["WINDIR"] = r"C:\Windows"
-        try:
-            with patch("app.direct_chat.Path.cwd", return_value=Path(r"C:\Windows\System32")):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            windir = Path(tmpdir) / "Windows"
+            system32 = windir / "System32"
+            fake_home = Path(tmpdir) / "home"
+            system32.mkdir(parents=True)
+            fake_home.mkdir()
+            with patch.dict(os.environ, {"WINDIR": str(windir)}), patch("app.direct_chat.Path.cwd", return_value=system32), patch("app.direct_chat.Path.home", return_value=fake_home):
                 from app.direct_chat import _default_workspace_path
 
-                self.assertNotEqual(_default_workspace_path(), r"C:\Windows\System32")
                 self.assertEqual(
                     os.path.normcase(os.path.realpath(_default_workspace_path())),
-                    os.path.normcase(os.path.realpath(str(Path.home()))),
+                    os.path.normcase(os.path.realpath(str(fake_home))),
                 )
-        finally:
-            if original_windir is None:
-                os.environ.pop("WINDIR", None)
-            else:
-                os.environ["WINDIR"] = original_windir
 
     def test_artifact_upload_endpoint_accepts_file_content(self):
         os.environ["PEXO_NO_BROWSER"] = "1"
