@@ -5,11 +5,13 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 from sqlalchemy.orm import Session
 
 from .cache import invalidate_many
@@ -934,6 +936,21 @@ def _store_message(db: Session, chat_session_id: str, role: str, content: str, d
     return message
 
 
+def _commit_with_retry(db: Session, *objects: Any, attempts: int = 5) -> None:
+    tracked = [obj for obj in objects if obj is not None]
+    for attempt in range(attempts):
+        try:
+            db.commit()
+            return
+        except SQLAlchemyOperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == attempts - 1:
+                raise
+            db.rollback()
+            for obj in tracked:
+                db.add(obj)
+            time.sleep(0.15 * (attempt + 1))
+
+
 def create_chat_session(
     db: Session,
     *,
@@ -957,7 +974,7 @@ def create_chat_session(
         details=details,
     )
     db.add(session)
-    db.commit()
+    _commit_with_retry(db, session)
     db.refresh(session)
     invalidate_many("chat_sessions", "admin_snapshot")
     return serialize_chat_session(session, message_count=0)
@@ -992,7 +1009,7 @@ def update_chat_session(
     if workspace_path is not None:
         session.workspace_path = _default_workspace_path(workspace_path)
 
-    db.commit()
+    _commit_with_retry(db, session)
     db.refresh(session)
     invalidate_many("chat_sessions", "admin_snapshot")
     message_count = db.query(func.count(ChatMessage.id)).filter(ChatMessage.chat_session_id == session.id).scalar() or 0
@@ -1084,7 +1101,7 @@ def send_chat_message(
     if session.title in {None, "", "New Chat"}:
         session.title = _session_title(user_message)
 
-    _store_message(db, session.id, "user", user_message)
+    user_record = _store_message(db, session.id, "user", user_message)
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
@@ -1173,7 +1190,7 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     session.details = details
 
-    _store_message(
+    assistant_record = _store_message(
         db,
         session.id,
         "assistant",
@@ -1185,7 +1202,7 @@ def send_chat_message(
         },
     )
 
-    db.commit()
+    _commit_with_retry(db, session, user_record, assistant_record)
     db.refresh(session)
     invalidate_many("chat_sessions", "admin_snapshot", "telemetry")
     return {

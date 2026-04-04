@@ -18,6 +18,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 
 import app.routers.memory as memory_router
 import app.runtime as runtime_module
@@ -198,6 +199,36 @@ class HardeningTests(unittest.TestCase):
                 "PRAGMA synchronous=NORMAL",
             ],
         )
+
+    @patch("app.direct_chat.time.sleep")
+    def test_direct_chat_commit_retry_recovers_from_transient_sqlite_lock(self, mock_sleep):
+        tracked = object()
+        error = SQLAlchemyOperationalError("statement", {}, sqlite3.OperationalError("database is locked"))
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = 0
+                self.rollback_count = 0
+                self.added = []
+
+            def commit(self):
+                self.calls += 1
+                if self.calls == 1:
+                    raise error
+
+            def rollback(self):
+                self.rollback_count += 1
+
+            def add(self, obj):
+                self.added.append(obj)
+
+        fake_db = FakeSession()
+        direct_chat_module._commit_with_retry(fake_db, tracked)
+
+        self.assertEqual(fake_db.calls, 2)
+        self.assertEqual(fake_db.rollback_count, 1)
+        self.assertEqual(fake_db.added, [tracked])
+        mock_sleep.assert_called_once()
 
     def test_init_db_adds_memory_lifecycle_columns(self):
         init_db()
