@@ -14,7 +14,6 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
 RELEASE_BUNDLE_DIR = ROOT / "release_bundle"
-BUNDLE_ROOT_NAME = "pexo-install"
 sys.path.insert(0, str(ROOT))
 
 from app.version import __version__
@@ -61,19 +60,19 @@ def _build_manifest(wheel_name: str, wheel_sha256: str) -> dict[str, object]:
         "version": __version__,
         "repository": "https://github.com/ParadoxGods/pexo-agent",
         "release": f"https://github.com/ParadoxGods/pexo-agent/releases/tag/v{__version__}",
-        "bundle_root": BUNDLE_ROOT_NAME,
+        "bundle_root": ".",
         "wheel": {"name": wheel_name, "sha256": wheel_sha256},
         "dependency_fingerprint": _dependency_fingerprint(),
         "commands": {
             "windows": [
-                "gh release download -R ParadoxGods/pexo-agent --pattern \"pexo-install-windows.zip\" --clobber",
-                "Expand-Archive .\\pexo-install-windows.zip -DestinationPath . -Force",
-                ".\\pexo-install\\install.cmd",
+                "gh release download -R ParadoxGods/pexo-agent -p pexo-install-windows.zip --clobber",
+                "tar -xf .\\pexo-install-windows.zip",
+                ".\\install.cmd",
             ],
             "unix": [
-                "gh release download -R ParadoxGods/pexo-agent --pattern \"pexo-install-unix.tar.gz\" --clobber",
+                "gh release download -R ParadoxGods/pexo-agent -p pexo-install-unix.tar.gz --clobber",
                 "tar -xzf pexo-install-unix.tar.gz",
-                "./pexo-install/install.sh",
+                "./install.sh",
             ],
         },
     }
@@ -97,8 +96,8 @@ def main() -> None:
     tmp_root = DIST_DIR / ".bundle-build"
     _reset_dir(tmp_root)
 
-    windows_root = tmp_root / "windows" / BUNDLE_ROOT_NAME
-    unix_root = tmp_root / "unix" / BUNDLE_ROOT_NAME
+    windows_root = tmp_root / "windows"
+    unix_root = tmp_root / "unix"
     windows_root.mkdir(parents=True, exist_ok=True)
     unix_root.mkdir(parents=True, exist_ok=True)
 

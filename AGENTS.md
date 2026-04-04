@@ -18,29 +18,22 @@ Use the latest GitHub Release install bundle first. It is the default install pa
 Windows:
 
 ```powershell
-gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-windows.zip" --clobber
-Expand-Archive .\pexo-install-windows.zip -DestinationPath . -Force
-.\pexo-install\install.cmd
+gh release download -R ParadoxGods/pexo-agent -p pexo-install-windows.zip --clobber
+tar -xf .\pexo-install-windows.zip
+.\install.cmd
 ```
 
 macOS/Linux:
 
 ```bash
-gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-unix.tar.gz" --clobber
+gh release download -R ParadoxGods/pexo-agent -p pexo-install-unix.tar.gz --clobber
 tar -xzf pexo-install-unix.tar.gz
-./pexo-install/install.sh
+./install.sh
 ```
 
 ## Direct Packaged Install
 
 Use this only if the release bundle path is unavailable.
-
-```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"
-pexo headless-setup --preset efficient_operator
-pexo connect all --scope user
-pexo doctor
-```
 
 ```bash
 pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"
@@ -71,12 +64,7 @@ Never write `.pexo-deps-profile` manually. It is not a substitute for dependency
 
 ## After Install
 
-Run:
-
-```bash
-pexo connect all --scope user
-pexo doctor
-```
+The release bundle already runs setup, client connection, and `pexo doctor`. Do not repeat those steps unless the user asks for verification.
 
 Useful commands:
 

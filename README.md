@@ -1,86 +1,49 @@
 # Pexo
 
-Pexo is a local-first orchestration layer, memory store, and MCP server for AI coding workflows.
+Pexo is a local-first memory, orchestration, and MCP layer for AI work.
 
-It runs on the local machine, keeps its state local, and gives AI clients a shared place to manage profile settings, agents, memory, tools, artifacts, and execution flow.
-
-## What It Does
-
-- Runs a local API, dashboard, and MCP server without requiring a background daemon.
-- Stores local profile data, agents, memories, artifacts, and execution telemetry.
-- Lets supported AI clients connect to the same local Pexo node through MCP.
+It gives Codex, Claude, Gemini, and other MCP-capable clients one shared local brain for profile settings, agents, memories, artifacts, tools, and task flow.
 
 ## Install
 
-The recommended path is the latest GitHub Release install bundle. It avoids raw remote script execution, installs from a versioned release asset, completes headless setup, connects supported AI clients, runs `pexo doctor`, and prints `PEXO_INSTALL_SUMMARY_JSON=...` at the end.
+Use the latest GitHub Release bundle.
+
+The bundle installs Pexo, runs headless setup, connects supported local AI clients, runs `pexo doctor`, and prints `PEXO_INSTALL_SUMMARY_JSON=...` when it finishes.
 
 Windows:
 
 ```powershell
-gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-windows.zip" --clobber
-Expand-Archive .\pexo-install-windows.zip -DestinationPath . -Force
-.\pexo-install\install.cmd
+gh release download -R ParadoxGods/pexo-agent -p pexo-install-windows.zip --clobber
+tar -xf .\pexo-install-windows.zip
+.\install.cmd
 ```
 
 macOS/Linux:
 
 ```bash
-gh release download -R ParadoxGods/pexo-agent --pattern "pexo-install-unix.tar.gz" --clobber
+gh release download -R ParadoxGods/pexo-agent -p pexo-install-unix.tar.gz --clobber
 tar -xzf pexo-install-unix.tar.gz
-./pexo-install/install.sh
+./install.sh
 ```
 
-If `gh` is unavailable, use a direct packaged install from a pinned tag:
-
-```bash
-uv tool install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"
-```
+Fallback only if the release bundle path is unavailable:
 
 ```bash
 pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"
-```
-
-## Quick Start
-
-1. Verify the install.
-
-```bash
+pexo headless-setup --preset efficient_operator
+pexo connect all --scope user
 pexo doctor
 ```
 
-2. Connect supported AI clients.
+## Use
 
-```bash
-pexo connect all --scope user
-```
+Most users should not need to think about Pexo after install.
 
-3. Use Pexo.
+- If Pexo is connected to the AI client, the model should use it automatically as the default local brain.
+- If you want the local dashboard, run `pexo`.
+- If you want the MCP server only, use `pexo-mcp` or `pexo --mcp`.
 
-```bash
-pexo
-```
-
-Optional terminal-first commands:
-
-```bash
-pexo headless-setup --preset efficient_operator
-pexo --no-browser
-pexo --mcp
-pexo-mcp
-```
-
-## AI Clients
-
-Pexo can register itself with supported local clients:
-
-```bash
-pexo connect all --scope user
-pexo connect codex --scope user
-pexo connect claude --scope user
-pexo connect gemini --scope user
-```
-
-Packaged installs expose a direct MCP entrypoint:
+Packaged installs expose this MCP entrypoint:
 
 ```json
 {
@@ -93,57 +56,23 @@ Packaged installs expose a direct MCP entrypoint:
 }
 ```
 
-Repository-level AI install and usage rules live in `AGENTS.md`.
-
-For AI-driven task work, prefer the single MCP exchange flow:
-
-- `pexo`
-
-How clients should use it:
-
-1. If the Pexo MCP server is connected, use it automatically for ordinary tasks even when the user does not explicitly mention Pexo.
-2. Send the user's plain-language request as `message`.
-3. Reuse the returned `session_id` with `pexo`.
-4. If Pexo asks a clarification question, send the user's answer back as `message`.
-5. If Pexo returns `agent_instruction`, do the work internally and send the result back as `agent_result`.
-6. Show `user_message` to the user and keep raw orchestration instructions internal unless the user explicitly asks for them.
-
-The lower-level alias remains available too:
-
-- `pexo_exchange`
-
-Lower-level task tools remain available when direct control is needed:
-
-- `pexo_bootstrap_brain`
-- `pexo_start_task`
-- `pexo_continue_task`
-- `pexo_get_task_status`
-
-For general context handling, use:
-
-- `pexo_recall_context`
-- `pexo_remember_context`
-- `pexo_attach_context`
-- `pexo_attach_text_context`
+Repository-level AI usage rules live in `AGENTS.md`.
 
 ## Commands
 
 - `pexo`: start the local API and dashboard
 - `pexo --no-browser`: start the local API without opening the browser
-- `pexo --mcp` or `pexo-mcp`: start the MCP server over stdio
-- `pexo doctor`: show install, runtime, and client status
-- `pexo connect all --scope user`: register Pexo with supported AI clients
-- `pexo headless-setup --preset efficient_operator`: initialize the profile without the web UI
-- `pexo promote full`: install the full local UI/runtime profile
-- `pexo promote vector`: install local vector-memory dependencies
-- `pexo update`: update the current install
-- `pexo uninstall`: remove a checkout install
+- `pexo-mcp` or `pexo --mcp`: start the MCP server over stdio
+- `pexo --update`: update the current install
+- `pexo doctor`: check install, runtime, and client status
+- `pexo connect all --scope user`: connect supported AI clients
+- `pexo promote vector`: install local vector-memory support
 
 Packaged installs keep mutable state in `~/.pexo` by default. Override it with `PEXO_HOME` if needed.
 
 ## Repo-Local Install
 
-Repo-local installs are for contributors or users who explicitly want a checkout-backed node. Existing Git checkouts are protected by default.
+Checkout mode is for contributors or users who explicitly want a checkout-backed node.
 
 Windows:
 
@@ -157,9 +86,7 @@ macOS/Linux:
 ./install.sh --use-current-checkout --allow-repo-install --headless-setup --preset efficient_operator
 ```
 
-Use `-RepoPath` or `--repo-path` if you want to target an existing checkout without using the current working tree.
-
-Legacy raw bootstrap scripts still exist, but they are fallback-only and should not be the default path for AI-driven installs.
+Existing Git checkouts are protected by default.
 
 ## Uninstall
 
