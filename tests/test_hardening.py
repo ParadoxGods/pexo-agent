@@ -104,6 +104,7 @@ from app.routers.memory import (
     store_memory,
     update_memory,
 )
+from app.routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, start_simple_task, should_require_clarification
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, derive_profile_answers, upsert_profile
 from app.routers.tools import ToolExecutionRequest, ToolRegistrationRequest, execute_tool, register_tool, resolve_tool_path
 from app.runtime import build_runtime_status
@@ -1807,7 +1808,7 @@ class HardeningTests(unittest.TestCase):
                 "I'll keep it clean and premium.",
             ]
 
-            first = send_chat_message(db, session_id=session["id"], message="Design a modern landing page for my product.")
+            first = send_chat_message(db, session_id=session["id"], message="Can you help me design a modern landing page for my product?")
             second = send_chat_message(db, session_id=session["id"], message="yes, keep it clean and premium")
 
             self.assertEqual(first["session"]["details"]["mode"], "task")
@@ -2165,7 +2166,11 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.return_value = "I can design that landing page."
+            mock_run_backend.side_effect = [
+                '[{"id":"task-1","description":"Build the landing page","assigned_agent":"Developer"}]',
+                "Built the landing page structure and hero section.",
+                "The landing page is complete and ready for review.",
+            ]
 
             reply = send_chat_message(
                 db,
@@ -2173,10 +2178,9 @@ class HardeningTests(unittest.TestCase):
                 message="Design a modern landing page for my product.",
             )
 
-            prompt = mock_run_backend.call_args.args[1]
-            self.assertIn("The user is asking Pexo to accomplish real work.", prompt)
-            self.assertIn("Use structured Pexo task flow only when the work is clearly multi-step", prompt)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertTrue(reply["reply"]["pexo_session_id"])
         finally:
             db.close()
 
@@ -2235,7 +2239,8 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.side_effect = [
                 "I’ll reply as Pexo from here: direct, natural, and without the internal orchestration unless you ask for it.",
-                "I'm ready. What's next?",
+                "Built the landing page structure and hero section.",
+                "The landing page is complete and ready for review.",
             ]
 
             reply = send_chat_message(
@@ -2244,9 +2249,9 @@ class HardeningTests(unittest.TestCase):
                 message="Design a modern landing page for my product.",
             )
 
-            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertEqual(mock_run_backend.call_count, 3)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertIn("i can handle that", reply["reply"]["user_message"].lower())
+            self.assertIn("landing page is complete", reply["reply"]["user_message"].lower())
             self.assertNotIn("respond as pexo", reply["reply"]["user_message"].lower())
         finally:
             db.close()
@@ -2262,7 +2267,8 @@ class HardeningTests(unittest.TestCase):
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
             mock_run_backend.side_effect = [
                 "I’m Pexo. What are we working on?",
-                "I'm ready. What's next?",
+                "Defined the frontend design agent role and capabilities.",
+                "The frontend design agent is ready.",
             ]
 
             reply = send_chat_message(
@@ -2271,9 +2277,146 @@ class HardeningTests(unittest.TestCase):
                 message="create a new frontend design agent for me",
             )
 
-            self.assertEqual(mock_run_backend.call_count, 0)
+            self.assertEqual(mock_run_backend.call_count, 3)
             self.assertEqual(reply["session"]["details"]["mode"], "task")
-            self.assertIn("define the agent", reply["reply"]["user_message"].lower())
+            self.assertIn("frontend design agent is ready", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    def test_start_simple_task_skips_clarification_for_specific_prompt(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            payload = start_simple_task(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Design a modern landing page for my product with a clean premium look.",
+                ),
+                db,
+            )
+
+            self.assertNotEqual(payload["status"], "clarification_required")
+            self.assertEqual(payload["status"], "agent_action_required")
+            self.assertEqual(payload["role"], "Supervisor")
+        finally:
+            db.close()
+
+    def test_start_simple_task_requires_clarification_for_vague_prompt(self):
+        self.assertTrue(should_require_clarification("Fix it."))
+        self.assertFalse(should_require_clarification("Design a modern landing page for my product with a clean premium look."))
+
+    def test_submit_task_result_uses_manager_output_as_final_response(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            started = start_simple_task(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Design a modern landing page for my product with a clean premium look.",
+                ),
+                db,
+            )
+            session_id = started["session_id"]
+
+            after_supervisor = continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data=[{"id": "task-1", "description": "Build the page", "assigned_agent": "Developer"}],
+                ),
+                db,
+            )
+            self.assertEqual(after_supervisor["status"], "agent_action_required")
+            self.assertEqual(after_supervisor["role"], "Developer")
+
+            after_developer = continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data="Built the landing page structure.",
+                ),
+                db,
+            )
+            self.assertEqual(after_developer["status"], "agent_action_required")
+            self.assertEqual(after_developer["role"], "Code Organization Manager")
+
+            completed = continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data="The landing page is complete and ready for review.",
+                ),
+                db,
+            )
+            self.assertEqual(completed["status"], "complete")
+            self.assertIn("landing page is complete", completed["final_response"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="codex")
+    def test_direct_chat_promotes_concrete_task_into_real_pexo_session(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.side_effect = [
+                '[{"id":"task-1","description":"Build the landing page","assigned_agent":"Developer"}]',
+                "Built the landing page structure and hero section.",
+                "The landing page is complete and ready for review.",
+            ]
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Design a modern landing page for my product with a clean premium look.",
+            )
+
+            self.assertEqual(reply["session"]["details"]["mode"], "task")
+            self.assertTrue(reply["reply"]["pexo_session_id"])
+            self.assertEqual(reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertIn("landing page is complete", reply["reply"]["user_message"].lower())
+            self.assertEqual(mock_run_backend.call_count, 3)
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="codex")
+    def test_direct_chat_uses_real_task_session_for_clarification_follow_up(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            first_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="Fix it.",
+            )
+            self.assertEqual(first_reply["session"]["details"]["pexo_task_status"], "clarification_required")
+            self.assertTrue(first_reply["reply"]["pexo_session_id"])
+
+            mock_run_backend.side_effect = [
+                '[{"id":"task-1","description":"Fix the landing page layout","assigned_agent":"Developer"}]',
+                "Adjusted the landing page layout to fix the issue.",
+                "The landing page layout fix is complete.",
+            ]
+
+            second_reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="The landing page layout is broken on desktop.",
+            )
+
+            self.assertEqual(second_reply["session"]["details"]["pexo_task_status"], "complete")
+            self.assertEqual(
+                first_reply["reply"]["pexo_session_id"],
+                second_reply["reply"]["pexo_session_id"],
+            )
+            self.assertIn("layout fix is complete", second_reply["reply"]["user_message"].lower())
         finally:
             db.close()
 
@@ -2518,7 +2661,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("telemetry", snapshot)
         self.assertIn("recent_memories", snapshot)
 
-        simple_start = pexo_start_task("Create a simple plan for local execution.")
+        simple_start = pexo_start_task("Help me with this plan.")
         self.assertEqual(simple_start["status"], "clarification_required")
         self.assertIn("user_message", simple_start)
 

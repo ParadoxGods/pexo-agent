@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import json
+import re
 import uuid
 from typing import Any, Optional
 
@@ -37,6 +38,54 @@ class SimpleContinueRequest(BaseModel):
     result_data: Any | None = None
 
 
+SPECIFIC_TASK_HINTS = (
+    "build",
+    "create",
+    "design",
+    "implement",
+    "fix",
+    "review",
+    "audit",
+    "analyze",
+    "analyse",
+    "refactor",
+    "debug",
+    "optimize",
+    "write",
+    "edit",
+    "scaffold",
+    "generate",
+    "develop",
+)
+
+TASK_OBJECT_HINTS = (
+    "landing page",
+    "website",
+    "homepage",
+    "dashboard",
+    "agent",
+    "repo",
+    "repository",
+    "codebase",
+    "ui",
+    "api",
+    "workflow",
+    "prompt",
+    "tool",
+)
+
+VAGUE_TASK_HINTS = (
+    "help me with this",
+    "work on this",
+    "fix it",
+    "improve it",
+    "make it better",
+    "do this",
+    "something",
+    "stuff",
+)
+
+
 def estimate_context_tokens(payload: Any) -> int:
     serialized = json.dumps(payload, default=str)
     return max(1, len(serialized) // 4)
@@ -47,6 +96,67 @@ def build_output_preview(payload: Any, limit: int = 220) -> str:
     if len(preview) > limit:
         return f"{preview[:limit].rstrip()}..."
     return preview
+
+
+def coerce_final_response(result_data: Any) -> str:
+    if isinstance(result_data, str):
+        compact = result_data.strip()
+        if compact:
+            return compact
+    if isinstance(result_data, dict):
+        for key in ("final_response", "response", "message", "summary"):
+            value = str(result_data.get(key) or "").strip()
+            if value:
+                return value
+    preview = build_output_preview(result_data, limit=400).strip()
+    return preview or "Task completed."
+
+
+def _build_initial_state(session_id: str, prompt: str, clarification_question: str, clarification_answer: str) -> PexoState:
+    return {
+        "session_id": session_id,
+        "user_prompt": prompt,
+        "clarification_question": clarification_question,
+        "clarification_answer": clarification_answer,
+        "tasks": [],
+        "completed_tasks": [],
+        "current_agent": "Supervisor",
+        "current_instruction": "",
+        "waiting_for_ai": False,
+        "final_response": "",
+        "user_profile": "",
+        "available_agents": "",
+        "available_tools": "",
+        "context_snapshot": {},
+    }
+
+
+def should_require_clarification(prompt: str) -> bool:
+    text = " ".join((prompt or "").strip().lower().split())
+    if not text:
+        return True
+
+    words = re.findall(r"[a-z0-9']+", text)
+    if len(words) <= 3:
+        return True
+
+    if any(hint in text for hint in VAGUE_TASK_HINTS):
+        return True
+
+    has_action = any(hint in text for hint in SPECIFIC_TASK_HINTS)
+    has_object = any(hint in text for hint in TASK_OBJECT_HINTS)
+    has_constraint = any(token in text for token in (" with ", " using ", " for ", " in ", " keep it ", " include ", " without "))
+
+    if has_action and (has_object or has_constraint or len(words) >= 7):
+        return False
+
+    if text.endswith("?") and not has_action:
+        return True
+
+    if text.startswith(("can you help me", "help me ")) and not (has_action and has_object):
+        return True
+
+    return not (has_action and (has_object or len(words) >= 6))
 
 
 def log_agent_state(
@@ -145,22 +255,13 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
     )
     
     # Store initial state in AgentState table (acting as graph memory)
-    initial_state = {
-        "session_id": session_id,
-        "user_prompt": request.prompt,
-        "clarification_question": clarification_question,
-        "clarification_answer": "",
-        "tasks": [],
-        "completed_tasks": [],
-        "current_agent": "Supervisor",
-        "current_instruction": "",
-        "waiting_for_ai": False,
-        "final_response": "",
-        "user_profile": "",
-        "available_agents": "",
-        "available_tools": "",
-        "context_snapshot": build_session_context_snapshot(db),
-    }
+    initial_state = _build_initial_state(
+        session_id,
+        request.prompt,
+        clarification_question,
+        "",
+    )
+    initial_state["context_snapshot"] = build_session_context_snapshot(db)
     
     db_state = AgentState(
         session_id=session_id,
@@ -228,7 +329,9 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     # AI has completed the waiting action
     state["waiting_for_ai"] = False
     
-    if state["current_agent"] == "Supervisor":
+    current_agent = state.get("current_agent")
+
+    if current_agent == "Supervisor":
         # Expecting a list of tasks
         state["tasks"] = result.result_data if isinstance(result.result_data, list) else []
         telemetry_data = {
@@ -236,7 +339,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
             "output_preview": build_output_preview(result.result_data),
             "result_type": type(result.result_data).__name__,
         }
-    elif state["current_agent"] not in ["Supervisor", "Code Organization Manager"]:
+    elif current_agent not in ["Supervisor", "Code Organization Manager"]:
         # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
         tasks = state.get("tasks", [])
         completed = state.get("completed_tasks", [])
@@ -256,19 +359,26 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
             "output_preview": build_output_preview(result.result_data),
             "result_type": type(result.result_data).__name__,
         }
+        state = dict(state)
+        state["final_response"] = coerce_final_response(result.result_data)
+        state["current_instruction"] = ""
+        state["waiting_for_ai"] = False
 
     # Log the AI's specific action in AgentState for persistence tracking
     agent_log = AgentState(
         session_id=result.session_id,
-        agent_name=state["current_agent"],
+        agent_name=current_agent,
         status="completed",
         context_size_tokens=estimate_context_tokens(result.result_data),
         data={**telemetry_data, "output": result.result_data}
     )
     db.add(agent_log)
-    
-    # Resume the LangGraph to compute the next node
-    new_state = invoke_pexo_graph(state)
+
+    if current_agent == "Code Organization Manager":
+        new_state = dict(state)
+    else:
+        # Resume the LangGraph to compute the next node
+        new_state = invoke_pexo_graph(state)
     db_state.data = new_state
     db_state.context_size_tokens = estimate_context_tokens(new_state)
     if new_state.get("final_response"):
@@ -290,14 +400,53 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
 
 @router.post("/simple/start")
 def start_simple_task(request: PromptRequest, db: Session = Depends(get_db)):
-    clarification = intake_prompt(request, db)
-    return {
-        "status": "clarification_required",
-        "session_id": clarification.session_id,
-        "response": clarification.clarification_question,
-        "user_message": clarification.clarification_question,
-        "question": clarification.clarification_question,
-    }
+    if should_require_clarification(request.prompt):
+        clarification = intake_prompt(request, db)
+        return {
+            "status": "clarification_required",
+            "session_id": clarification.session_id,
+            "response": clarification.clarification_question,
+            "user_message": clarification.clarification_question,
+            "question": clarification.clarification_question,
+        }
+
+    session_id = request.session_id or str(uuid.uuid4())
+    initial_state = _build_initial_state(
+        session_id,
+        request.prompt,
+        "",
+        "No extra clarification required.",
+    )
+    initial_state["context_snapshot"] = build_session_context_snapshot(db)
+
+    db_state = AgentState(
+        session_id=session_id,
+        agent_name="orchestrator",
+        status="running",
+        context_size_tokens=estimate_context_tokens(initial_state),
+        data=initial_state,
+    )
+    db.add(db_state)
+    db.flush()
+
+    new_state = invoke_pexo_graph(initial_state)
+    db_state.data = new_state
+    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    log_agent_state(
+        db,
+        session_id,
+        "orchestrator",
+        "graph_started",
+        {
+            "auto_started": True,
+            "next_agent": new_state.get("current_agent"),
+            "task_count": len(new_state.get("tasks", [])),
+            "waiting_for_ai": new_state.get("waiting_for_ai"),
+        },
+    )
+    db.commit()
+    invalidate_telemetry_caches()
+    return build_simple_task_payload(session_id, new_state)
 
 
 @router.post("/simple/continue")

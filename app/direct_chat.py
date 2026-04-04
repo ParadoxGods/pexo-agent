@@ -23,6 +23,7 @@ from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, con
 from .database import ensure_db_ready
 from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile, SystemSetting
 from .paths import PROJECT_ROOT
+from .routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, get_simple_task_status, start_simple_task
 from .search_index import upsert_memory_search_document
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
@@ -41,6 +42,8 @@ LEARNED_PREFERENCE_TASK_CONTEXT = "user-preference"
 MAX_LEARNED_PREFERENCES = 8
 CHAT_BACKEND_STATS_KEY = "chat.backend_stats.v1"
 BACKEND_STATS_MIN_OBSERVATIONS = 2
+DIRECT_CHAT_TASK_MAX_STEPS = 6
+DIRECT_CHAT_TASK_TIMEOUT_SECONDS = 120
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
     "gemini": "PEXO_CHAT_FAST_MODEL_GEMINI",
@@ -1002,6 +1005,11 @@ def _build_session_aware_conversation_reply(chat_session: ChatSession, user_mess
     if not text:
         return None
 
+    details = dict(chat_session.details or {})
+    task_status = str(details.get("pexo_task_status") or "").strip().lower()
+    task_role = str(details.get("pexo_task_role") or "").strip()
+    task_question = str(details.get("pexo_task_question") or "").strip()
+
     if any(
         phrase in text
         for phrase in (
@@ -1013,11 +1021,18 @@ def _build_session_aware_conversation_reply(chat_session: ChatSession, user_mess
             "whats next",
         )
     ):
-        details = dict(chat_session.details or {})
         previous_mode = str(details.get("mode") or "").strip().lower()
         task_next_step = str(details.get("task_next_step") or "").strip()
         task_constraint = str(details.get("task_constraint") or "").strip()
         last_assistant_message = str(details.get("last_assistant_message") or "").strip()
+        if task_status == "clarification_required" and task_question:
+            return f"I need one clarification before I proceed: {task_question}"
+        if task_status == "agent_action_required" and task_role:
+            return f"Next I'll continue the {task_role} step."
+        if task_status == "processing":
+            return "Next I'll keep working through the current task."
+        if task_status == "complete":
+            return "The last task is complete. If you want new work, give me the next request."
         if previous_mode == "task":
             if task_next_step:
                 if task_constraint:
@@ -1043,7 +1058,6 @@ def _build_session_aware_conversation_reply(chat_session: ChatSession, user_mess
     ):
         return None
 
-    details = dict(chat_session.details or {})
     response_path = str(details.get("response_path") or "").strip().lower()
     if response_path == "web_fact":
         source = str(details.get("web_fact_source") or "").strip().lower()
@@ -1228,6 +1242,287 @@ def _prefer_local_task_reply_first(user_message: str, previous_mode: str) -> boo
     if "agent" in text and any(_contains_hint(text, hint) for hint in ("create", "new", "make", "add")):
         return True
     return False
+
+
+def _should_promote_task_to_session(chat_session: ChatSession, user_message: str) -> bool:
+    if chat_session.pexo_session_id:
+        return True
+    text = _normalize_chat_text(user_message)
+    if not text:
+        return False
+    if text.startswith(("can you help me", "help me ")):
+        return False
+    return any(
+        _contains_hint(text, hint)
+        for hint in (
+            "build",
+            "create",
+            "design",
+            "implement",
+            "review",
+            "audit",
+            "analyze",
+            "analyse",
+            "fix",
+            "debug",
+            "refactor",
+            "optimize",
+            "agent",
+            "landing page",
+            "website",
+            "dashboard",
+            "repo",
+            "repository",
+            "codebase",
+            "homepage",
+        )
+    )
+
+
+def _coerce_supervisor_tasks(raw_result: Any, *, fallback_description: str) -> list[dict[str, str]]:
+    candidate = raw_result
+    if isinstance(raw_result, str):
+        text = raw_result.strip()
+        if text:
+            try:
+                candidate = json.loads(text)
+            except json.JSONDecodeError:
+                match = re.search(r"\[[\s\S]+\]", text)
+                if match:
+                    try:
+                        candidate = json.loads(match.group(0))
+                    except json.JSONDecodeError:
+                        candidate = None
+                else:
+                    candidate = None
+
+    if isinstance(candidate, dict) and isinstance(candidate.get("tasks"), list):
+        candidate = candidate.get("tasks")
+
+    sanitized: list[dict[str, str]] = []
+    if isinstance(candidate, list):
+        for index, item in enumerate(candidate, start=1):
+            if not isinstance(item, dict):
+                continue
+            description = " ".join(str(item.get("description") or "").split()).strip()
+            if not description:
+                continue
+            assigned_agent = " ".join(str(item.get("assigned_agent") or "Developer").split()).strip() or "Developer"
+            task_id = " ".join(str(item.get("id") or f"task-{index}").split()).strip() or f"task-{index}"
+            sanitized.append(
+                {
+                    "id": task_id,
+                    "description": description,
+                    "assigned_agent": assigned_agent,
+                }
+            )
+
+    if sanitized:
+        return sanitized
+
+    return [
+        {
+            "id": "task-1",
+            "description": fallback_description,
+            "assigned_agent": "Developer",
+        }
+    ]
+
+
+def _coerce_task_worker_result(role: str | None, raw_result: Any, *, fallback_description: str) -> Any:
+    if role == "Supervisor":
+        return _coerce_supervisor_tasks(raw_result, fallback_description=fallback_description)
+    if isinstance(raw_result, str):
+        compact = raw_result.strip()
+        if compact:
+            return compact
+    return raw_result
+
+
+def _build_task_session_reply(task_payload: dict[str, Any]) -> str:
+    status = str(task_payload.get("status") or "").strip().lower()
+    if status == "clarification_required":
+        question = str(task_payload.get("question") or task_payload.get("user_message") or "").strip()
+        if question:
+            return f"I need one clarification before I proceed: {question}"
+        return "I need one clarification before I proceed."
+    if status == "complete":
+        final_text = str(task_payload.get("final_response") or task_payload.get("user_message") or "").strip()
+        return final_text or "That task is complete."
+    if status == "agent_action_required":
+        role = str(task_payload.get("role") or "").strip()
+        if role:
+            return f"I started that task and I'm on the next {role} step."
+        return "I started that task and I'm moving through the next step."
+    return str(task_payload.get("user_message") or "Pexo is processing that task now.").strip()
+
+
+def _task_timeout_for_backend(timeout_seconds: int) -> int:
+    return max(30, min(timeout_seconds, DIRECT_CHAT_TASK_TIMEOUT_SECONDS))
+
+
+def _task_worker_backend_name(db: Session, chat_session: ChatSession, backend_name: str, role: str | None) -> str:
+    if role in {"Supervisor", "Code Organization Manager"}:
+        backend_policy = str((chat_session.details or {}).get("backend_policy") or "manual").strip().lower()
+        if backend_policy == "auto":
+            try:
+                return _resolve_backend_name("auto", mode="conversation", db=db)
+            except RuntimeError:
+                return backend_name
+    return backend_name
+
+
+def _task_worker_mode(role: str | None) -> str:
+    if role in {"Supervisor", "Code Organization Manager"}:
+        return "conversation"
+    return "task"
+
+
+def _task_worker_backend_candidates(db: Session, chat_session: ChatSession, backend_name: str, role: str | None) -> list[str]:
+    primary = _task_worker_backend_name(db, chat_session, backend_name, role)
+    candidates = [primary]
+    backend_policy = str((chat_session.details or {}).get("backend_policy") or "manual").strip().lower()
+    if backend_policy != "auto":
+        return candidates
+
+    worker_mode = _task_worker_mode(role)
+    for candidate in _available_backends_for_mode(worker_mode, db=db):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _task_worker_timeout_seconds(role: str | None, timeout_seconds: int) -> int:
+    if role == "Supervisor":
+        return max(12, min(timeout_seconds, 18))
+    if role == "Code Organization Manager":
+        return max(15, min(timeout_seconds, 20))
+    return _task_timeout_for_backend(timeout_seconds)
+
+
+def _build_task_session_blocked_reply(role: str | None, backend_name: str, error_text: str) -> str:
+    label = backend_name.capitalize()
+    if "timed out" in (error_text or "").lower():
+        if role:
+            return f"I started that task, but {label} did not finish the next {role} step quickly enough. Ask me to continue or switch backends with /backend <name>."
+        return f"I started that task, but {label} did not finish the next step quickly enough. Ask me to continue or switch backends with /backend <name>."
+    if role:
+        return f"I started that task, but the next {role} step hit a backend issue in {label}. Ask me to continue or switch backends with /backend <name>."
+    return f"I started that task, but the next step hit a backend issue in {label}. Ask me to continue or switch backends with /backend <name>."
+
+
+def _advance_direct_chat_task(
+    db: Session,
+    *,
+    chat_session: ChatSession,
+    latest_user_message: str,
+    backend_name: str,
+    history_excerpt: str,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    task_payload = None
+    if chat_session.pexo_session_id:
+        current_status = get_simple_task_status(session_id=chat_session.pexo_session_id, db=db)
+        status = str(current_status.get("status") or "").strip().lower()
+        if status == "complete":
+            chat_session.pexo_session_id = None
+        elif status == "clarification_required":
+            task_payload = continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=chat_session.pexo_session_id,
+                    clarification_answer=latest_user_message,
+                ),
+                db,
+            )
+        else:
+            task_payload = current_status
+    if chat_session.pexo_session_id is None:
+        task_payload = start_simple_task(
+            PromptRequest(
+                user_id="default_user",
+                prompt=latest_user_message,
+                session_id=None,
+            ),
+            db,
+        )
+        chat_session.pexo_session_id = str(task_payload.get("session_id") or "").strip() or None
+
+    attempted_backends: list[str] = []
+    backend_errors: dict[str, str] = {}
+    backend_elapsed_ms = 0
+    response_path = "task_session"
+
+    for _ in range(DIRECT_CHAT_TASK_MAX_STEPS):
+        status = str(task_payload.get("status") or "").strip().lower()
+        if status != "agent_action_required":
+            break
+
+        role = str(task_payload.get("role") or "").strip() or None
+        instruction = str(task_payload.get("agent_instruction") or task_payload.get("instruction") or "").strip()
+        if not instruction:
+            break
+
+        worker_mode = _task_worker_mode(role)
+        worker_succeeded = False
+        for worker_backend_name in _task_worker_backend_candidates(db, chat_session, backend_name, role):
+            attempted_backends.append(worker_backend_name)
+            try:
+                worker_started_at = time.monotonic()
+                raw_worker_result = run_direct_chat_backend(
+                    worker_backend_name,
+                    _build_worker_prompt(
+                        backend_name=worker_backend_name,
+                        chat_session=chat_session,
+                        role=role,
+                        instruction=instruction,
+                        latest_user_message=latest_user_message,
+                        history_excerpt=history_excerpt,
+                    ),
+                    chat_session.workspace_path or str(PROJECT_ROOT),
+                    timeout_seconds=_task_worker_timeout_seconds(role, timeout_seconds),
+                    mode=worker_mode,
+                )
+                backend_elapsed_ms += int((time.monotonic() - worker_started_at) * 1000)
+                worker_result = _coerce_task_worker_result(
+                    role,
+                    raw_worker_result,
+                    fallback_description=latest_user_message,
+                )
+                task_payload = continue_simple_task(
+                    SimpleContinueRequest(
+                        session_id=chat_session.pexo_session_id,
+                        result_data=worker_result,
+                    ),
+                    db,
+                )
+                response_path = "task_session_complete" if str(task_payload.get("status") or "").strip().lower() == "complete" else "task_session_progress"
+                backend_name = worker_backend_name
+                worker_succeeded = True
+                break
+            except RuntimeError as exc:
+                backend_errors[worker_backend_name] = str(exc)
+
+        if not worker_succeeded:
+            response_path = "task_session_blocked"
+            break
+
+    if response_path == "task_session_blocked" and backend_errors:
+        failed_backend, error_text = next(iter(backend_errors.items()))
+        assistant_text = _build_task_session_blocked_reply(
+            str(task_payload.get("role") or "").strip() or None,
+            failed_backend,
+            error_text,
+        )
+    else:
+        assistant_text = _build_task_session_reply(task_payload)
+    return {
+        "assistant_text": assistant_text,
+        "task_payload": task_payload,
+        "response_path": response_path,
+        "attempted_backends": attempted_backends,
+        "backend_errors": backend_errors,
+        "backend_elapsed_ms": backend_elapsed_ms or None,
+    }
 
 
 def _normalize_backend_reply(
@@ -1463,6 +1758,8 @@ def _run_command_with_timeout(
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
     }
     if os.name == "nt":
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -1960,6 +2257,18 @@ def send_chat_message(
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
     backend_policy = str((session.details or {}).get("backend_policy") or "manual").strip().lower()
+    active_task_payload = None
+    if session.pexo_session_id:
+        try:
+            active_task_payload = get_simple_task_status(session_id=session.pexo_session_id, db=db)
+        except Exception:
+            active_task_payload = None
+        if (
+            active_task_payload
+            and str(active_task_payload.get("status") or "").strip().lower() == "clarification_required"
+            and _build_local_conversation_reply(user_message) is None
+        ):
+            mode = "task"
     backend_name = _resolve_backend_name(
         "auto" if backend_policy == "auto" else (session.backend or "auto"),
         mode=mode,
@@ -2049,7 +2358,23 @@ def send_chat_message(
     elif mode == "conversation":
         backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
 
-    if local_first:
+    task_payload = None
+    if mode == "task" and _should_promote_task_to_session(session, user_message):
+        task_session_result = _advance_direct_chat_task(
+            db,
+            chat_session=session,
+            latest_user_message=user_message,
+            backend_name=backend_name,
+            history_excerpt=history_excerpt,
+            timeout_seconds=timeout_seconds,
+        )
+        task_payload = task_session_result["task_payload"]
+        assistant_text = task_session_result["assistant_text"]
+        response_path = task_session_result["response_path"]
+        attempted_backends = task_session_result.get("attempted_backends", [])
+        backend_errors = task_session_result.get("backend_errors", {})
+        backend_elapsed_ms = task_session_result.get("backend_elapsed_ms")
+    elif local_first:
         assistant_text = session_local_reply or task_follow_up_local_reply or _maybe_build_local_reply(
             db,
             mode=mode,
@@ -2165,6 +2490,18 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
+    if task_payload:
+        details["pexo_task_status"] = str(task_payload.get("status") or "").strip()
+        details["pexo_task_role"] = str(task_payload.get("role") or "").strip()
+        details["pexo_task_question"] = str(task_payload.get("question") or "").strip()
+        details["pexo_task_user_message"] = str(task_payload.get("user_message") or "").strip()
+        if task_payload.get("session_id"):
+            session.pexo_session_id = str(task_payload.get("session_id"))
+    else:
+        details.pop("pexo_task_status", None)
+        details.pop("pexo_task_role", None)
+        details.pop("pexo_task_question", None)
+        details.pop("pexo_task_user_message", None)
     if mode == "task":
         task_next_step = _extract_task_next_step(assistant_text or "")
         task_constraint = _extract_task_constraint(user_message)
@@ -2188,7 +2525,16 @@ def send_chat_message(
     else:
         details.pop("web_fact_source", None)
         details.pop("web_fact_title", None)
-    if not local_first and response_path != "web_fact":
+    if task_payload:
+        if attempted_backends:
+            details["attempted_backends"] = attempted_backends
+        else:
+            details.pop("attempted_backends", None)
+        if backend_errors:
+            details["backend_errors"] = backend_errors
+        else:
+            details.pop("backend_errors", None)
+    elif not local_first and response_path != "web_fact":
         details["attempted_backends"] = attempted_backends
         if backend_errors:
             details["backend_errors"] = backend_errors
@@ -2215,6 +2561,8 @@ def send_chat_message(
             "response_path": response_path,
             "total_latency_ms": total_latency_ms,
             "backend_latency_ms": backend_elapsed_ms,
+            "pexo_session_id": session.pexo_session_id,
+            "pexo_task_status": details.get("pexo_task_status"),
         },
     )
 
