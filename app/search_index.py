@@ -126,12 +126,13 @@ def rebuild_artifact_search_index(connection=None) -> None:
         _run(conn)
 
 
-def upsert_memory_search_document(memory_id: int, *, content: str, task_context: str | None, session_id: str | None) -> None:
+def upsert_memory_search_document(memory_id: int, *, content: str, task_context: str | None, session_id: str | None, connection=None) -> None:
     if not sqlite_fts_enabled():
         return
-    with engine.begin() as connection:
-        connection.execute(text(f"DELETE FROM {MEMORY_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": memory_id})
-        connection.execute(
+
+    def _run(conn):
+        conn.execute(text(f"DELETE FROM {MEMORY_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": memory_id})
+        conn.execute(
             text(
                 f"INSERT INTO {MEMORY_FTS_TABLE}(rowid, content, task_context, session_id) "
                 "VALUES (:rowid, :content, :task_context, :session_id)"
@@ -144,9 +145,18 @@ def upsert_memory_search_document(memory_id: int, *, content: str, task_context:
             },
         )
 
+    if connection is not None:
+        _run(connection)
+        return
+    with engine.begin() as connection:
+        _run(connection)
 
-def delete_memory_search_document(memory_id: int) -> None:
+
+def delete_memory_search_document(memory_id: int, connection=None) -> None:
     if not sqlite_fts_enabled():
+        return
+    if connection is not None:
+        connection.execute(text(f"DELETE FROM {MEMORY_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": memory_id})
         return
     with engine.begin() as connection:
         connection.execute(text(f"DELETE FROM {MEMORY_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": memory_id})
@@ -160,12 +170,14 @@ def upsert_artifact_search_document(
     task_context: str | None,
     session_id: str | None,
     extracted_text: str | None,
+    connection=None
 ) -> None:
     if not sqlite_fts_enabled():
         return
-    with engine.begin() as connection:
-        connection.execute(text(f"DELETE FROM {ARTIFACT_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": artifact_id})
-        connection.execute(
+
+    def _run(conn):
+        conn.execute(text(f"DELETE FROM {ARTIFACT_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": artifact_id})
+        conn.execute(
             text(
                 f"INSERT INTO {ARTIFACT_FTS_TABLE}(rowid, name, source_uri, task_context, session_id, extracted_text) "
                 "VALUES (:rowid, :name, :source_uri, :task_context, :session_id, :extracted_text)"
@@ -179,6 +191,12 @@ def upsert_artifact_search_document(
                 "extracted_text": extracted_text or "",
             },
         )
+
+    if connection is not None:
+        _run(connection)
+        return
+    with engine.begin() as connection:
+        _run(connection)
 
 
 def delete_artifact_search_document(artifact_id: int) -> None:

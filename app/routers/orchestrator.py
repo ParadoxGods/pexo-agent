@@ -11,6 +11,7 @@ from ..models import AgentState, Memory
 from ..agents.graph import PexoState, invoke_pexo_graph
 from ..cache import invalidate_telemetry_caches
 from ..orchestration_context import build_session_context_snapshot
+from ..search_index import upsert_memory_search_document
 
 router = APIRouter()
 
@@ -360,6 +361,15 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                             task_context="lesson_learned",
                         )
                         db.add(new_lesson)
+                        db.flush()
+                        from ..search_index import upsert_memory_search_document
+                        upsert_memory_search_document(
+                            new_lesson.id,
+                            content=new_lesson.content,
+                            task_context=new_lesson.task_context,
+                            session_id=new_lesson.session_id,
+                            connection=db.connection(),
+                        )
     elif current_agent not in ["Supervisor", "Code Organization Manager"]:
         # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
         tasks = state.get("tasks", [])

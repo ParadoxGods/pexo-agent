@@ -7,6 +7,8 @@ except ImportError:  # pragma: no cover - exercised by lightweight runtime paths
     END = "__end__"
 
 from ..orchestration_context import build_session_context_snapshot
+from ..database import SessionLocal
+from ..models import Memory, Artifact
 
 class PexoState(TypedDict):
     session_id: str
@@ -45,10 +47,28 @@ def _format_capabilities(agent: Dict[str, Any]) -> str:
     capabilities = agent.get("capabilities") or []
     return ", ".join(capabilities) if capabilities else "No explicit capabilities registered."
 
+def _get_lessons_learned() -> str:
+    from ..database import SessionLocal
+    from ..models import Memory
+    db = SessionLocal()
+    try:
+        lessons = (
+            db.query(Memory)
+            .filter(Memory.task_context == "lesson_learned")
+            .order_by(Memory.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        return "\n".join([f"- {m.content}" for m in lessons]) if lessons else "No previous lessons learned yet."
+    finally:
+        db.close()
+
+
 def supervisor_node(state: PexoState):
     if not state.get("tasks"):
         context = _get_context(state)
         supervisor = _resolve_agent_context(context["agent_registry"], "Supervisor", "Supervisor")
+        lessons_text = _get_lessons_learned()
         
         instruction = (
             f"{supervisor['system_prompt']}\n\n"
@@ -62,7 +82,7 @@ def supervisor_node(state: PexoState):
             f"--- RELEVANT PROJECT CONTEXT (PREDICTIVE RAG) ---\n"
             f"{context.get('relevant_context_text', 'No additional context found.')}\n\n"
             f"--- LESSONS FROM PREVIOUS FAILURES (RECURSIVE LEARNING) ---\n"
-            f"{context.get('lessons_learned_text', 'No previous lessons learned yet.')}\n\n"
+            f"{lessons_text}\n\n"
             f"--- STRICT USER CONSTRAINTS ---\n"
             f"{context['profile_text']}\n\n"
             f"--- AVAILABLE CORE AGENTS ---\n"
@@ -108,6 +128,7 @@ def developer_node(state: PexoState):
         assigned = next_task.get('assigned_agent', 'Developer')
         context = _get_context(state)
         assigned_agent = _resolve_agent_context(context["agent_registry"], assigned, "Developer")
+        lessons_text = _get_lessons_learned()
         
         instruction = (
             f"{assigned_agent['system_prompt']}\n\n"
@@ -116,7 +137,7 @@ def developer_node(state: PexoState):
             f"Role: {assigned_agent['role']}\n"
             f"Capabilities: {_format_capabilities(assigned_agent)}\n\n"
             f"--- LESSONS FROM PREVIOUS FAILURES (RECURSIVE LEARNING) ---\n"
-            f"{context.get('lessons_learned_text', 'No previous lessons learned yet.')}\n\n"
+            f"{lessons_text}\n\n"
             f"--- TASK TO EXECUTE ---\n"
             f"Task ID: {next_task.get('id', 'unknown')}\n"
             f"Description: {next_task.get('description', 'No description provided')}\n\n"
@@ -194,12 +215,15 @@ def router(state: PexoState):
         return END
     
     current_agent = state.get("current_agent")
+    tasks = state.get("tasks", [])
+    completed = state.get("completed_tasks", [])
+
     if current_agent == "Supervisor":
+        if not tasks:
+            return "supervisor" # Stay on supervisor until tasks are generated
         return "developer"
 
     if current_agent == "Quality Assurance Manager":
-        tasks = state.get("tasks", [])
-        completed = state.get("completed_tasks", [])
         if len(completed) < len(tasks):
             return "developer" # Loop back to assign the next task
         return "manager" # All tasks done, go to final review
@@ -215,36 +239,58 @@ def router(state: PexoState):
 
 
 def _resolve_start_node(state: PexoState) -> str:
-    current_agent = state.get("current_agent")
-    if current_agent == "Code Organization Manager":
-        return "manager"
-    if current_agent == "Quality Assurance Manager":
-        return "reviewer"
-    if current_agent and current_agent != "Supervisor":
-        return "developer"
-    return "supervisor"
+    if state.get("waiting_for_ai"):
+        return ""
+    
+    # If we are not waiting, someone just finished. Use the router to find the next node.
+    route = router(state)
+    if route == END:
+        return ""
+    
+    # Map router names to internal node names if they differ
+    mapping = {
+        "developer": "developer",
+        "reviewer": "reviewer",
+        "manager": "manager"
+    }
+    return mapping.get(route, route)
 
 
 def _advance_state_machine(state: PexoState) -> PexoState:
     current_state = dict(state)
     next_node = _resolve_start_node(current_state)
+    
+    if not next_node:
+        return current_state
 
-    while True:
+    loop_count = 0
+    while loop_count < 15:
+        loop_count += 1
+        node_result = {}
         if next_node == "supervisor":
-            current_state.update(supervisor_node(current_state))
+            node_result = supervisor_node(current_state)
         elif next_node == "developer":
-            current_state.update(developer_node(current_state))
+            node_result = developer_node(current_state)
         elif next_node == "reviewer":
-            current_state.update(reviewer_node(current_state))
+            node_result = reviewer_node(current_state)
         elif next_node == "manager":
-            current_state.update(manager_node(current_state))
+            node_result = manager_node(current_state)
         else:
             return current_state
 
+        current_state.update(node_result)
         route = router(current_state)
+        
         if route == END:
             return current_state
+        
+        # Prevent infinite loops if we are stuck on the same node and not waiting
+        if route == next_node and not current_state.get("waiting_for_ai"):
+            return current_state
+            
         next_node = route
+        
+    return current_state
 
 
 class FallbackPexoApp:
