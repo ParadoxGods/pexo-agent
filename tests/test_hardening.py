@@ -1725,6 +1725,35 @@ class HardeningTests(unittest.TestCase):
             db.close()
 
     @patch("app.direct_chat.run_direct_chat_backend")
+    @patch(
+        "app.direct_chat._fast_web_fact_lookup",
+        return_value={
+            "answer": "According to Wikipedia, the incumbent president is Donald Trump.",
+            "source": "wikipedia_search",
+            "title": "List of presidents of the United States",
+        },
+    )
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_explains_web_fact_answer_from_session_context(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            first_reply = send_chat_message(db, session_id=session["id"], message="who is the president")
+            second_reply = send_chat_message(db, session_id=session["id"], message="how did you get that answer")
+
+            mock_run_backend.assert_not_called()
+            self.assertEqual(first_reply["session"]["details"]["response_path"], "web_fact")
+            self.assertEqual(second_reply["session"]["details"]["response_path"], "local_direct")
+            self.assertIn("wikipedia", second_reply["reply"]["user_message"].lower())
+            self.assertIn("list of presidents of the united states", second_reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._best_effort_backend_connection")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
     def test_direct_chat_verifies_backend_connection_for_task_mode_when_session_is_unverified(self, mock_backend_name, mock_best_effort, mock_run_backend):

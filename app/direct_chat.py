@@ -730,6 +730,48 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     return None
 
 
+def _build_session_aware_conversation_reply(chat_session: ChatSession, user_message: str) -> str | None:
+    text = _normalize_chat_text(user_message)
+    if not text:
+        return None
+
+    if not any(
+        phrase in text
+        for phrase in (
+            "how did you get that answer",
+            "where did you get that answer",
+            "where did that answer come from",
+            "what source was that",
+            "what was the source",
+            "where did that come from",
+            "how do you know that",
+        )
+    ):
+        return None
+
+    details = dict(chat_session.details or {})
+    response_path = str(details.get("response_path") or "").strip().lower()
+    if response_path == "web_fact":
+        source = str(details.get("web_fact_source") or "").strip().lower()
+        title = str(details.get("web_fact_title") or "").strip()
+        if source == "wikipedia_search":
+            if title:
+                return f"I got it from a fast Wikipedia fact lookup, using the result titled '{title}'."
+            return "I got it from a fast Wikipedia fact lookup."
+        if source == "duckduckgo_lite":
+            return "I got it from a fast web search snippet lookup."
+        return "I got it from a fast web fact lookup."
+
+    backend_name = str(chat_session.backend or details.get("connected_backend") or "").strip()
+    if response_path.startswith("backend") and backend_name:
+        return f"I got it from the {backend_name} chat backend for this session."
+    if response_path == "local_direct":
+        return "I answered that directly from local facts Pexo already had."
+    if response_path == "local_fallback":
+        return "I answered from Pexo's local fallback logic after the backend did not give a usable answer."
+    return None
+
+
 def _build_local_lookup_reply(db: Session, user_message: str) -> str:
     text = _normalize_chat_text(user_message)
     broad_lookup = any(
@@ -1501,11 +1543,12 @@ def send_chat_message(
     backend_name = _resolve_backend_name("auto" if backend_policy == "auto" else (session.backend or "auto"), mode=mode)
     session.backend = backend_name
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
+    session_local_reply = _build_session_aware_conversation_reply(session, user_message) if mode == "conversation" else None
     general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
         user_message,
         direct_fact_intent=direct_fact_intent,
     )
-    local_first = _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
+    local_first = bool(session_local_reply) or _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
     details = dict(session.details or {})
     details["backend_policy"] = backend_policy
     if mode == "task" and (
@@ -1562,7 +1605,7 @@ def send_chat_message(
         backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
 
     if local_first:
-        assistant_text = _build_local_conversation_reply(user_message)
+        assistant_text = session_local_reply or _build_local_conversation_reply(user_message)
         response_path = "local_direct"
     else:
         web_fact = _fast_web_fact_lookup(user_message) if general_knowledge_turn else None
