@@ -51,13 +51,17 @@ PEXO_ASCII_BANNER = r"""
 PACKAGED_UPDATE_HELPER = r"""
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 import urllib.request
+import zipfile
+from email.parser import Parser
 from pathlib import Path
 
 
@@ -107,6 +111,83 @@ def _write_metadata(
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
+def _site_packages_path() -> Path:
+    return Path(sysconfig.get_paths()["purelib"]).resolve()
+
+
+def _read_requires_dist(wheel_path: Path) -> list[str]:
+    with zipfile.ZipFile(wheel_path) as archive:
+        metadata_name = next(
+            name
+            for name in archive.namelist()
+            if name.endswith(".dist-info/METADATA")
+        )
+        metadata = Parser().parsestr(archive.read(metadata_name).decode("utf-8"))
+    return [entry.strip() for entry in (metadata.get_all("Requires-Dist") or []) if entry.strip()]
+
+
+def _remove_existing_package_files(site_packages_path: Path) -> None:
+    for dist_info_dir in site_packages_path.glob("pexo_agent-*.dist-info"):
+        record_path = dist_info_dir / "RECORD"
+        if record_path.exists():
+            try:
+                with record_path.open("r", encoding="utf-8", newline="") as handle:
+                    for row in csv.reader(handle):
+                        if not row:
+                            continue
+                        relative_path = row[0].strip()
+                        if not relative_path:
+                            continue
+                        candidate = (site_packages_path / relative_path).resolve(strict=False)
+                        try:
+                            candidate.relative_to(site_packages_path)
+                        except ValueError:
+                            continue
+                        if candidate.is_file():
+                            candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
+        shutil.rmtree(dist_info_dir, ignore_errors=True)
+
+
+def _iter_overlay_members(archive: zipfile.ZipFile):
+    for member in archive.infolist():
+        name = member.filename
+        if member.is_dir():
+            continue
+        if ".data/scripts/" in name:
+            continue
+        if ".data/purelib/" in name:
+            yield member, name.split(".data/purelib/", 1)[1]
+            continue
+        if ".data/platlib/" in name:
+            yield member, name.split(".data/platlib/", 1)[1]
+            continue
+        yield member, name
+
+
+def _overlay_wheel(wheel_path: Path) -> None:
+    site_packages_path = _site_packages_path()
+    _remove_existing_package_files(site_packages_path)
+    with zipfile.ZipFile(wheel_path) as archive:
+        for member, relative_target in _iter_overlay_members(archive):
+            destination = site_packages_path / relative_target
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, destination.open("wb") as handle:
+                shutil.copyfileobj(source, handle)
+
+
+def _sync_dependencies(target_python: str, wheel_path: Path) -> int:
+    requirements = _read_requires_dist(wheel_path)
+    if not requirements:
+        return 0
+    completed = subprocess.run(
+        [target_python, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", *requirements],
+        check=False,
+    )
+    return int(completed.returncode)
+
+
 def main() -> int:
     plan_path = Path(sys.argv[1]).resolve()
     temp_root = plan_path.parent
@@ -135,33 +216,32 @@ def main() -> int:
             print(f"Checksum mismatch for {plan['wheel_name']}.", file=sys.stderr)
             return 1
 
-        target_python = plan["target_python"]
-        subprocess.run(
-            [target_python, "-m", "ensurepip", "--upgrade"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
         install_label = plan.get("install_label") or "Installing update..."
         print(install_label)
-        completed = subprocess.run(
-            [target_python, "-m", "pip", *plan["pip_args"], str(wheel_path)],
-            check=False,
-        )
-
-        if completed.returncode == 0:
-            _write_metadata(
-                Path(plan["install_metadata_path"]),
-                version=plan["version"],
-                release_url=plan["release_url"],
-                wheel_sha256=plan.get("wheel_sha256", ""),
-                dependency_fingerprint=plan.get("dependency_fingerprint", ""),
+        target_python = plan["target_python"]
+        if plan.get("operation") == "full":
+            subprocess.run(
+                [target_python, "-m", "ensurepip", "--upgrade"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
-            Path(plan["update_stamp_path"]).write_text(str(int(time.time())), encoding="utf-8")
-            print(f"Pexo updated to {plan['version']}.")
+            completed_code = _sync_dependencies(target_python, wheel_path)
+            if completed_code != 0:
+                return completed_code
+        _overlay_wheel(wheel_path)
 
-        return int(completed.returncode)
+        _write_metadata(
+            Path(plan["install_metadata_path"]),
+            version=plan["version"],
+            release_url=plan["release_url"],
+            wheel_sha256=plan.get("wheel_sha256", ""),
+            dependency_fingerprint=plan.get("dependency_fingerprint", ""),
+        )
+        Path(plan["update_stamp_path"]).write_text(str(int(time.time())), encoding="utf-8")
+        print(f"Pexo updated to {plan['version']}.")
+
+        return 0
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 

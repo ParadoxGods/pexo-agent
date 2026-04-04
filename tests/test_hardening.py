@@ -784,6 +784,14 @@ class HardeningTests(unittest.TestCase):
                 check=False,
             )
 
+    def test_packaged_update_helper_uses_wheel_overlay_sync(self):
+        helper = launcher_module.PACKAGED_UPDATE_HELPER
+        self.assertIn("_overlay_wheel", helper)
+        self.assertIn("_sync_dependencies", helper)
+        self.assertIn("Requires-Dist", helper)
+        self.assertIn("zipfile.ZipFile", helper)
+        self.assertNotIn('[target_python, "-m", "pip", *plan["pip_args"], str(wheel_path)]', helper)
+
     @patch("app.direct_chat._run_gemini_turn", return_value="ok")
     @patch("app.direct_chat.build_client_connection_plan")
     def test_run_direct_chat_backend_prefers_fast_model_for_conversation(self, mock_plan, mock_run_gemini):
