@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import json
 import os
 import shutil
@@ -417,6 +418,19 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("contents: write", workflow)
         self.assertIn("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24", workflow)
 
+    def test_release_bundle_manifest_includes_dependency_fingerprint(self):
+        module_path = Path("scripts/build_release_bundle.py").resolve()
+        spec = importlib.util.spec_from_file_location("build_release_bundle", module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        manifest = module._build_manifest("pexo_agent-1.0-py3-none-any.whl", "abc123")
+
+        self.assertEqual(manifest["wheel"]["sha256"], "abc123")
+        self.assertIn("dependency_fingerprint", manifest)
+        self.assertEqual(len(manifest["dependency_fingerprint"]), 64)
+
     def test_readme_documents_packaged_install_and_pexo_mcp(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("gh release download", readme)
@@ -488,6 +502,10 @@ class HardeningTests(unittest.TestCase):
         self.assertIn(".pexo-deps-profile", install_sh)
         self.assertIn("pexo --update", install_ps)
         self.assertIn("pexo --update", install_sh)
+        self.assertIn("wheel_sha256", install_ps)
+        self.assertIn("dependency_fingerprint", install_ps)
+        self.assertIn("wheel_sha256", install_sh)
+        self.assertIn("dependency_fingerprint", install_sh)
 
     def test_doctor_report_surfaces_guidance_and_install_health(self):
         report = build_doctor_report()
@@ -530,12 +548,102 @@ class HardeningTests(unittest.TestCase):
             "target_python": sys.executable,
             "install_metadata_path": "C:/Users/dustin/.pexo/.pexo-install.json",
             "update_stamp_path": "C:/Users/dustin/.pexo/.pexo-update-check",
+            "operation": "wheel-only",
+            "install_label": "Installing update (wheel refresh only)...",
+            "pip_args": ["install", "--disable-pip-version-check", "--force-reinstall", "--no-deps"],
+            "wheel_sha256": "deadbeef",
+            "dependency_fingerprint": "cafebabe",
         }
         mock_prepare.return_value = (Path("C:/temp/pexo_update_helper.py"), Path("C:/temp/update-plan.json"))
 
         self.assertEqual(launcher_module.run_update(), 0)
         mock_prepare.assert_called_once_with(mock_build_plan.return_value)
         mock_exec.assert_called_once()
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._write_update_stamp")
+    @patch("app.launcher._prepare_packaged_update_helper")
+    @patch("app.launcher._build_packaged_update_plan")
+    def test_run_update_skips_when_latest_wheel_is_already_installed(
+        self,
+        mock_build_plan,
+        mock_prepare,
+        mock_write_stamp,
+        _mock_checkout,
+    ):
+        mock_build_plan.return_value = {
+            "version": "1.0",
+            "operation": "skip",
+        }
+
+        self.assertEqual(launcher_module.run_update(), 0)
+        mock_prepare.assert_not_called()
+        mock_write_stamp.assert_called_once()
+
+    @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher._fetch_release_manifest")
+    @patch("app.launcher._fetch_latest_release")
+    def test_build_packaged_update_plan_uses_wheel_only_refresh_when_dependencies_match(
+        self,
+        mock_fetch_release,
+        mock_fetch_manifest,
+        mock_read_metadata,
+    ):
+        mock_fetch_release.return_value = {
+            "tag_name": "v1.0",
+            "html_url": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "assets": [
+                {"name": "pexo_agent-1.0-py3-none-any.whl", "browser_download_url": "https://example.invalid/pexo_agent-1.0-py3-none-any.whl"},
+                {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.invalid/SHA256SUMS.txt"},
+                {"name": "pexo-install-manifest.json", "browser_download_url": "https://example.invalid/pexo-install-manifest.json"},
+            ],
+        }
+        mock_fetch_manifest.return_value = {
+            "wheel": {"sha256": "new-wheel"},
+            "dependency_fingerprint": "same-deps",
+        }
+        mock_read_metadata.return_value = {
+            "wheel_sha256": "old-wheel",
+            "dependency_fingerprint": "same-deps",
+        }
+
+        plan = launcher_module._build_packaged_update_plan()
+
+        self.assertEqual(plan["operation"], "wheel-only")
+        self.assertIn("--no-deps", plan["pip_args"])
+        self.assertEqual(plan["wheel_sha256"], "new-wheel")
+
+    @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher._fetch_release_manifest")
+    @patch("app.launcher._fetch_latest_release")
+    def test_build_packaged_update_plan_skips_when_matching_wheel_is_installed(
+        self,
+        mock_fetch_release,
+        mock_fetch_manifest,
+        mock_read_metadata,
+    ):
+        mock_fetch_release.return_value = {
+            "tag_name": "v1.0",
+            "html_url": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "assets": [
+                {"name": "pexo_agent-1.0-py3-none-any.whl", "browser_download_url": "https://example.invalid/pexo_agent-1.0-py3-none-any.whl"},
+                {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.invalid/SHA256SUMS.txt"},
+                {"name": "pexo-install-manifest.json", "browser_download_url": "https://example.invalid/pexo-install-manifest.json"},
+            ],
+        }
+        mock_fetch_manifest.return_value = {
+            "wheel": {"sha256": "same-wheel"},
+            "dependency_fingerprint": "same-deps",
+        }
+        mock_read_metadata.return_value = {
+            "wheel_sha256": "same-wheel",
+            "dependency_fingerprint": "same-deps",
+        }
+
+        plan = launcher_module._build_packaged_update_plan()
+
+        self.assertEqual(plan["operation"], "skip")
+        self.assertEqual(plan["pip_args"], [])
 
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")

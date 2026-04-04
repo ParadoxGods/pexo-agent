@@ -4,6 +4,7 @@ set -euo pipefail
 BUNDLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_ROOT="${HOME}/.pexo"
 INSTALL_METADATA_PATH="${STATE_ROOT}/.pexo-install.json"
+MANIFEST_PATH="${BUNDLE_ROOT}/pexo-install-manifest.json"
 PRESET="efficient_operator"
 PROFILE_NAME="default_user"
 BACKUP_PATH=""
@@ -85,9 +86,9 @@ PY
 }
 
 write_install_metadata() {
-    local version="$1" method="$2" command_path="$3" mcp_command="$4" uninstall_command="$5" update_command="$6"
+    local version="$1" method="$2" command_path="$3" mcp_command="$4" uninstall_command="$5" update_command="$6" wheel_sha="$7" dependency_fingerprint="$8"
     mkdir -p "$STATE_ROOT"
-    "$PYTHON_CMD" - "$INSTALL_METADATA_PATH" "$version" "$method" "$command_path" "$mcp_command" "$uninstall_command" "$update_command" <<'PY'
+    "$PYTHON_CMD" - "$INSTALL_METADATA_PATH" "$version" "$method" "$command_path" "$mcp_command" "$uninstall_command" "$update_command" "$wheel_sha" "$dependency_fingerprint" <<'PY'
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
@@ -97,6 +98,8 @@ payload = {
     "release": f"https://github.com/ParadoxGods/pexo-agent/releases/tag/v{sys.argv[2]}",
     "command_path": sys.argv[4],
     "mcp_command": sys.argv[5],
+    "wheel_sha256": sys.argv[8],
+    "dependency_fingerprint": sys.argv[9],
     "guidance": {"uninstall": sys.argv[6], "update": sys.argv[7]},
 }
 path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -123,6 +126,20 @@ PYTHON_CMD="$(resolve_python_command)" || { echo "Python 3.11 or newer is requir
 WHEEL_PATH="$(find_wheel)"
 VERSION="$(wheel_version "$WHEEL_PATH")"
 verify_wheel_checksum "$WHEEL_PATH"
+WHEEL_SHA256="$("$PYTHON_CMD" - "$MANIFEST_PATH" <<'PY'
+import json, sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(manifest["wheel"]["sha256"])
+PY
+)"
+DEPENDENCY_FINGERPRINT="$("$PYTHON_CMD" - "$MANIFEST_PATH" <<'PY'
+import json, sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(manifest["dependency_fingerprint"])
+PY
+)"
 
 INSTALL_METHOD=""
 COMMAND_PATH=""
@@ -166,7 +183,7 @@ else
     UNINSTALL_GUIDANCE="rm -rf \"$VENV_PATH\" \"$STATE_ROOT\""
 fi
 
-write_install_metadata "$VERSION" "$INSTALL_METHOD" "$COMMAND_PATH" "$MCP_COMMAND" "$UNINSTALL_GUIDANCE" "$UPDATE_GUIDANCE"
+write_install_metadata "$VERSION" "$INSTALL_METHOD" "$COMMAND_PATH" "$MCP_COMMAND" "$UNINSTALL_GUIDANCE" "$UPDATE_GUIDANCE" "$WHEEL_SHA256" "$DEPENDENCY_FINGERPRINT"
 
 print_step 72 "Running headless setup"
 SETUP_ARGS=(headless-setup --preset "$PRESET" --name "$PROFILE_NAME")

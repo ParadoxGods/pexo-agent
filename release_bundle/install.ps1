@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $BundleRoot = [System.IO.Path]::GetFullPath((Split-Path -Path $MyInvocation.MyCommand.Path -Parent))
 $StateRoot = [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".pexo"))
 $InstallMetadataPath = Join-Path $StateRoot ".pexo-install.json"
+$ManifestPath = Join-Path $BundleRoot "pexo-install-manifest.json"
 
 function Write-Step {
     param([int]$Percent, [string]$Status)
@@ -96,7 +97,16 @@ function Test-WheelChecksum {
 }
 
 function Write-InstallMetadata {
-    param([string]$Version, [string]$Method, [string]$CommandPath, [string]$McpCommand, [string]$UninstallCommand, [string]$UpdateCommand)
+    param(
+        [string]$Version,
+        [string]$Method,
+        [string]$CommandPath,
+        [string]$McpCommand,
+        [string]$UninstallCommand,
+        [string]$UpdateCommand,
+        [string]$WheelSha256,
+        [string]$DependencyFingerprint
+    )
     New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
     $payload = @{
         version = $Version
@@ -104,6 +114,8 @@ function Write-InstallMetadata {
         release = "https://github.com/ParadoxGods/pexo-agent/releases/tag/v$Version"
         command_path = $CommandPath
         mcp_command = $McpCommand
+        wheel_sha256 = $WheelSha256
+        dependency_fingerprint = $DependencyFingerprint
         guidance = @{
             uninstall = $UninstallCommand
             update = $UpdateCommand
@@ -131,6 +143,9 @@ function Write-Summary {
 $wheelPath = Get-WheelPath
 $version = Get-WheelVersion -WheelPath $wheelPath
 Test-WheelChecksum -WheelPath $wheelPath
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$wheelSha256 = [string]$manifest.wheel.sha256
+$dependencyFingerprint = [string]$manifest.dependency_fingerprint
 
 $commandPath = ""
 $mcpCommand = ""
@@ -183,7 +198,7 @@ else {
     $uninstallGuidance = "Remove-Item -Recurse -Force `"$venvPath`"; Remove-Item -Recurse -Force `"$StateRoot`""
 }
 
-Write-InstallMetadata -Version $version -Method $installMethod -CommandPath $commandPath -McpCommand $mcpCommand -UninstallCommand $uninstallGuidance -UpdateCommand $updateGuidance
+Write-InstallMetadata -Version $version -Method $installMethod -CommandPath $commandPath -McpCommand $mcpCommand -UninstallCommand $uninstallGuidance -UpdateCommand $updateGuidance -WheelSha256 $wheelSha256 -DependencyFingerprint $dependencyFingerprint
 
 $setupArgs = @("headless-setup", "--preset", $Preset, "--name", $ProfileName)
 if (-not [string]::IsNullOrWhiteSpace($BackupPath)) { $setupArgs += @("--backup-path", $BackupPath) }

@@ -34,6 +34,7 @@ GITHUB_API_ROOT = "https://api.github.com/repos"
 RELEASE_WHEEL_PREFIX = "pexo_agent-"
 RELEASE_WHEEL_SUFFIX = "-py3-none-any.whl"
 RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
+RELEASE_MANIFEST_ASSET = "pexo-install-manifest.json"
 PACKAGE_UPDATE_COMMAND = "pexo --update"
 PEXO_ASCII_BANNER = r"""
 ______  ________  _______
@@ -79,9 +80,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_metadata(metadata_path: Path, *, version: str, release_url: str) -> None:
-    if not metadata_path.exists():
-        return
+def _write_metadata(
+    metadata_path: Path,
+    *,
+    version: str,
+    release_url: str,
+    wheel_sha256: str,
+    dependency_fingerprint: str,
+) -> None:
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, json.JSONDecodeError):
@@ -91,6 +97,9 @@ def _write_metadata(metadata_path: Path, *, version: str, release_url: str) -> N
     metadata["guidance"] = guidance
     metadata["version"] = version
     metadata["release"] = release_url
+    metadata["wheel_sha256"] = wheel_sha256
+    metadata["dependency_fingerprint"] = dependency_fingerprint
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
@@ -130,9 +139,10 @@ def main() -> int:
             stderr=subprocess.DEVNULL,
         )
 
-        print("Installing update...")
+        install_label = plan.get("install_label") or "Installing update..."
+        print(install_label)
         completed = subprocess.run(
-            [target_python, "-m", "pip", "install", "--disable-pip-version-check", "--force-reinstall", str(wheel_path)],
+            [target_python, "-m", "pip", *plan["pip_args"], str(wheel_path)],
             check=False,
         )
 
@@ -141,6 +151,8 @@ def main() -> int:
                 Path(plan["install_metadata_path"]),
                 version=plan["version"],
                 release_url=plan["release_url"],
+                wheel_sha256=plan.get("wheel_sha256", ""),
+                dependency_fingerprint=plan.get("dependency_fingerprint", ""),
             )
             Path(plan["update_stamp_path"]).write_text(str(int(time.time())), encoding="utf-8")
             print(f"Pexo updated to {plan['version']}.")
@@ -217,6 +229,18 @@ def _fetch_latest_release(repo_source: str | None = None) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _fetch_release_manifest(asset_url: str) -> dict | None:
+    request = urllib.request.Request(
+        asset_url,
+        headers={
+            "Accept": "application/octet-stream",
+            "User-Agent": f"pexo/{__version__}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _select_release_asset(release: dict, *, exact_name: str | None = None, suffix: str | None = None) -> dict:
     for asset in release.get("assets", []):
         name = str(asset.get("name") or "")
@@ -231,8 +255,33 @@ def _build_packaged_update_plan() -> dict:
     release = _fetch_latest_release()
     wheel_asset = _select_release_asset(release, suffix=RELEASE_WHEEL_SUFFIX)
     checksum_asset = _select_release_asset(release, exact_name=RELEASE_CHECKSUM_ASSET)
+    manifest_asset = _select_release_asset(release, exact_name=RELEASE_MANIFEST_ASSET)
     version = str(release.get("tag_name") or "").lstrip("v") or __version__
     release_url = str(release.get("html_url") or f"https://github.com/{_coerce_repo_source()}/releases/tag/v{version}")
+    current_metadata = _read_install_metadata() or {}
+
+    manifest: dict | None = None
+    try:
+        manifest = _fetch_release_manifest(str(manifest_asset["browser_download_url"]))
+    except Exception:
+        manifest = None
+
+    current_wheel_sha = str(current_metadata.get("wheel_sha256") or "").lower()
+    current_dependency_fingerprint = str(current_metadata.get("dependency_fingerprint") or "")
+    target_wheel_sha = str(((manifest or {}).get("wheel") or {}).get("sha256") or "").lower()
+    target_dependency_fingerprint = str((manifest or {}).get("dependency_fingerprint") or "")
+
+    operation = "full"
+    install_label = "Installing update..."
+    pip_args = ["install", "--disable-pip-version-check", "--force-reinstall"]
+    if current_wheel_sha and target_wheel_sha and current_wheel_sha == target_wheel_sha:
+        operation = "skip"
+        install_label = "Pexo is already up to date."
+        pip_args = []
+    elif current_dependency_fingerprint and target_dependency_fingerprint and current_dependency_fingerprint == target_dependency_fingerprint:
+        operation = "wheel-only"
+        install_label = "Installing update (wheel refresh only)..."
+        pip_args = ["install", "--disable-pip-version-check", "--force-reinstall", "--no-deps"]
 
     return {
         "version": version,
@@ -240,9 +289,15 @@ def _build_packaged_update_plan() -> dict:
         "wheel_name": str(wheel_asset["name"]),
         "wheel_url": str(wheel_asset["browser_download_url"]),
         "checksum_url": str(checksum_asset["browser_download_url"]),
+        "manifest_url": str(manifest_asset["browser_download_url"]),
         "target_python": sys.executable,
         "install_metadata_path": str(INSTALL_METADATA_PATH),
         "update_stamp_path": str(UPDATE_STAMP_PATH),
+        "operation": operation,
+        "install_label": install_label,
+        "pip_args": pip_args,
+        "wheel_sha256": target_wheel_sha,
+        "dependency_fingerprint": target_dependency_fingerprint,
     }
 
 
@@ -342,6 +397,11 @@ def run_update() -> int:
     except Exception as exc:
         print(f"Unable to prepare a packaged update: {exc}", file=sys.stderr)
         return 1
+
+    if plan["operation"] == "skip":
+        print(f"Installed package detected. Pexo v{plan['version']} is already current.")
+        _write_update_stamp()
+        return 0
 
     print(f"Installed package detected. Preparing update to v{plan['version']}...")
     helper_path, plan_path = _prepare_packaged_update_helper(plan)
