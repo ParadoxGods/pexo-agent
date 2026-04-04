@@ -17,6 +17,7 @@ class PexoState(TypedDict):
     tasks: List[Dict[str, Any]]
     completed_tasks: List[Dict[str, Any]]
     reviewed_tasks: List[Dict[str, Any]]
+    active_tasks: List[str]
     current_agent: str
     current_instruction: str
     waiting_for_ai: bool
@@ -114,13 +115,14 @@ def supervisor_node(state: PexoState):
 def developer_node(state: PexoState):
     tasks = state.get("tasks", [])
     completed = state.get("completed_tasks", [])
+    active_ids = set(state.get("active_tasks", []))
     completed_ids = {t.get("task", {}).get("id") for t in completed}
     
-    # Find the next task that is not completed and whose dependencies are met
+    # Find the next task that is not completed, not active, and whose dependencies are met
     next_task = None
     for task in tasks:
         task_id = task.get("id")
-        if task_id in completed_ids:
+        if task_id in completed_ids or task_id in active_ids:
             continue
         
         requires = task.get("requires") or []

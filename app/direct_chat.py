@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import concurrent.futures
 import html
 import json
 import os
@@ -24,7 +25,7 @@ from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, con
 from .database import SessionLocal, ensure_db_ready
 from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile, SystemSetting
 from .paths import PROJECT_ROOT
-from .routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, get_simple_task_status, start_simple_task
+from .routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, get_next_task, get_simple_task_status, start_simple_task
 from .search_index import upsert_memory_search_document
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
@@ -1982,13 +1983,29 @@ def _task_run_heartbeat_loop(chat_session_id: str, run_id: str, stop_event: thre
             details["task_run_last_heartbeat_at"] = _utc_now_iso()
             details["task_run_elapsed_seconds"] = _seconds_since_iso(str(details.get("task_run_started_at") or "")) or 0
             if "progress" in shared_state and shared_state["progress"]:
-                details["task_run_progress_message"] = shared_state["progress"]
+                if isinstance(shared_state["progress"], dict):
+                    msgs = []
+                    # Thread-safe iteration over dict
+                    for tid, msg in list(shared_state["progress"].items()):
+                        if msg:
+                            msgs.append(f"[{tid}] {msg}")
+                    if msgs:
+                        details["task_run_progress_message"] = " | ".join(msgs)
+                else:
+                    details["task_run_progress_message"] = shared_state["progress"]
             session.details = details
             db.commit()
         except Exception:
             db.rollback()
         finally:
             db.close()
+
+
+def _extract_task_id(instruction: str) -> str:
+    match = re.search(r"Task ID: ([a-zA-Z0-9\-_]+)", instruction)
+    if match:
+        return match.group(1)
+    return "worker-" + str(uuid.uuid4())[:4]
 
 
 def _finish_background_task_run(
@@ -2010,9 +2027,16 @@ def _finish_background_task_run(
         details = dict(session.details or {})
         if str(details.get("task_run_id") or "").strip() != run_id:
             return
-        task_status = str(task_payload.get("status") or "").strip()
+        task_status = str(task_payload.get("status") or "").strip().lower()
         task_role = str(task_payload.get("role") or "").strip()
-        details["task_run_status"] = "complete" if task_status.lower() == "complete" else "blocked"
+        
+        if task_status == "complete":
+            details["task_run_status"] = "complete"
+        elif task_status in ("pending_action", "agent_action_required", "processing"):
+            details["task_run_status"] = "running"
+        else:
+            details["task_run_status"] = "blocked"
+
         details["task_run_completed_at"] = _utc_now_iso()
         details["task_run_last_heartbeat_at"] = _utc_now_iso()
         details["task_run_elapsed_seconds"] = _seconds_since_iso(str(details.get("task_run_started_at") or "")) or 0
@@ -2031,7 +2055,7 @@ def _finish_background_task_run(
         else:
             details.pop("backend_errors", None)
         details["backend_latency_ms"] = backend_elapsed_ms
-        session.status = "answered" if task_status.lower() == "complete" else "working"
+        session.status = "answered" if task_status == "complete" else "working"
         session.details = details
         assistant_record = _store_message(
             db,
@@ -2055,6 +2079,151 @@ def _finish_background_task_run(
         db.close()
 
 
+def _task_worker_job(
+    *,
+    chat_session_id: str,
+    run_id: str,
+    task_info: dict[str, Any],
+    backend_name: str,
+    latest_user_message: str,
+    timeout_seconds: int,
+    shared_state: dict,
+    lock: threading.Lock,
+    task_id: str,
+) -> None:
+    role = task_info.get("role")
+    instruction = task_info.get("instruction", "")
+
+    def on_progress(msg: str) -> None:
+        with lock:
+            if isinstance(shared_state.get("progress"), dict):
+                shared_state["progress"][task_id] = msg
+            else:
+                shared_state["progress"] = msg
+
+    db = SessionLocal()
+    try:
+        session = db.query(ChatSession).filter(ChatSession.id == chat_session_id).first()
+        if not session:
+            return
+        
+        history_excerpt = _history_excerpt(db, session.id)
+        worker_mode = _task_worker_mode(role)
+        worker_capability = _task_worker_capability(
+            session,
+            role,
+            latest_user_message=latest_user_message,
+            instruction=instruction,
+        )
+        
+        attempted_backends = []
+        backend_errors = {}
+        backend_elapsed_ms = 0
+        worker_succeeded = False
+        final_task_payload = task_info
+        final_assistant_text = ""
+        final_response_path = "task_session_progress"
+        final_backend_name = backend_name
+
+        for worker_backend_name in _task_worker_backend_candidates(
+            db,
+            session,
+            backend_name,
+            role,
+            capability=worker_capability,
+        ):
+            attempted_backends.append(worker_backend_name)
+            try:
+                base_worker_prompt = _build_worker_prompt(
+                    backend_name=worker_backend_name,
+                    chat_session=session,
+                    role=role,
+                    capability=worker_capability,
+                    instruction=instruction,
+                    latest_user_message=latest_user_message,
+                    history_excerpt=history_excerpt,
+                )
+                raw_worker_result = ""
+                for worker_attempt_index, worker_prompt in enumerate(
+                    (
+                        base_worker_prompt,
+                        _build_backend_retry_prompt(
+                            base_worker_prompt,
+                            mode="task",
+                            user_message=latest_user_message,
+                        ),
+                    )
+                ):
+                    worker_started_at = time.monotonic()
+                    raw_worker_result = run_direct_chat_backend(
+                        worker_backend_name,
+                        worker_prompt,
+                        session.workspace_path or str(PROJECT_ROOT),
+                        timeout_seconds=_task_worker_timeout_for_attempt(role, timeout_seconds, worker_attempt_index),
+                        mode=worker_mode,
+                        progress_callback=on_progress,
+                    )
+                    backend_elapsed_ms += int((time.monotonic() - worker_started_at) * 1000)
+                    if isinstance(raw_worker_result, str) and _looks_like_generic_backend_filler(raw_worker_result):
+                        if worker_attempt_index == 0:
+                            continue
+                    break
+                
+                worker_result = _coerce_task_worker_result(
+                    role,
+                    raw_worker_result,
+                    fallback_description=latest_user_message,
+                )
+                
+                final_task_payload = continue_simple_task(
+                    SimpleContinueRequest(
+                        session_id=session.pexo_session_id,
+                        result_data=worker_result,
+                    ),
+                    db,
+                )
+                final_assistant_text = _build_task_session_reply(final_task_payload)
+                final_response_path = "task_session_complete" if str(final_task_payload.get("status") or "").strip().lower() == "complete" else "task_session_progress"
+                final_backend_name = worker_backend_name
+                worker_succeeded = True
+                break
+            except Exception as exc:
+                backend_errors[worker_backend_name] = str(exc)
+
+        if not worker_succeeded:
+            final_assistant_text = _build_task_session_blocked_reply(role, final_backend_name, str(backend_errors))
+            final_response_path = "task_session_blocked"
+            final_task_payload = {"status": "agent_action_required", "role": role}
+
+        _finish_background_task_run(
+            chat_session_id=chat_session_id,
+            run_id=run_id,
+            task_payload=final_task_payload,
+            assistant_text=final_assistant_text,
+            response_path=final_response_path,
+            backend_name=final_backend_name,
+            backend_errors=backend_errors,
+            backend_elapsed_ms=backend_elapsed_ms,
+        )
+
+    except Exception as exc:
+        _finish_background_task_run(
+            chat_session_id=chat_session_id,
+            run_id=run_id,
+            task_payload={"status": "agent_action_required", "role": role},
+            assistant_text=f"The {role or 'worker'} step hit an error: {exc}",
+            response_path="task_session_blocked",
+            backend_name=backend_name,
+            backend_errors={backend_name: str(exc)},
+            backend_elapsed_ms=0,
+        )
+    finally:
+        db.close()
+        with lock:
+            if isinstance(shared_state.get("progress"), dict) and task_id in shared_state["progress"]:
+                del shared_state["progress"][task_id]
+
+
 def _run_background_task_worker(
     *,
     chat_session_id: str,
@@ -2064,10 +2233,10 @@ def _run_background_task_worker(
     timeout_seconds: int,
     stop_event: threading.Event,
 ) -> None:
-    shared_state = {'progress': ''}
-
-    def on_progress(msg: str) -> None:
-        shared_state['progress'] = msg
+    shared_state = {'progress': {}}
+    lock = threading.Lock()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+    active_tasks: dict[str, concurrent.futures.Future] = {}
 
     heartbeat_thread = threading.Thread(
         target=_task_run_heartbeat_loop,
@@ -2075,41 +2244,77 @@ def _run_background_task_worker(
         daemon=True,
     )
     heartbeat_thread.start()
+
     try:
-        db = SessionLocal()
+        pexo_session_id = None
+        db_initial = SessionLocal()
         try:
-            session = db.query(ChatSession).filter(ChatSession.id == chat_session_id).first()
-            if session is None:
-                return
-            history_excerpt = _history_excerpt(db, session.id)
-            result = _advance_direct_chat_task(
-                db,
-                chat_session=session,
-                latest_user_message=latest_user_message,
-                backend_name=backend_name,
-                history_excerpt=history_excerpt,
-                timeout_seconds=timeout_seconds,
-                stop_before_external_worker=False,
-                progress_callback=on_progress,
-            )
+            session = db_initial.query(ChatSession).filter(ChatSession.id == chat_session_id).first()
+            if session:
+                pexo_session_id = session.pexo_session_id
         finally:
-            db.close()
-        _finish_background_task_run(
-            chat_session_id=chat_session_id,
-            run_id=run_id,
-            task_payload=result["task_payload"],
-            assistant_text=result["assistant_text"],
-            response_path=result["response_path"],
-            backend_name=backend_name,
-            backend_errors=result.get("backend_errors", {}),
-            backend_elapsed_ms=int(result.get("backend_elapsed_ms") or 0),
-        )
+            db_initial.close()
+
+        if not pexo_session_id:
+            return
+
+        while not stop_event.is_set():
+            db_poll = SessionLocal()
+            try:
+                task_info = get_next_task(session_id=pexo_session_id, db=db_poll)
+            except Exception:
+                task_info = {"status": "processing"}
+            finally:
+                db_poll.close()
+
+            status = str(task_info.get("status") or "").strip().lower()
+
+            if status == "complete":
+                _finish_background_task_run(
+                    chat_session_id=chat_session_id,
+                    run_id=run_id,
+                    task_payload=task_info,
+                    assistant_text=str(task_info.get("message") or "Task complete.").strip(),
+                    response_path="task_session_complete",
+                    backend_name=backend_name,
+                    backend_errors={},
+                    backend_elapsed_ms=0,
+                )
+                break
+
+            if status == "pending_action":
+                instruction = str(task_info.get("instruction") or "").strip()
+                task_id = _extract_task_id(instruction)
+                
+                with lock:
+                    if task_id not in active_tasks or active_tasks[task_id].done():
+                        active_tasks[task_id] = executor.submit(
+                            _task_worker_job,
+                            chat_session_id=chat_session_id,
+                            run_id=run_id,
+                            task_info=task_info,
+                            backend_name=backend_name,
+                            latest_user_message=latest_user_message,
+                            timeout_seconds=timeout_seconds,
+                            shared_state=shared_state,
+                            lock=lock,
+                            task_id=task_id
+                        )
+            
+            if status == "processing":
+                time.sleep(1.5)
+            else:
+                time.sleep(0.5)
+
+        # Wait for all workers to finish their current turn
+        concurrent.futures.wait(active_tasks.values(), timeout=2.0)
+
     except Exception as exc:
         _finish_background_task_run(
             chat_session_id=chat_session_id,
             run_id=run_id,
             task_payload={"status": "agent_action_required"},
-            assistant_text=f"I started that task, but the next worker step hit an internal error: {exc}",
+            assistant_text=f"I started that task, but the orchestrator hit an internal error: {exc}",
             response_path="task_session_blocked",
             backend_name=backend_name,
             backend_errors={backend_name: str(exc)},
@@ -2117,6 +2322,7 @@ def _run_background_task_worker(
         )
     finally:
         stop_event.set()
+        executor.shutdown(wait=False)
         heartbeat_thread.join(timeout=1.0)
         _clear_in_memory_task_run(chat_session_id, run_id)
 

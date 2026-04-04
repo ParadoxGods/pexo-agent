@@ -122,6 +122,7 @@ def _build_initial_state(session_id: str, prompt: str, clarification_question: s
         "tasks": [],
         "completed_tasks": [],
         "reviewed_tasks": [],
+        "active_tasks": [],
         "current_agent": "Supervisor",
         "current_instruction": "",
         "waiting_for_ai": False,
@@ -288,15 +289,30 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
 @router.get("/next")
 def get_next_task(session_id: str, db: Session = Depends(get_db)):
     """External AI polls this to find out what role it needs to assume and what task to do."""
-    _, state = _require_orchestrator_state(db, session_id)
+    db_state, state = _require_orchestrator_state(db, session_id)
     if state.get("final_response"):
         return {"status": "complete", "message": state["final_response"]}
         
     if state.get("waiting_for_ai"):
+        role = state.get("current_agent")
+        instruction = state.get("current_instruction")
+        
+        # High-Performance Swarm: Track active tasks
+        import re
+        task_id_match = re.search(r"Task ID: ([a-zA-Z0-9\-_]+)", instruction)
+        if task_id_match:
+            task_id = task_id_match.group(1)
+            active = state.get("active_tasks", [])
+            if task_id not in active:
+                active.append(task_id)
+                state["active_tasks"] = active
+                db_state.data = state
+                db.commit()
+
         return {
             "status": "pending_action",
-            "role": state.get("current_agent"),
-            "instruction": state.get("current_instruction")
+            "role": role,
+            "instruction": instruction
         }
     
     return {"status": "processing", "message": "Graph is transitioning. Poll again."}
@@ -311,8 +327,19 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     
     current_agent = state.get("current_agent")
 
+    # High-Performance Swarm: Remove from active tasks
+    import re
+    instruction = state.get("current_instruction", "")
+    task_id_match = re.search(r"Task ID: ([a-zA-Z0-9\-_]+)", instruction)
+    if task_id_match:
+        task_id = task_id_match.group(1)
+        active = state.get("active_tasks", [])
+        if task_id in active:
+            active.remove(task_id)
+            state["active_tasks"] = active
+
     if current_agent == "Supervisor":
-        # Expecting either a list of tasks, or a dict requesting clarification
+        # ... existing supervisor logic ...
         if isinstance(result.result_data, dict) and "clarification_required" in result.result_data:
             state["clarification_question"] = result.result_data["clarification_required"]
             state["clarification_answer"] = ""
@@ -364,8 +391,8 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                         state["completed_tasks"] = completed
         except Exception as exc:
             telemetry_data["registration_error"] = str(exc)
-            # On failure, the router will stay on genesis or the Reviewer will catch it
     elif current_agent == "Quality Assurance Manager":
+        # ... existing QA logic ...
         reviewed = state.get("reviewed_tasks", [])
         completed = state.get("completed_tasks", [])
         telemetry_data = {
@@ -387,7 +414,6 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                 })
                 state["tasks"] = tasks
 
-                # Recursive Learning: Parse and store lesson learned
                 if "LESSON LEARNED:" in result_text:
                     lesson_content = result_text.split("LESSON LEARNED:")[1].strip()
                     if lesson_content:
@@ -398,7 +424,6 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                         )
                         db.add(new_lesson)
                         db.flush()
-                        from ..search_index import upsert_memory_search_document
                         upsert_memory_search_document(
                             new_lesson.id,
                             content=new_lesson.content,
@@ -407,20 +432,38 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
                             connection=db.connection(),
                         )
     elif current_agent not in ["Supervisor", "Code Organization Manager"]:
-        # Append completed task (works for 'Developer' or any custom agent like 'DevSecOps')
-        tasks = state.get("tasks", [])
-        completed = state.get("completed_tasks", [])
-        telemetry_data = {
-            "output_preview": build_output_preview(result.result_data),
-            "result_type": type(result.result_data).__name__,
-        }
-        if len(completed) < len(tasks):
-            current_task = tasks[len(completed)]
-            completed.append({"task": current_task, "result": result.result_data})
-            state["completed_tasks"] = completed
-            telemetry_data["task_id"] = current_task.get("id")
-            telemetry_data["task_description"] = current_task.get("description")
-            telemetry_data["assigned_agent"] = current_task.get("assigned_agent")
+        # Self-Healing Runtime: Check for ModuleNotFoundError
+        res_text = str(result.result_data)
+        if "ModuleNotFoundError" in res_text:
+            import re
+            mod_match = re.search(r"No module named '([a-zA-Z0-9_\-]+)'", res_text)
+            if mod_match:
+                module_name = mod_match.group(1)
+                tasks = state.get("tasks", [])
+                tasks.insert(0, {
+                    "id": f"repair-env-{uuid.uuid4().hex[:4]}",
+                    "description": f"Repair local environment: pip install {module_name}",
+                    "assigned_agent": "Resource Manager"
+                })
+                state["tasks"] = tasks
+                # Do NOT append to completed_tasks, as the original task failed and needs retry
+                telemetry_data = {"status": "runtime_repair_triggered", "module": module_name}
+            else:
+                telemetry_data = {"status": "error_not_parseable"}
+        else:
+            # Append completed task
+            tasks = state.get("tasks", [])
+            completed = state.get("completed_tasks", [])
+            telemetry_data = {
+                "output_preview": build_output_preview(result.result_data),
+                "result_type": type(result.result_data).__name__,
+            }
+            if len(completed) < len(tasks):
+                current_task = next((t for t in tasks if t.get("id") not in {ct.get("task", {}).get("id") for ct in completed}), None)
+                if current_task:
+                    completed.append({"task": current_task, "result": result.result_data})
+                    state["completed_tasks"] = completed
+                    telemetry_data["task_id"] = current_task.get("id")
     else:
         telemetry_data = {
             "output_preview": build_output_preview(result.result_data),
@@ -431,7 +474,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
         state["current_instruction"] = ""
         state["waiting_for_ai"] = False
 
-    # Log the AI's specific action in AgentState for persistence tracking
+    # Log action
     agent_log = AgentState(
         session_id=result.session_id,
         agent_name=current_agent,
@@ -441,27 +484,12 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     )
     db.add(agent_log)
 
-    if current_agent == "Code Organization Manager":
-        new_state = dict(state)
-    else:
-        # Resume the LangGraph to compute the next node
-        new_state = invoke_pexo_graph(state)
+    # Resume graph
+    new_state = invoke_pexo_graph(state)
     db_state.data = new_state
     db_state.context_size_tokens = estimate_context_tokens(new_state)
-    if new_state.get("final_response"):
-        log_agent_state(
-            db,
-            result.session_id,
-            "orchestrator",
-            "session_complete",
-            {
-                "final_response": new_state.get("final_response"),
-                "completed_task_count": len(new_state.get("completed_tasks", [])),
-            },
-        )
     db.commit()
     invalidate_telemetry_caches()
-    
     return {"status": "Result accepted. Graph advanced."}
 
 

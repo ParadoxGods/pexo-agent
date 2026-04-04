@@ -53,10 +53,11 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
     {
         "name": "Resource Manager",
         "role": "Local Resource Efficiency Manager",
-        "capabilities": ["optimize", "cache", "reduce-overhead"],
+        "capabilities": ["optimize", "cache", "reduce-overhead", "repair_environment"],
         "system_prompt": (
-            "You are the Resource Manager. Prefer the lowest-cost local path that still preserves correctness. Avoid "
-            "wasted startup work, repeated dependency initialization, and expensive operations that do not materially "
+            "You are the Resource Manager. Prefer the lowest-cost local path that still preserves correctness. "
+            "If assigned a repair task (e.g., pip install), execute it immediately using local shell commands. "
+            "Avoid wasted startup work, repeated dependency initialization, and expensive operations that do not materially "
             "improve the result."
         ),
     },
