@@ -958,6 +958,40 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="brain_lookup"), "gemini")
         self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="task"), "codex")
 
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_resolve_backend_name_can_adapt_to_observed_backend_performance(self, mock_plan):
+        def fake_plan(client, scope="user"):
+            return {
+                "available": client in {"codex", "gemini"},
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+        init_db()
+        db = SessionLocal()
+        try:
+            direct_chat_module._record_backend_attempt(db, mode="conversation", backend_name="codex", success=True, latency_ms=450)
+            direct_chat_module._record_backend_attempt(db, mode="conversation", backend_name="codex", success=True, latency_ms=420)
+            direct_chat_module._record_backend_attempt(
+                db,
+                mode="conversation",
+                backend_name="gemini",
+                success=False,
+                error="Gemini direct chat timed out after 6 seconds.",
+            )
+            direct_chat_module._record_backend_attempt(
+                db,
+                mode="conversation",
+                backend_name="gemini",
+                success=False,
+                error="Gemini direct chat timed out after 6 seconds.",
+            )
+            db.commit()
+
+            self.assertEqual(direct_chat_module._resolve_backend_name("auto", mode="conversation", db=db), "codex")
+        finally:
+            db.close()
+
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
@@ -1701,6 +1735,61 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")
             self.assertEqual(reply["reply"]["status"], "answered")
             self.assertIn("ready", reply["reply"]["user_message"].lower())
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend", return_value="Noted.")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_learns_explicit_user_preferences(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="I prefer clean, futuristic UI by default.",
+            )
+
+            preferences = (
+                db.query(Memory)
+                .filter(Memory.task_context == direct_chat_module.LEARNED_PREFERENCE_TASK_CONTEXT)
+                .all()
+            )
+
+            self.assertEqual(len(preferences), 1)
+            self.assertTrue(preferences[0].is_pinned)
+            self.assertIn("Prefer clean, futuristic UI", preferences[0].content)
+            self.assertIn("learned_preference", reply["session"]["details"])
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend", return_value="I'll act as the user-facing Pexo assistant for this session.")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_brain_lookup_surfaces_learned_preferences(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            send_chat_message(
+                db,
+                session_id=session["id"],
+                message="I prefer clean, futuristic UI by default.",
+            )
+
+            reply = send_chat_message(
+                db,
+                session_id=session["id"],
+                message="what do you know about my preferences",
+            )
+
+            self.assertIn("learned preferences", reply["reply"]["user_message"].lower())
+            self.assertIn("clean, futuristic ui", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

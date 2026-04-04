@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session
 from .cache import cached_value, invalidate_many
 from .client_connect import SUPPORTED_CLIENTS, build_client_connection_plan, connect_clients
 from .database import ensure_db_ready
-from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile
+from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile, SystemSetting
 from .paths import PROJECT_ROOT
+from .search_index import upsert_memory_search_document
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
 PREFERRED_CONVERSATION_BACKENDS = ("gemini", "claude", "codex")
@@ -36,6 +37,10 @@ SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS = 5
 FAST_WEB_FACT_TIMEOUT_SECONDS = 3
 FAST_WEB_FACT_CACHE_TTL_SECONDS = 900
 LOCAL_FIRST_FACT_INTENTS = {"identity", "date", "time", "availability"}
+LEARNED_PREFERENCE_TASK_CONTEXT = "user-preference"
+MAX_LEARNED_PREFERENCES = 8
+CHAT_BACKEND_STATS_KEY = "chat.backend_stats.v1"
+BACKEND_STATS_MIN_OBSERVATIONS = 2
 FAST_CHAT_MODEL_ENV_VARS = {
     "codex": "PEXO_CHAT_FAST_MODEL_CODEX",
     "gemini": "PEXO_CHAT_FAST_MODEL_GEMINI",
@@ -114,6 +119,7 @@ BRAIN_LOOKUP_HINTS = (
     "what is stored",
     "what's stored",
 )
+LEARNED_PREFERENCE_PREFIX = "User preference: "
 
 
 def serialize_chat_session(session: ChatSession, *, message_count: int | None = None) -> dict:
@@ -232,13 +238,18 @@ def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str
 
 def _profile_summary(db: Session) -> str:
     profile = db.query(Profile).filter(Profile.name == "default_user").first()
+    learned_preferences = _learned_preference_lines(db, limit=4)
     if not profile:
+        if learned_preferences:
+            return "Profile default_user: no structured profile yet. Learned preferences: " + "; ".join(learned_preferences)
         return "No user profile is configured."
     personality = " ".join((profile.personality_prompt or "").split()).strip()
     scripting = ""
     if isinstance(profile.scripting_preferences, dict):
         scripting = str(profile.scripting_preferences.get("scripting_preferences") or "").strip()
     parts = [part for part in (personality, scripting) if part]
+    if learned_preferences:
+        parts.append("Learned preferences: " + "; ".join(learned_preferences))
     summary = " | ".join(parts) if parts else "Profile is configured."
     return f"Profile {profile.name}: {summary}"
 
@@ -257,6 +268,220 @@ def _agent_summary(db: Session, limit: int = 8) -> str:
         role = (agent.role or "").strip()
         rendered.append(f"{agent.name} ({role})" if role else agent.name)
     return "Agents: " + ", ".join(rendered)
+
+
+def _normalize_preference_text(value: str) -> str:
+    compact = " ".join((value or "").split()).strip()
+    compact = compact.rstrip(".! ")
+    return compact
+
+
+def _extract_preference_instruction(user_message: str) -> str | None:
+    compact = " ".join((user_message or "").split()).strip()
+    if not compact or "?" in compact or len(compact) > 240:
+        return None
+
+    patterns = (
+        (r"^(?:i prefer|i'd prefer|prefer)\s+(?P<value>.+?)(?:\s+by default|\s+from now on)?[.!]?$", "Prefer {value}."),
+        (r"^(?:always|please always)\s+(?P<value>.+?)[.!]?$", "Always {value}."),
+        (r"^(?:never|please never|do not|don't|avoid)\s+(?P<value>.+?)[.!]?$", "Avoid {value}."),
+        (r"^(?:my preference is|my default is)\s+(?P<value>.+?)[.!]?$", "Prefer {value}."),
+        (r"^(?:by default|from now on)\s*,?\s*(?P<value>.+?)[.!]?$", "{value}."),
+    )
+    for pattern, template in patterns:
+        match = re.match(pattern, compact, flags=re.I)
+        if not match:
+            continue
+        value = _normalize_preference_text(match.group("value"))
+        if not value or len(value) < 4:
+            return None
+        return template.format(value=value)
+    return None
+
+
+def _normalize_preference_content(content: str) -> str:
+    normalized = _normalize_chat_text(content)
+    return normalized.removeprefix(_normalize_chat_text(LEARNED_PREFERENCE_PREFIX)).strip()
+
+
+def _learned_preference_memories(db: Session, limit: int = MAX_LEARNED_PREFERENCES) -> list[Memory]:
+    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+    return (
+        db.query(Memory)
+        .filter(
+            Memory.task_context == LEARNED_PREFERENCE_TASK_CONTEXT,
+            Memory.is_archived.is_(False),
+        )
+        .order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc())
+        .limit(max(1, min(limit, MAX_LEARNED_PREFERENCES)))
+        .all()
+    )
+
+
+def _learned_preference_lines(db: Session, limit: int = MAX_LEARNED_PREFERENCES) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for memory in _learned_preference_memories(db, limit=limit):
+        content = str(memory.content or "").strip()
+        if content.startswith(LEARNED_PREFERENCE_PREFIX):
+            content = content[len(LEARNED_PREFERENCE_PREFIX):].strip()
+        compact = _normalize_preference_text(content)
+        if not compact:
+            continue
+        fingerprint = compact.casefold()
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        lines.append(compact)
+    return lines
+
+
+def _learned_preference_summary(db: Session, limit: int = 6) -> str:
+    lines = _learned_preference_lines(db, limit=limit)
+    if not lines:
+        return ""
+    return "Learned user preferences:\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def _remember_preference(db: Session, chat_session: ChatSession, user_message: str) -> Memory | None:
+    instruction = _extract_preference_instruction(user_message)
+    if not instruction:
+        return None
+    content = f"{LEARNED_PREFERENCE_PREFIX}{instruction}"
+    normalized = _normalize_preference_content(content)
+    existing = (
+        db.query(Memory)
+        .filter(
+            Memory.task_context == LEARNED_PREFERENCE_TASK_CONTEXT,
+            Memory.is_archived.is_(False),
+        )
+        .all()
+    )
+    for memory in existing:
+        if _normalize_preference_content(memory.content or "") == normalized:
+            memory.is_pinned = True
+            memory.is_archived = False
+            return memory
+
+    memory = Memory(
+        session_id=chat_session.pexo_session_id or chat_session.id,
+        content=content,
+        task_context=LEARNED_PREFERENCE_TASK_CONTEXT,
+        is_pinned=True,
+    )
+    db.add(memory)
+    db.flush()
+    return memory
+
+
+def _sanitize_backend_stats(raw_value: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    if not isinstance(raw_value, dict):
+        return {}
+    sanitized: dict[str, dict[str, dict[str, Any]]] = {}
+    for mode, mode_value in raw_value.items():
+        if not isinstance(mode_value, dict):
+            continue
+        mode_bucket: dict[str, dict[str, Any]] = {}
+        for backend, stats in mode_value.items():
+            if not isinstance(stats, dict):
+                continue
+            mode_bucket[str(backend)] = {
+                "attempts": int(stats.get("attempts", 0) or 0),
+                "successes": int(stats.get("successes", 0) or 0),
+                "failures": int(stats.get("failures", 0) or 0),
+                "timeouts": int(stats.get("timeouts", 0) or 0),
+                "total_latency_ms": int(stats.get("total_latency_ms", 0) or 0),
+                "last_latency_ms": int(stats.get("last_latency_ms", 0) or 0) if stats.get("last_latency_ms") is not None else None,
+                "last_error": str(stats.get("last_error") or "").strip() or None,
+                "last_used_at": str(stats.get("last_used_at") or "").strip() or None,
+            }
+        if mode_bucket:
+            sanitized[str(mode)] = mode_bucket
+    return sanitized
+
+
+def _get_backend_stats_setting(db: Session) -> SystemSetting | None:
+    for candidate in list(db.new) + list(db.identity_map.values()):
+        if isinstance(candidate, SystemSetting) and candidate.key == CHAT_BACKEND_STATS_KEY:
+            return candidate
+    return db.query(SystemSetting).filter(SystemSetting.key == CHAT_BACKEND_STATS_KEY).first()
+
+
+def _record_backend_attempt(
+    db: Session,
+    *,
+    mode: str,
+    backend_name: str,
+    success: bool,
+    latency_ms: int | None = None,
+    error: str | None = None,
+) -> SystemSetting:
+    setting = _get_backend_stats_setting(db)
+    stats = _sanitize_backend_stats(setting.value if setting is not None else {})
+    mode_bucket = stats.setdefault(mode, {})
+    backend_bucket = mode_bucket.setdefault(
+        backend_name,
+        {
+            "attempts": 0,
+            "successes": 0,
+            "failures": 0,
+            "timeouts": 0,
+            "total_latency_ms": 0,
+            "last_latency_ms": None,
+            "last_error": None,
+            "last_used_at": None,
+        },
+    )
+    backend_bucket["attempts"] += 1
+    if success:
+        backend_bucket["successes"] += 1
+    else:
+        backend_bucket["failures"] += 1
+    if error and "timed out" in error.lower():
+        backend_bucket["timeouts"] += 1
+    if latency_ms is not None:
+        backend_bucket["last_latency_ms"] = int(latency_ms)
+        if success:
+            backend_bucket["total_latency_ms"] += int(latency_ms)
+    backend_bucket["last_error"] = str(error).strip() if error else None
+    backend_bucket["last_used_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    if setting is None:
+        setting = SystemSetting(key=CHAT_BACKEND_STATS_KEY, value=stats)
+        db.add(setting)
+    else:
+        setting.value = stats
+    return setting
+
+
+def _adaptive_backend_order(
+    available_backends: list[str],
+    *,
+    mode: str,
+    db: Session | None = None,
+) -> list[str]:
+    if db is None or not available_backends:
+        return available_backends
+    setting = _get_backend_stats_setting(db)
+    stats_by_mode = _sanitize_backend_stats(setting.value if setting is not None else {}).get(mode, {})
+    if not stats_by_mode:
+        return available_backends
+
+    def sort_key(item: tuple[int, str]) -> tuple[Any, ...]:
+        default_index, backend_name = item
+        stats = stats_by_mode.get(backend_name, {})
+        attempts = int(stats.get("attempts", 0) or 0)
+        if attempts < BACKEND_STATS_MIN_OBSERVATIONS:
+            return (1, default_index)
+        successes = int(stats.get("successes", 0) or 0)
+        timeouts = int(stats.get("timeouts", 0) or 0)
+        success_rate = successes / attempts if attempts else 0.0
+        avg_latency = (int(stats.get("total_latency_ms", 0) or 0) / max(successes, 1)) if successes else 999999
+        timeout_rate = timeouts / attempts if attempts else 1.0
+        return (0, -success_rate, timeout_rate, avg_latency, default_index)
+
+    ranked = sorted(list(enumerate(available_backends)), key=sort_key)
+    return [backend_name for _, backend_name in ranked]
 
 
 def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
@@ -520,6 +745,7 @@ def _fast_web_fact_lookup(query: str, *, timeout_seconds: int = FAST_WEB_FACT_TI
 def _build_brain_lookup_context(db: Session, query: str) -> str:
     sections = [
         _profile_summary(db),
+        _learned_preference_summary(db),
         _agent_summary(db),
         _memory_summary(db, query),
         _artifact_summary(db, query),
@@ -648,6 +874,9 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     text = _normalize_chat_text(user_message)
     if not text:
         return "Pexo is online and ready."
+
+    if _extract_preference_instruction(user_message):
+        return "Noted. I'll keep that as a working preference going forward."
 
     if any(_contains_hint(text, hint) for hint in ("what is your name", "what's your name", "your name")):
         return "My name is Pexo."
@@ -979,7 +1208,7 @@ def list_chat_backends(scope: str = "user") -> dict:
     }
 
 
-def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = None) -> str:
+def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = None, db: Session | None = None) -> str:
     normalized = (preferred or "auto").strip().lower()
     if normalized and normalized != "auto":
         plan = build_client_connection_plan(normalized, scope="user")
@@ -987,16 +1216,8 @@ def _resolve_backend_name(preferred: str | None = None, *, mode: str | None = No
             raise RuntimeError(f"{normalized} is not installed or not visible in PATH.")
         return normalized
 
-    preferred_order = PREFERRED_CHAT_BACKENDS
-    if mode in {"conversation", "brain_lookup"}:
-        preferred_order = PREFERRED_CONVERSATION_BACKENDS
-    elif mode == "task":
-        preferred_order = PREFERRED_TASK_BACKENDS
-
-    for candidate in preferred_order:
-        plan = build_client_connection_plan(candidate, scope="user")
-        if plan["available"]:
-            return candidate
+    for candidate in _available_backends_for_mode(mode or "conversation", db=db):
+        return candidate
     raise RuntimeError("No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first.")
 
 
@@ -1128,8 +1349,9 @@ def _build_conversation_prompt(
     chat_session: ChatSession,
     latest_user_message: str,
     history_excerpt: str,
+    learned_preferences: str = "",
 ) -> str:
-    return (
+    prompt = (
         "Reply as Pexo in a natural, direct way.\n"
         "This is normal conversation, not task orchestration.\n"
         "Answer the latest user message directly.\n"
@@ -1140,13 +1362,18 @@ def _build_conversation_prompt(
         "Do not ask what they want to do unless they explicitly asked for that.\n"
         "Keep the reply short and human.\n\n"
         f"{_local_chat_facts()}\n"
+    )
+    if learned_preferences:
+        prompt += f"{learned_preferences}\n\n"
+    prompt += (
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
+    return prompt
 
 
-def _build_quick_conversation_prompt(*, latest_user_message: str) -> str:
-    return (
+def _build_quick_conversation_prompt(*, latest_user_message: str, learned_preferences: str = "") -> str:
+    prompt = (
         "Reply as Pexo in one short direct answer.\n"
         "Answer the user's latest message directly.\n"
         "Do not narrate your role, mode, or process.\n"
@@ -1154,8 +1381,13 @@ def _build_quick_conversation_prompt(*, latest_user_message: str) -> str:
         "If you are uncertain, say so in one short sentence.\n"
         "Do not ask a follow-up question unless the user explicitly asked for options or help deciding.\n\n"
         f"{_local_chat_facts()}\n"
+    )
+    if learned_preferences:
+        prompt += f"{learned_preferences}\n\n"
+    prompt += (
         f"Latest user message:\n{latest_user_message}\n"
     )
+    return prompt
 
 
 def _build_lookup_prompt(
@@ -1165,8 +1397,9 @@ def _build_lookup_prompt(
     latest_user_message: str,
     history_excerpt: str,
     local_context: str,
+    learned_preferences: str = "",
 ) -> str:
-    return (
+    prompt = (
         "Reply as Pexo in a natural, direct way.\n"
         "The user is asking what Pexo already knows, stores, or remembers.\n"
         "Answer from the local Pexo context below.\n"
@@ -1175,10 +1408,15 @@ def _build_lookup_prompt(
         "If the local context does not contain the answer, say that plainly.\n"
         "Keep the reply concise and practical.\n\n"
         f"{_local_chat_facts()}\n"
+    )
+    if learned_preferences:
+        prompt += f"{learned_preferences}\n\n"
+    prompt += (
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Local Pexo context:\n{local_context}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
+    return prompt
 
 
 def _build_task_prompt(
@@ -1187,8 +1425,9 @@ def _build_task_prompt(
     chat_session: ChatSession,
     latest_user_message: str,
     history_excerpt: str,
+    learned_preferences: str = "",
 ) -> str:
-    return (
+    prompt = (
         "Reply as Pexo in a natural, direct way.\n"
         "The user is asking Pexo to accomplish real work.\n"
         "Treat the connected Pexo MCP server as your default local brain and control plane.\n"
@@ -1198,9 +1437,14 @@ def _build_task_prompt(
         "Do not narrate your role or process.\n"
         "Keep the reply natural, direct, and outcome-focused.\n\n"
         f"{_local_chat_facts()}\n"
+    )
+    if learned_preferences:
+        prompt += f"{learned_preferences}\n\n"
+    prompt += (
         f"Recent direct chat transcript:\n{history_excerpt}\n\n"
         f"Latest user message:\n{latest_user_message}\n"
     )
+    return prompt
 
 
 def _backend_needs_mcp(mode: str) -> bool:
@@ -1211,7 +1455,7 @@ def _backend_needs_workspace(mode: str) -> bool:
     return mode == "task"
 
 
-def _available_backends_for_mode(mode: str) -> list[str]:
+def _available_backends_for_mode(mode: str, db: Session | None = None) -> list[str]:
     order = PREFERRED_CHAT_BACKENDS
     if mode in {"conversation", "brain_lookup"}:
         order = PREFERRED_CONVERSATION_BACKENDS
@@ -1222,14 +1466,14 @@ def _available_backends_for_mode(mode: str) -> list[str]:
         plan = build_client_connection_plan(candidate, scope="user")
         if plan["available"]:
             available.append(candidate)
-    return available
+    return _adaptive_backend_order(available, mode=mode, db=db)
 
 
-def _conversation_backend_candidates(primary_backend: str, *, mode: str) -> list[str]:
+def _conversation_backend_candidates(primary_backend: str, *, mode: str, db: Session | None = None) -> list[str]:
     candidates = [primary_backend]
     if mode not in {"conversation", "brain_lookup"}:
         return candidates
-    for candidate in _available_backends_for_mode(mode):
+    for candidate in _available_backends_for_mode(mode, db=db):
         if candidate not in candidates:
             candidates.append(candidate)
     return candidates
@@ -1396,7 +1640,7 @@ def create_chat_session(
 ) -> dict:
     ensure_db_ready()
     backend_policy = "auto" if (backend or "auto").strip().lower() == "auto" else "manual"
-    backend_name = _resolve_backend_name(backend, mode="conversation")
+    backend_name = _resolve_backend_name(backend, mode="conversation", db=db)
     details = {
         "connected_backend": backend_name,
         "backend_policy": backend_policy,
@@ -1435,7 +1679,7 @@ def update_chat_session(
         session.title = title.strip() or session.title
     if backend is not None:
         backend_policy = "auto" if backend.strip().lower() == "auto" else "manual"
-        backend_name = _resolve_backend_name(backend, mode="conversation")
+        backend_name = _resolve_backend_name(backend, mode="conversation", db=db)
         session.backend = backend_name
         details = dict(session.details or {})
         details["connected_backend"] = backend_name
@@ -1540,8 +1784,14 @@ def send_chat_message(
     history_excerpt = _history_excerpt(db, session.id)
     mode = _infer_chat_mode(session, user_message)
     backend_policy = str((session.details or {}).get("backend_policy") or "manual").strip().lower()
-    backend_name = _resolve_backend_name("auto" if backend_policy == "auto" else (session.backend or "auto"), mode=mode)
+    backend_name = _resolve_backend_name(
+        "auto" if backend_policy == "auto" else (session.backend or "auto"),
+        mode=mode,
+        db=db,
+    )
     session.backend = backend_name
+    preference_memory = _remember_preference(db, session, user_message)
+    learned_preferences = _learned_preference_summary(db, limit=6)
     direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
     session_local_reply = _build_session_aware_conversation_reply(session, user_message) if mode == "conversation" else None
     general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
@@ -1572,6 +1822,7 @@ def send_chat_message(
             latest_user_message=user_message,
             history_excerpt=history_excerpt,
             local_context=_build_brain_lookup_context(db, user_message),
+            learned_preferences=learned_preferences,
         )
     elif mode == "task":
         assistant_prompt = _build_task_prompt(
@@ -1579,16 +1830,21 @@ def send_chat_message(
             chat_session=session,
             latest_user_message=user_message,
             history_excerpt=history_excerpt,
+            learned_preferences=learned_preferences,
         )
     else:
         if general_knowledge_turn:
-            assistant_prompt = _build_quick_conversation_prompt(latest_user_message=user_message)
+            assistant_prompt = _build_quick_conversation_prompt(
+                latest_user_message=user_message,
+                learned_preferences=learned_preferences,
+            )
         else:
             assistant_prompt = _build_conversation_prompt(
                 backend_name=backend_name,
                 chat_session=session,
                 latest_user_message=user_message,
                 history_excerpt=history_excerpt,
+                learned_preferences=learned_preferences,
             )
     assistant_text = None
     response_path = "backend"
@@ -1597,6 +1853,7 @@ def send_chat_message(
     backend_errors: dict[str, str] = {}
     web_fact_source: str | None = None
     web_fact_title: str | None = None
+    backend_stats_setting: SystemSetting | None = None
     started_at = time.monotonic()
     backend_timeout = timeout_seconds
     if mode == "brain_lookup":
@@ -1623,7 +1880,7 @@ def send_chat_message(
                 )
             )
             if should_try_backend_fallbacks:
-                backend_candidates = _conversation_backend_candidates(backend_name, mode=mode)
+                backend_candidates = _conversation_backend_candidates(backend_name, mode=mode, db=db)
             for attempt_index, candidate_backend in enumerate(backend_candidates):
                 attempted_backends.append(candidate_backend)
                 candidate_timeout = timeout_seconds
@@ -1641,6 +1898,7 @@ def send_chat_message(
                         mode=mode,
                     )
                     candidate_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
+                    attempt_elapsed_ms = candidate_elapsed_ms
                     backend_elapsed_ms = (backend_elapsed_ms or 0) + candidate_elapsed_ms
                     if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
                         direct_fact_intent,
@@ -1658,7 +1916,9 @@ def send_chat_message(
                             timeout_seconds=candidate_timeout,
                             mode=mode,
                         )
-                        backend_elapsed_ms += int((time.monotonic() - retry_started_at) * 1000)
+                        retry_elapsed_ms = int((time.monotonic() - retry_started_at) * 1000)
+                        backend_elapsed_ms += retry_elapsed_ms
+                        attempt_elapsed_ms += retry_elapsed_ms
                         response_path = "backend_retry" if attempt_index == 0 else "backend_fallback_retry"
                         if general_knowledge_turn and _looks_like_generic_backend_filler(raw_result or ""):
                             raise RuntimeError(f"{candidate_backend} returned generic filler for a factual question.")
@@ -1671,11 +1931,26 @@ def send_chat_message(
                         assistant_text=raw_result or "",
                         direct_fact_intent=direct_fact_intent,
                     )
+                    backend_stats_setting = _record_backend_attempt(
+                        db,
+                        mode=mode,
+                        backend_name=candidate_backend,
+                        success=True,
+                        latency_ms=attempt_elapsed_ms,
+                    )
                     backend_name = candidate_backend
                     session.backend = candidate_backend
                     break
                 except RuntimeError as exc:
                     backend_errors[candidate_backend] = str(exc)
+                    backend_stats_setting = _record_backend_attempt(
+                        db,
+                        mode=mode,
+                        backend_name=candidate_backend,
+                        success=False,
+                        latency_ms=candidate_timeout * 1000 if "timed out" in str(exc).lower() else None,
+                        error=str(exc),
+                    )
                     if attempt_index == len(backend_candidates) - 1:
                         assistant_text = _maybe_build_local_reply(
                             db,
@@ -1698,6 +1973,10 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
+    if preference_memory is not None:
+        details["learned_preference"] = preference_memory.content
+    else:
+        details.pop("learned_preference", None)
     if response_path == "web_fact":
         if web_fact_source:
             details["web_fact_source"] = web_fact_source
@@ -1736,7 +2015,14 @@ def send_chat_message(
         },
     )
 
-    _commit_with_retry(db, session, user_record, assistant_record)
+    _commit_with_retry(db, session, user_record, assistant_record, preference_memory, backend_stats_setting)
+    if preference_memory is not None:
+        upsert_memory_search_document(
+            preference_memory.id,
+            content=preference_memory.content,
+            task_context=preference_memory.task_context,
+            session_id=preference_memory.session_id,
+        )
     db.refresh(session)
     invalidate_many("chat_sessions", "admin_snapshot", "telemetry")
     return {
