@@ -1551,7 +1551,7 @@ class HardeningTests(unittest.TestCase):
             mock_run_backend.side_effect = RuntimeError("backend unavailable")
 
             name_reply = send_chat_message(db, session_id=session["id"], message="What is your name?")
-            date_reply = send_chat_message(db, session_id=session["id"], message="what is todays day")
+            date_reply = send_chat_message(db, session_id=session["id"], message="what day is it")
             time_reply = send_chat_message(db, session_id=session["id"], message="what time is it")
 
             self.assertEqual(mock_run_backend.call_count, 3)
@@ -1592,13 +1592,16 @@ class HardeningTests(unittest.TestCase):
         db = SessionLocal()
         try:
             session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
-            mock_run_backend.return_value = "Ill operate as the user-facing Pexo assistant for this session. What do you want to do?"
+            mock_run_backend.side_effect = [
+                "Ill speak directly to you as Pexo.",
+                "The weather depends on your location, but I can still help with a plan if you want one.",
+            ]
 
             reply = send_chat_message(db, session_id=session["id"], message="talk casually about weather for one sentence")
 
-            mock_run_backend.assert_called_once()
+            self.assertEqual(mock_run_backend.call_count, 2)
             self.assertEqual(reply["session"]["details"]["mode"], "conversation")
-            self.assertEqual(reply["reply"]["user_message"], "Pexo is online and ready.")
+            self.assertIn("weather", reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

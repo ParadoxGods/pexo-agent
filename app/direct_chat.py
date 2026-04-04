@@ -309,6 +309,8 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     if any(
         phrase in text
         for phrase in (
+            "what day is it",
+            "what day is it today",
             "what day is today",
             "what is todays day",
             "what is today's day",
@@ -379,9 +381,6 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     if any(_contains_hint(text, hint) for hint in ("are you there", "are you online", "testing", "test", "hello", "hi", "hey")):
         return "Pexo is online and ready. Ask for a task, stored context, or an agent change when you're ready."
 
-    if text.endswith("?"):
-        return "I'm here. Ask directly for the outcome you want, or ask what Pexo already knows."
-
     return None
 
 
@@ -419,8 +418,12 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
     generic_phrases = (
         "ill act as the user-facing pexo assistant",
         "ill operate as the user-facing pexo assistant",
+        "ill speak directly to you as pexo",
         "i'll act as the user-facing pexo assistant",
         "i'll operate as the user-facing pexo assistant",
+        "i'll speak directly to you as pexo",
+        "i am pexo speaking directly to the user",
+        "i am pexo speaking directly to you",
         "send the task, question, or workflow you want handled",
         "what do you want to do next",
         "what do you want to do",
@@ -440,6 +443,24 @@ def _normalize_backend_reply(db: Session, *, mode: str, user_message: str, assis
     if mode == "task":
         return "Pexo is ready to handle the task. Tell me the outcome you want, and I'll continue from there."
     return "Pexo is online and ready."
+
+
+def _build_backend_retry_prompt(original_prompt: str, *, mode: str, user_message: str) -> str:
+    correction = (
+        "Critical correction: your previous draft was meta filler.\n"
+        "Answer the user's latest message directly.\n"
+        "Do not describe your role.\n"
+        "Do not say you are speaking directly as Pexo.\n"
+        "Do not ask what they want to do unless they explicitly asked for that.\n"
+    )
+    if mode == "brain_lookup":
+        correction += "Use the local Pexo context already provided and answer in one short practical paragraph.\n"
+    elif mode == "conversation":
+        correction += "Reply in one short natural sentence.\n"
+    else:
+        correction += "Reply with the next useful action or answer.\n"
+    correction += f"\nLatest user message to answer directly:\n{user_message}\n"
+    return f"{original_prompt}\n\n{correction}"
 
 
 def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> str | None:
@@ -962,6 +983,18 @@ def send_chat_message(
             timeout_seconds=backend_timeout,
             mode=mode,
         )
+        if _looks_like_generic_backend_filler(raw_result or ""):
+            raw_result = run_direct_chat_backend(
+                backend_name,
+                _build_backend_retry_prompt(
+                    assistant_prompt,
+                    mode=mode,
+                    user_message=user_message,
+                ),
+                session.workspace_path,
+                timeout_seconds=backend_timeout,
+                mode=mode,
+            )
         assistant_text = _normalize_backend_reply(
             db,
             mode=mode,
