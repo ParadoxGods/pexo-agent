@@ -1509,6 +1509,44 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_answers_identity_and_date_locally(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+
+            name_reply = send_chat_message(db, session_id=session["id"], message="What is your name?")
+            date_reply = send_chat_message(db, session_id=session["id"], message="what is todays day")
+
+            mock_run_backend.assert_not_called()
+            self.assertEqual(name_reply["reply"]["user_message"], "My name is Pexo.")
+            self.assertIn("Today is", date_reply["reply"]["user_message"])
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
+    def test_direct_chat_rewrites_generic_backend_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            session = create_chat_session(db, backend="auto", workspace_path=str(PROJECT_ROOT))
+            mock_run_backend.return_value = "Ill operate as the user-facing Pexo assistant for this session. What do you want to do?"
+
+            reply = send_chat_message(db, session_id=session["id"], message="what is your favorite color")
+
+            mock_run_backend.assert_called_once()
+            self.assertEqual(reply["session"]["details"]["mode"], "conversation")
+            self.assertEqual(reply["reply"]["user_message"], "Pexo is online and ready.")
+        finally:
+            db.close()
+
+    @patch("app.direct_chat.run_direct_chat_backend")
+    @patch("app.direct_chat._ensure_backend_connected")
+    @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
     def test_direct_chat_routes_lookup_requests_to_brain_lookup_mode(self, mock_backend_name, mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()

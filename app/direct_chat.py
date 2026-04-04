@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from datetime import datetime
 import os
 import re
 import subprocess
@@ -275,10 +277,46 @@ def _build_brain_lookup_context(db: Session, query: str) -> str:
     return "\n\n".join(section for section in sections if section)
 
 
+def _format_local_date() -> str:
+    now = datetime.now().astimezone()
+    day = now.day
+    return f"{now.strftime('%A')}, {now.strftime('%B')} {day}, {now.year}"
+
+
 def _build_local_conversation_reply(user_message: str) -> str | None:
     text = _normalize_chat_text(user_message)
     if not text:
         return "Pexo is online and ready."
+
+    if any(_contains_hint(text, hint) for hint in ("what is your name", "what's your name", "your name")):
+        return "My name is Pexo."
+
+    if any(
+        phrase in text
+        for phrase in (
+            "what day is today",
+            "what is todays day",
+            "what is today's day",
+            "what is today",
+            "what's today",
+            "todays date",
+            "today's date",
+            "what is todays date",
+            "what is today's date",
+        )
+    ):
+        return f"Today is {_format_local_date()}."
+
+    if any(
+        phrase in text
+        for phrase in (
+            "what time is it",
+            "what's the time",
+            "what is the time",
+            "current time",
+        )
+    ):
+        return f"It is {datetime.now().astimezone().strftime('%I:%M %p').lstrip('0')}."
 
     if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
         return "You're welcome. Pexo is ready for the next step."
@@ -322,7 +360,37 @@ def _build_local_lookup_reply(db: Session, user_message: str) -> str:
             ]
         )
 
-    return "Here’s what Pexo has locally:\n\n" + "\n\n".join(section for section in sections if section)
+    return "Here's what Pexo has locally:\n\n" + "\n\n".join(section for section in sections if section)
+
+
+def _looks_like_generic_backend_filler(text: str) -> bool:
+    normalized = _normalize_chat_text(text)
+    if not normalized:
+        return True
+    generic_phrases = (
+        "ill act as the user-facing pexo assistant",
+        "ill operate as the user-facing pexo assistant",
+        "i'll act as the user-facing pexo assistant",
+        "i'll operate as the user-facing pexo assistant",
+        "send the task, question, or workflow you want handled",
+        "what do you want to do next",
+        "what do you want to do",
+    )
+    return any(phrase in normalized for phrase in generic_phrases)
+
+
+def _normalize_backend_reply(db: Session, *, mode: str, user_message: str, assistant_text: str) -> str:
+    cleaned = (assistant_text or "").strip()
+    if cleaned and not _looks_like_generic_backend_filler(cleaned):
+        return cleaned
+
+    local_reply = _maybe_build_local_reply(db, mode=mode, user_message=user_message)
+    if local_reply:
+        return local_reply
+
+    if mode == "task":
+        return "Pexo is ready to handle the task. Tell me the outcome you want, and I'll continue from there."
+    return "Pexo is online and ready."
 
 
 def _maybe_build_local_reply(db: Session, *, mode: str, user_message: str) -> str | None:
@@ -446,8 +514,10 @@ def _build_conversation_prompt(
         "Do not start or continue a structured Pexo task for this turn.\n"
         "Do not invoke Supervisor-style orchestration for greetings, smoke tests, casual chat, or short direct questions.\n"
         "If the user is simply testing the chat, answer plainly that Pexo is online and ready.\n"
+        "If the user asks a short direct question, answer that question directly.\n"
         "Ask a clarification question only if the request cannot be answered responsibly without one.\n"
         "Keep the reply short, plain, and natural.\n\n"
+        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant' or 'Send the task you want handled'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
         f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
@@ -473,6 +543,7 @@ def _build_lookup_prompt(
         "Do not ask a clarification question unless the user's request is genuinely ambiguous.\n"
         "If the local context does not contain the answer, say that plainly.\n"
         "Keep the reply concise and practical.\n\n"
+        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
         f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
@@ -498,6 +569,7 @@ def _build_task_prompt(
         "Use structured Pexo task flow only when the work is clearly multi-step, needs durable coordination, or truly needs one clarification question.\n"
         "Do not expose raw orchestration internals unless the user explicitly asks for them.\n"
         "Keep the reply plain and outcome-focused.\n\n"
+        "Do not respond with meta filler like 'I'll act as the user-facing Pexo assistant'.\n\n"
         f"Direct chat backend: {backend_name}\n"
         f"Direct chat session: {chat_session.id}\n"
         f"Workspace path: {chat_session.workspace_path or str(PROJECT_ROOT)}\n\n"
@@ -793,7 +865,12 @@ def send_chat_message(
             session.workspace_path,
             timeout_seconds=timeout_seconds,
         )
-        assistant_text = (raw_result or "").strip() or "Pexo is ready for the next step."
+        assistant_text = _normalize_backend_reply(
+            db,
+            mode=mode,
+            user_message=user_message,
+            assistant_text=raw_result or "",
+        )
 
     session.status = "answered"
     details = dict(session.details or {})
