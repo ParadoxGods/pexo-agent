@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .cache import cached_value, invalidate_runtime_caches
 from .dependency_profiles import PROFILE_DEPENDENCIES, PROFILE_ORDER
 from .models import SystemSetting
-from .paths import CODE_ROOT, PROJECT_ROOT, RUNTIME_MARKER_PATH, running_from_repo_checkout
+from .paths import CODE_ROOT, PROJECT_ROOT, RUNTIME_MARKER_PATH, STATE_ROOT, running_from_repo_checkout
 VECTOR_PROMOTION_NOTICE_KEY = "runtime.vector_promotion_notice_issued"
 
 
@@ -139,6 +139,7 @@ def build_runtime_status(db: Session | None = None) -> dict:
             "installed_profiles": installed_profiles,
             "vector_embeddings_available": installed_profiles["vector"],
             "project_root": str(PROJECT_ROOT),
+            "state_root": str(STATE_ROOT),
             "code_root": str(CODE_ROOT),
             "install_mode": "checkout" if running_from_repo_checkout() else "packaged",
             "recommended_promotions": [

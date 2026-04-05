@@ -17,7 +17,7 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 from sqlalchemy.orm import Session
 
@@ -27,7 +27,7 @@ from .database import SessionLocal, ensure_db_ready
 from .models import AgentProfile, Artifact, ChatMessage, ChatSession, Memory, Profile, SystemSetting
 from .paths import PROJECT_ROOT
 from .routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, get_next_task, get_simple_task_status, start_simple_task
-from .search_index import upsert_memory_search_document
+from .search_index import search_artifact_ids, search_memory_ids, upsert_memory_search_document
 
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
 PREFERRED_CONVERSATION_BACKENDS = ("gemini", "claude", "codex")
@@ -970,24 +970,139 @@ def _backend_stats_bucket(mode: str, capability: str | None = None) -> str:
     return f"{mode}:{normalized_capability}"
 
 
-def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
+LOOKUP_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "do",
+    "for",
+    "have",
+    "i",
+    "is",
+    "me",
+    "our",
+    "please",
+    "show",
+    "stored",
+    "tell",
+    "the",
+    "this",
+    "to",
+    "we",
+    "what",
+}
+
+
+def _is_broad_lookup_query(needle: str) -> bool:
+    return any(
+        phrase in needle
+        for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")
+    )
+
+
+def _lookup_terms(query: str) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[a-z0-9_.-]+", _normalize_chat_text(query)):
+        if token in LOOKUP_STOPWORDS:
+            continue
+        if len(token) <= 1:
+            continue
+        if token not in seen:
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def _ordered_records_by_id(records: list[Any], ordered_ids: list[int]) -> list[Any]:
+    record_by_id = {int(record.id): record for record in records}
+    return [record_by_id[record_id] for record_id in ordered_ids if record_id in record_by_id]
+
+
+def _artifact_lookup_records(db: Session, query: str, limit: int) -> list[Artifact]:
     needle = _normalize_chat_text(query)
+    safe_limit = max(1, min(limit, 6))
+    query_obj = db.query(Artifact)
+    if _is_broad_lookup_query(needle):
+        return (
+            query_obj.order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
+            .limit(safe_limit)
+            .all()
+        )
+
+    artifact_ids = search_artifact_ids(query, safe_limit)
+    if artifact_ids:
+        return _ordered_records_by_id(
+            db.query(Artifact).filter(Artifact.id.in_(artifact_ids)).all(),
+            artifact_ids,
+        )
+
+    terms = _lookup_terms(query)
+    if not terms:
+        return []
+
+    filters = []
+    for term in terms:
+        pattern = f"%{term}%"
+        filters.extend(
+            [
+                Artifact.name.ilike(pattern),
+                Artifact.source_uri.ilike(pattern),
+                Artifact.extracted_text.ilike(pattern),
+                Artifact.task_context.ilike(pattern),
+            ]
+        )
+    return (
+        query_obj.filter(or_(*filters))
+        .order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+
+
+def _memory_lookup_records(db: Session, query: str, limit: int) -> list[Memory]:
+    needle = _normalize_chat_text(query)
+    safe_limit = max(1, min(limit, 6))
     query_obj = db.query(Memory).filter(Memory.is_archived.is_(False))
-    memories = []
-    if needle and not any(phrase in needle for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")):
-        term = f"%{needle}%"
-        memories = (
-            query_obj.filter((Memory.content.ilike(term)) | (Memory.task_context.ilike(term)))
-            .order_by(Memory.updated_at.desc().nullslast(), Memory.created_at.desc(), Memory.id.desc())
-            .limit(max(1, min(limit, 6)))
-            .all()
-        )
-    if not memories:
-        memories = (
+    if _is_broad_lookup_query(needle):
+        return (
             query_obj.order_by(Memory.updated_at.desc().nullslast(), Memory.created_at.desc(), Memory.id.desc())
-            .limit(max(1, min(limit, 6)))
+            .limit(safe_limit)
             .all()
         )
+
+    memory_ids = search_memory_ids(query, safe_limit)
+    if memory_ids:
+        return _ordered_records_by_id(
+            db.query(Memory).filter(Memory.id.in_(memory_ids)).all(),
+            memory_ids,
+        )
+
+    terms = _lookup_terms(query)
+    if not terms:
+        return []
+
+    filters = []
+    for term in terms:
+        pattern = f"%{term}%"
+        filters.extend(
+            [
+                Memory.content.ilike(pattern),
+                Memory.task_context.ilike(pattern),
+                Memory.session_id.ilike(pattern),
+            ]
+        )
+    return (
+        query_obj.filter(or_(*filters))
+        .order_by(Memory.updated_at.desc().nullslast(), Memory.created_at.desc(), Memory.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+
+
+def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
+    memories = _memory_lookup_records(db, query, limit)
     if not memories:
         return "Matching memories: none."
     lines = []
@@ -999,28 +1114,7 @@ def _memory_summary(db: Session, query: str, limit: int = 3) -> str:
 
 
 def _artifact_summary(db: Session, query: str, limit: int = 3) -> str:
-    needle = _normalize_chat_text(query)
-    query_obj = db.query(Artifact)
-    artifacts = []
-    if needle and not any(phrase in needle for phrase in ("what do you know", "what do we know", "what is stored", "what's stored")):
-        term = f"%{needle}%"
-        artifacts = (
-            query_obj.filter(
-                (Artifact.name.ilike(term))
-                | (Artifact.source_uri.ilike(term))
-                | (Artifact.extracted_text.ilike(term))
-                | (Artifact.task_context.ilike(term))
-            )
-            .order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
-            .limit(max(1, min(limit, 6)))
-            .all()
-        )
-    if not artifacts:
-        artifacts = (
-            query_obj.order_by(Artifact.updated_at.desc().nullslast(), Artifact.created_at.desc(), Artifact.id.desc())
-            .limit(max(1, min(limit, 6)))
-            .all()
-        )
+    artifacts = _artifact_lookup_records(db, query, limit)
     if not artifacts:
         return "Matching artifacts: none."
     lines = []

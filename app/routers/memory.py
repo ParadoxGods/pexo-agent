@@ -1,4 +1,6 @@
 import importlib
+import threading
+import time
 from datetime import datetime
 import uuid
 
@@ -30,6 +32,9 @@ SUMMARY_FRAGMENT_LIMIT = 6
 SUMMARY_FRAGMENT_LENGTH = 240
 
 _memory_collection = None
+_memory_cogmachine_lock = threading.Lock()
+_memory_cogmachine_thread = None
+_memory_cogmachine_stop_event = None
 
 
 def refresh_memory_runtime() -> bool:
@@ -552,17 +557,16 @@ def maintain_memory_health_bg(task_context: str | None = None) -> None:
         db.close()
 
 
-def autonomous_memory_cogmachine_loop() -> None:
+def autonomous_memory_cogmachine_loop(stop_event: threading.Event | None = None) -> None:
     """
     Perpetual background loop that ensures memory efficiency.
     """
     import logging
-    import time
     
     logger = logging.getLogger("pexo.memory_cogmachine")
     logger.info("Memory maintenance loop started.")
     
-    while True:
+    while not (stop_event and stop_event.is_set()):
         try:
             db = SessionLocal()
             try:
@@ -582,16 +586,42 @@ def autonomous_memory_cogmachine_loop() -> None:
             logger.error(f"Memory maintenance error: {e}")
         
         # Sleep for 10 minutes between global sweeps to preserve local resources
-        time.sleep(600)
+        if stop_event and stop_event.wait(600):
+            break
 
 
-def start_autonomous_memory_cogmachine() -> None:
+def start_autonomous_memory_cogmachine() -> threading.Thread:
     """
     Spawns the memory efficiency background thread.
     """
-    import threading
-    thread = threading.Thread(target=autonomous_memory_cogmachine_loop, daemon=True)
-    thread.start()
+    global _memory_cogmachine_thread, _memory_cogmachine_stop_event
+    with _memory_cogmachine_lock:
+        if _memory_cogmachine_thread is not None and _memory_cogmachine_thread.is_alive():
+            return _memory_cogmachine_thread
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=autonomous_memory_cogmachine_loop,
+            args=(stop_event,),
+            daemon=True,
+            name="pexo-memory-cogmachine",
+        )
+        _memory_cogmachine_stop_event = stop_event
+        _memory_cogmachine_thread = thread
+        thread.start()
+        return thread
+
+
+def stop_autonomous_memory_cogmachine(timeout: float = 1.0) -> None:
+    global _memory_cogmachine_thread, _memory_cogmachine_stop_event
+    with _memory_cogmachine_lock:
+        thread = _memory_cogmachine_thread
+        stop_event = _memory_cogmachine_stop_event
+        _memory_cogmachine_thread = None
+        _memory_cogmachine_stop_event = None
+    if stop_event is not None:
+        stop_event.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=max(0.0, timeout))
 
 
 class MemoryStoreRequest(BaseModel):

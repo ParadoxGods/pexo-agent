@@ -300,17 +300,13 @@ class HardeningTests(unittest.TestCase):
     def test_admin_ui_supports_agent_editing_and_memory_admin(self):
         html = Path("app/static/index.html").read_text(encoding="utf-8")
         self.assertIn("saveAgent()", html)
-        self.assertIn("sendChat()", html)
-        self.assertIn("Fetching Answer", html)
-        self.assertIn("typingDots", html)
-        self.assertIn("Pexo is fetching an answer", html)
         self.assertIn("saveMemory(", html)
         self.assertIn("deleteMemory(", html)
         self.assertIn("saveProfile()", html)
         self.assertIn("runMemoryMaintenance()", html)
-        self.assertIn("/chat/sessions", html)
-        self.assertIn("Direct Chat", html)
-        self.assertIn("pexo --chat", html)
+        self.assertNotIn("Direct Chat", html)
+        self.assertIn("Memory Console", html)
+        self.assertIn("Recent Memory", html)
         self.assertIn("artifactList", html)
         self.assertIn("promote(", html)
         self.assertIn("/admin/snapshot", html)
@@ -660,6 +656,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("editable checkout", " ".join(report["issues"]).lower())
 
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._maybe_stop_existing_server_for_update", return_value="not-running")
     @patch("app.launcher._exec_update_helper", return_value=0)
     @patch("app.launcher._prepare_packaged_update_helper")
     @patch("app.launcher._build_packaged_update_plan")
@@ -668,6 +665,7 @@ class HardeningTests(unittest.TestCase):
         mock_build_plan,
         mock_prepare,
         mock_exec,
+        _mock_stop_server,
         _mock_checkout,
     ):
         mock_build_plan.return_value = {
@@ -1305,6 +1303,13 @@ class HardeningTests(unittest.TestCase):
         mock_db_ready.assert_called_once()
         mock_create_chat.assert_called_once()
 
+    def test_memory_cogmachine_start_is_singleton_and_stoppable(self):
+        memory_router.stop_autonomous_memory_cogmachine(timeout=0.1)
+        first_thread = memory_router.start_autonomous_memory_cogmachine()
+        second_thread = memory_router.start_autonomous_memory_cogmachine()
+        self.assertIs(first_thread, second_thread)
+        memory_router.stop_autonomous_memory_cogmachine(timeout=0.1)
+
     @patch("app.launcher.run_warmup", return_value=0)
     @patch("app.launcher._restart_launcher_process", return_value=0)
     @patch("app.launcher.promote_runtime")
@@ -1441,7 +1446,7 @@ class HardeningTests(unittest.TestCase):
 
     def test_paths_use_repo_checkout_locally_and_home_for_packaged_mode(self):
         self.assertTrue(looks_like_repo_checkout(CODE_ROOT))
-        self.assertEqual(resolve_state_root(code_root=CODE_ROOT, env_override=None), CODE_ROOT)
+        self.assertEqual(resolve_state_root(code_root=CODE_ROOT, env_override=None), CODE_ROOT / ".pexo")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_code_root = Path(tmpdir) / "site-packages-pexo"
@@ -1490,6 +1495,7 @@ class HardeningTests(unittest.TestCase):
 
     def test_gitignore_covers_repo_local_runtime_state(self):
         content = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".pexo/", content)
         self.assertIn(".pexo-deps-profile", content)
         self.assertIn(".pexo-update-check", content)
         self.assertIn("artifacts/", content)

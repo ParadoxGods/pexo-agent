@@ -12,9 +12,12 @@ __pycache__/
 *.so
 
 # Pexo Local Databases & Memory
+.pexo/
 pexo.db
 pexo.db-shm
 pexo.db-wal
+server.log
+server_new.log
 chroma_db/
 AI_NOTES.md
 ai_context

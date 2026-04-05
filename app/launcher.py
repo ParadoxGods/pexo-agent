@@ -30,6 +30,7 @@ from .paths import (
     PEXO_DB_PATH,
     PROJECT_ROOT,
     RUNTIME_MARKER_PATH,
+    STATE_ROOT,
     UPDATE_STAMP_PATH,
     resolve_editable_source_root,
     running_from_repo_checkout,
@@ -936,7 +937,7 @@ def run_warmup(quiet: bool = False) -> int:
 
     try:
         step(10, "Preparing local state")
-        PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
+        STATE_ROOT.mkdir(parents=True, exist_ok=True)
         ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         DYNAMIC_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1233,7 +1234,7 @@ def print_uninstall_guidance() -> int:
         print("Checkout install detected. Use `pexo uninstall` from the launcher script or run the local uninstall script.")
         return 0
 
-    print(f"Package install detected. Run `{_package_uninstall_guidance()}` and delete {PROJECT_ROOT} if you also want to remove local state.")
+    print(f"Package install detected. Run `{_package_uninstall_guidance()}` and delete {STATE_ROOT} if you also want to remove local state.")
     return 0
 
 
@@ -1305,7 +1306,7 @@ def build_doctor_report() -> dict:
         "version": __version__,
         "install_mode": install_mode,
         "code_root": str(CODE_ROOT),
-        "state_root": str(PROJECT_ROOT),
+        "state_root": str(STATE_ROOT),
         "install_source": {
             "editable": editable_source_root is not None,
             "editable_root": str(editable_source_root) if editable_source_root is not None else None,
@@ -1321,7 +1322,7 @@ def build_doctor_report() -> dict:
             "install_metadata": str(INSTALL_METADATA_PATH),
         },
         "path_health": {
-            "state_root_exists": PROJECT_ROOT.exists(),
+            "state_root_exists": STATE_ROOT.exists(),
             "database_exists": PEXO_DB_PATH.exists(),
             "vector_store_exists": CHROMA_DB_DIR.exists(),
             "artifacts_exists": ARTIFACTS_DIR.exists(),
@@ -1365,7 +1366,7 @@ def build_doctor_report() -> dict:
     }
 
     issues = report["issues"]
-    if not PROJECT_ROOT.exists():
+    if not STATE_ROOT.exists():
         issues.append("State root does not exist yet.")
     if not sqlite_report["db_exists"]:
         issues.append("SQLite state database has not been created yet.")

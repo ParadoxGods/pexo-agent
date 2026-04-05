@@ -11,6 +11,7 @@ APP_DIR = Path(__file__).resolve().parent
 CODE_ROOT = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
 _ENV_UNSET = object()
+CHECKOUT_STATE_DIRNAME = ".pexo"
 
 
 def normalize_user_path(raw_path: str | None) -> Path | None:
@@ -87,6 +88,11 @@ def resolve_managed_runtime_state_root(runtime_invoker: str | Path | None = None
     return None
 
 
+def resolve_checkout_state_root(code_root: Path | None = None) -> Path:
+    root = (code_root or CODE_ROOT).resolve(strict=False)
+    return (root / CHECKOUT_STATE_DIRNAME).resolve(strict=False)
+
+
 def resolve_state_root(
     *,
     code_root: Path | None = None,
@@ -105,14 +111,15 @@ def resolve_state_root(
 
     candidate_root = code_root or CODE_ROOT
     if looks_like_repo_checkout(candidate_root):
-        return candidate_root
+        return resolve_checkout_state_root(candidate_root)
 
     base_home = home_dir or Path.home()
     return (base_home / ".pexo").resolve(strict=False)
 
 
 STATE_ROOT = resolve_state_root()
-PROJECT_ROOT = STATE_ROOT
+WORKSPACE_ROOT = CODE_ROOT.resolve(strict=False) if looks_like_repo_checkout(CODE_ROOT) else STATE_ROOT
+PROJECT_ROOT = WORKSPACE_ROOT
 DYNAMIC_TOOLS_DIR = STATE_ROOT / "dynamic_tools"
 ARTIFACTS_DIR = STATE_ROOT / "artifacts"
 PEXO_DB_PATH = STATE_ROOT / "pexo.db"

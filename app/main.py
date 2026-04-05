@@ -24,7 +24,10 @@ async def lifespan(app: FastAPI):
     
     if os.environ.get("PEXO_NO_BROWSER") != "1":
         threading.Thread(target=open_browser, daemon=True).start()
-    yield
+    try:
+        yield
+    finally:
+        memory.stop_autonomous_memory_cogmachine()
 
 app = FastAPI(title="Pexo - Primary EXecution Operator", lifespan=lifespan)
 
