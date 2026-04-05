@@ -247,3 +247,4 @@ Checkout mode is for contributors or users who explicitly want a repo-backed nod
 
 It keeps the memory, context, preferences, artifacts, and task state where they belong: **on your machine, under your control, and reusable across the whole stack.**
 
+
