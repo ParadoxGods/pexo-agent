@@ -6,6 +6,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 CODE_ROOT = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
+_ENV_UNSET = object()
 
 
 def normalize_user_path(raw_path: str | None) -> Path | None:
@@ -26,10 +27,11 @@ def looks_like_repo_checkout(root: Path) -> bool:
 def resolve_state_root(
     *,
     code_root: Path | None = None,
-    env_override: str | None = None,
+    env_override: str | None | object = _ENV_UNSET,
     home_dir: Path | None = None,
 ) -> Path:
-    override = normalize_user_path(env_override or os.environ.get("PEXO_HOME"))
+    override_source = os.environ.get("PEXO_HOME") if env_override is _ENV_UNSET else env_override
+    override = normalize_user_path(override_source)
     if override is not None:
         return override
 

@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from mcp.server.fastmcp import FastMCP
 
@@ -171,11 +171,11 @@ def _require_artifact(db, artifact_id: int) -> Artifact:
 
 def _brain_usage_rules() -> list[str]:
     return [
-        "Pexo is a high-performance autonomous swarm orchestrator. Prefer 'pexo' as your default one-call surface.",
-        "When you call 'pexo' with a message, Pexo autonomously performs local reasoning, plans a DAG of tasks, and launches a background swarm to execute them.",
-        "Reuse the returned 'session_id' to track progress, provide clarification, or submit results.",
-        "Pexo features Recursive Learning: it autonomously stores lessons from failures to improve future performance.",
-        "Pexo features Self-Evolution: it can autonomously design and register new Python tools via its Genesis Engine when needed.",
+        "Pexo is a local control plane for context, memory, artifacts, preferences, and task state. Prefer 'pexo' as the default one-call surface when it is connected.",
+        "When you call 'pexo' with a message, Pexo should gather local context first, keep the current session state, and only escalate to task execution when the request actually needs it.",
+        "Reuse the returned 'session_id' to carry context, provide clarification, continue work, or submit agent results.",
+        "Prefer 'user_message' for anything shown to the user. Keep internal routing or agent instructions hidden unless the user asks for them.",
+        "Store stable decisions and accepted preferences in Pexo so future clients can continue without the user repeating context.",
         "Always check 'user_message' for the response to show to the user.",
         "Use 'pexo_recall_context' to leverage Pexo's local semantic memory and artifacts before asking the user for information.",
     ]
@@ -332,7 +332,8 @@ def _exchange_operation(
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            db,
+            background_tasks=BackgroundTasks(),
+            db=db,
         )
         memory_id = stored_memory.get("memory_id")
         writes["memory"] = _compact_memory_result(get_memory(memory_id, db)) if memory_id else None
@@ -567,8 +568,7 @@ def pexo(
     artifact_results: int = 4,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Autonomous Autopilot Surface. Use this to delegate complex tasks to Pexo's internal multi-agent swarm. 
-    It autonomously plans, executes, and learns from results. Also handles memory/artifact persistence and context recall."""
+    """Primary one-call control-plane surface. Use it to route a task through Pexo while keeping memory, artifacts, preferences, and session state together."""
 
     return _with_db(
         lambda db: _exchange_operation(
@@ -608,7 +608,7 @@ def pexo_exchange(
     artifact_results: int = 4,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Unified Orchestration Surface. Start/continue autonomous tasks, recall local context, and persist memories in a single call."""
+    """Unified control-plane surface. Start or continue work, recall local context, and persist memories or artifacts in one call."""
     return _with_db(
         lambda db: _exchange_operation(
             db,
@@ -711,7 +711,8 @@ def pexo_remember_context(
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            db,
+            background_tasks=BackgroundTasks(),
+            db=db,
         )
         memory_id = stored.get("memory_id")
         memory_payload = get_memory(memory_id, db) if memory_id else None
@@ -993,7 +994,8 @@ def pexo_store_memory(
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            db,
+            background_tasks=BackgroundTasks(),
+            db=db,
         )
     )
 

@@ -1110,7 +1110,7 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
         
         print(f"pexo> {reply['user_message']}")
         
-        # Terminal Auto-Follow: Monitor background swarm activity
+        # Terminal auto-follow: monitor background task activity
         if str((session.get("details") or {}).get("task_run_status") or "").strip().lower() == "running":
             print("pexo> Swarm active. Following progress... (Ctrl+C to stop following)")
             last_msg = ""

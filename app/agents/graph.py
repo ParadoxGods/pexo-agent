@@ -1,4 +1,5 @@
 from typing import TypedDict, List, Dict, Any, Optional
+import json
 
 try:
     from langgraph.graph import StateGraph, END
@@ -99,7 +100,7 @@ def supervisor_node(state: PexoState):
             f"--- NON-NEGOTIABLE OUTPUT CONTRACT ---\n"
             f"If the user's request is too vague, ambiguous, or missing critical constraints required to plan the work, return a JSON object: {{\"clarification_required\": \"Your specific question here.\"}}.\n"
             f"Otherwise, return a raw JSON array of tasks. Each task MUST have: 'id', 'description', 'assigned_agent', and 'requires' (an array of task IDs that must be completed first).\n"
-            f"If a task requires a capability you lack, assign a task to write and register a new tool to Pexo's Genesis Engine."
+            f"If a task requires a capability you lack, assign a task to write and register a new tool through Pexo's local tool registry."
         )
         
         return {
@@ -303,7 +304,15 @@ def router(state: PexoState):
     if current_agent == "Supervisor":
         if not tasks:
             return "supervisor"
-        return "shadow"
+        next_pending = None
+        completed_ids = {t.get("task", {}).get("id") for t in completed}
+        for task in tasks:
+            if task.get("id") not in completed_ids:
+                next_pending = task
+                break
+        if next_pending and next_pending.get("assigned_agent") == "Genesis Architect":
+            return "genesis"
+        return "developer"
 
     if current_agent == "Time Manager":
         # Check for conflicts from Shadow Node
@@ -334,7 +343,7 @@ def router(state: PexoState):
         return "manager"
 
     if current_agent not in ["Supervisor", "Code Organization Manager", "Quality Assurance Manager", "Time Manager"]:
-        return "reviewer"
+        return "manager"
 
     if current_agent == "Code Organization Manager":
         return END
@@ -372,6 +381,8 @@ def _advance_state_machine(state: PexoState) -> PexoState:
         node_result = {}
         if next_node == "supervisor":
             node_result = supervisor_node(current_state)
+        elif next_node == "shadow":
+            node_result = shadow_node(current_state)
         elif next_node == "developer":
             node_result = developer_node(current_state)
         elif next_node == "reviewer":

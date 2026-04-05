@@ -86,6 +86,21 @@ VAGUE_TASK_HINTS = (
     "stuff",
 )
 
+SUMMARY_SCOPE_HINTS = (
+    "summarize",
+    "summarise",
+    "sum up",
+    "recap",
+)
+
+BROAD_CONTEXT_HINTS = (
+    "brain state",
+    "current local brain state",
+    "what pexo already knows",
+    "current state",
+    "local brain",
+)
+
 
 def estimate_context_tokens(payload: Any) -> int:
     serialized = json.dumps(payload, default=str)
@@ -135,7 +150,19 @@ def _build_initial_state(session_id: str, prompt: str, clarification_question: s
 
 
 def should_require_clarification(prompt: str) -> bool:
-    # Deprecated: Clarification logic is now handled dynamically by the Supervisor node.
+    normalized = " ".join((prompt or "").strip().lower().split())
+    if not normalized:
+        return True
+    if any(normalized.startswith(hint) for hint in SUMMARY_SCOPE_HINTS) and any(
+        hint in normalized for hint in BROAD_CONTEXT_HINTS
+    ):
+        return True
+    if any(hint in normalized for hint in VAGUE_TASK_HINTS):
+        return True
+    if len(normalized.split()) <= 2 and any(hint in normalized for hint in SPECIFIC_TASK_HINTS):
+        return True
+    if len(normalized) < 12 and normalized.endswith("."):
+        return True
     return False
 
 

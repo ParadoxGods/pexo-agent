@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PEXO | Enterprise AI Orchestration</title>
+  <title>PEXO | Local AI Control Plane</title>
   <style>
     :root {
       --bg: #0a0c12;
@@ -91,6 +91,11 @@
     .msg.user { align-self: flex-end; background: var(--primary); color: white; border-bottom-right-radius: 2px; }
     .msg.assistant { align-self: flex-start; background: var(--surface-elevated); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
     .msg small { display: block; margin-top: 8px; font-size: 10px; opacity: 0.7; font-family: var(--font-mono); text-transform: uppercase; }
+    .typingDots { display: inline-flex; gap: 4px; align-items: center; }
+    .typingDots span { width: 6px; height: 6px; border-radius: 999px; background: var(--warning); animation: typingPulse 0.9s infinite ease-in-out; }
+    .typingDots span:nth-child(2) { animation-delay: 0.15s; }
+    .typingDots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingPulse { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     
     .chat-footer { padding: 24px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; background: var(--surface-elevated); }
     .chat-input-wrapper { position: relative; }
@@ -135,26 +140,26 @@
 </head>
 <body>
   <header>
-    <div class="brand">PEXO <span>SWARM</span></div>
-    <div id="swarmStatus" class="badge success">Swarm Active</div>
+    <div class="brand">PEXO <span>CONTROL</span></div>
+    <div id="swarmStatus" class="badge success">Control Plane Ready</div>
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="chat" type="button">Orchestrator</button>
-    <button class="tab" data-tab="brain" type="button">System Brain</button>
+    <button class="tab active" data-tab="chat" type="button">Direct Chat</button>
+    <button class="tab" data-tab="brain" type="button">Control Plane</button>
     <button class="tab" data-tab="agents" type="button">Agent Registry</button>
     <button class="tab" data-tab="memory" type="button">Long-term Memory</button>
     <button class="tab" data-tab="context" type="button">Context Vault</button>
-    <button class="tab" data-tab="sessions" type="button">Activity Log</button>
-    <button class="tab" data-tab="tools" type="button">Genesis Tools</button>
+    <button class="tab" data-tab="sessions" type="button">Sessions</button>
+    <button class="tab" data-tab="tools" type="button">Tool Registry</button>
   </nav>
 
   <main>
     <div class="shell">
       <section class="hero">
         <div class="hero-content">
-          <h1>Distributed Intelligence.<br>Locally Orchestrated.</h1>
-          <p>The Pexo Control Plane provides a unified interface for your AI swarm. Manage memory, context, and specialized agents with enterprise-grade security and zero-latency local execution.</p>
+          <h1>Shared Context.<br>Local Control.</h1>
+          <p>Pexo sits between the user and connected AI clients. It keeps memory, preferences, artifacts, sessions, and routing local so Codex, Gemini, and Claude can work from the same state without forcing the user to repeat context.</p>
         </div>
         <div class="metrics" id="heroMetrics"></div>
       </section>
@@ -176,7 +181,7 @@
             <div class="chat-header">
               <div>
                 <h2 id="chatTitle">No Session Selected</h2>
-                <div id="chatMeta" class="muted">Select a session to begin.</div>
+                <div id="chatMeta" class="muted">Select a session to begin. Terminal mode is available with <span class="code">pexo --chat</span>.</div>
               </div>
               <div id="chatStatus"></div>
             </div>
@@ -189,7 +194,7 @@
                 <label>Workspace Context <input id="chatWorkspace" placeholder="Optional directory path"></label>
               </div>
               <div class="chat-input-wrapper">
-                <textarea id="chatInput" placeholder="Enter orchestration command... (Ctrl+Enter to send)"></textarea>
+                <textarea id="chatInput" placeholder="Tell Pexo what you need. Ctrl+Enter to send."></textarea>
                 <button id="sendChatButton" class="primary" onclick="sendChat()" style="position: absolute; right: 12px; bottom: 12px;">Send</button>
               </div>
               <div style="display:flex; gap: 8px;">
@@ -263,7 +268,7 @@
           <section class="card">
             <div class="card-title">
               <h2>Memory Retrieval</h2>
-              <button onclick="runMemoryMaintenance()">Cogmachine Sweep</button>
+              <button onclick="runMemoryMaintenance()">Memory Sweep</button>
             </div>
             <div style="display:flex; gap:12px;">
               <input id="memoryQuery" placeholder="Semantic search query..." style="flex:1;">
@@ -324,7 +329,7 @@
         <div class="chat-layout" style="grid-template-columns: 400px 1fr;">
           <aside class="card">
             <div class="card-title">
-              <h2>Genesis Engine Tools</h2>
+              <h2>Tool Registry</h2>
               <button onclick="newTool()">+ Create</button>
             </div>
             <div id="toolList" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -349,7 +354,7 @@
     const q=(s)=>document.querySelector(s),qq=(s)=>Array.from(document.querySelectorAll(s));
     const esc=(v)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
     const when=(v)=>{if(!v)return"Unknown time";const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleString()};
-    const human=(v)=>({idle:"Ready",answered:"Success",clarification_required:"Validation Pending",agent_action_required:"Processing Sub-task",processing:"Executing Graph",complete:"Goal Reached",clarification_pending:"Validation Pending",graph_started:"Strategic Planning",running:"Active Swarm"})[v]||String(v||"unknown").replaceAll("_"," ");
+    const human=(v)=>({idle:"Ready",answered:"Answered",clarification_required:"Needs Clarification",agent_action_required:"Working",processing:"Processing",complete:"Complete",clarification_pending:"Needs Clarification",graph_started:"Planning Started",running:"Running"})[v]||String(v||"unknown").replaceAll("_"," ");
     const tone=(v)=>["answered","complete","connected","success"].includes(String(v).toLowerCase())?"success":["clarification_required","clarification_pending","agent_action_required","graph_started","running"].includes(String(v).toLowerCase())?"warn":["error","failed","danger"].includes(String(v).toLowerCase())?"danger":"";
     
     async function api(path,opt={}){const init={...opt,headers:opt.headers||{}};if(init.body&&!(init.body instanceof FormData))init.headers["Content-Type"]="application/json";const res=await fetch(path,init);if(!res.ok){let detail=res.statusText;try{const p=await res.json();detail=p.detail||JSON.stringify(p)}catch{detail=await res.text()}throw new Error(detail||`Request failed: ${res.status}`)}return (res.headers.get("content-type")||"").includes("application/json")?res.json():res.text()}
@@ -360,7 +365,7 @@
     
     async function loadAll(keepChat=true){const [snapshot,questions,chats]=await Promise.all([api("/admin/snapshot"),api("/profile/questions"),api("/chat/sessions")]);state.snapshot=snapshot;state.questions=questions;state.chats=chats.sessions||[];state.chatBackends=chats.available_backends||{default_backend:"auto",results:[]};state.memoryItems=snapshot.recent_memories||[];if(keepChat&&state.currentChatId){try{state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}catch{state.currentChatId=null;state.currentChat=null}}if(!state.currentChatId&&state.chats.length){state.currentChatId=state.chats[0].id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}if(!state.selectedAgentId&&(snapshot.agents||[])[0])state.selectedAgentId=snapshot.agents[0].id;if(!state.selectedToolName&&(snapshot.tools||[])[0])state.selectedToolName=snapshot.tools[0].name;renderAll()}
     
-    function renderHero(){const s=state.snapshot,clients=(s.clients?.results||[]).filter(x=>x.status==="connected");q("#heroMetrics").innerHTML=[{l:"Pexo Engine",v:`v${s.runtime?.version||s.version||"1.0"}`,m:`${s.runtime?.active_profile||"unknown"} profile`},{l:"Swarm Status",v:clients.length?"ACTIVE":"IDLE",m:clients.length?`${clients.length} Backends Connected`:"No workers detected"},{l:"Active Threads",v:String(s.stats?.chat_count||0),m:s.recent_chats?.length?`Last: ${s.recent_chats[0].title}`:"Zero conversations"},{l:"Context Load",v:String((s.stats?.memory_count||0)+(s.stats?.artifact_count||0)),m:`${s.stats?.memory_count||0} records | ${s.stats?.artifact_count||0} assets`}].map(x=>`<div class="metric"><div>${esc(x.l)}</div><b>${esc(x.v)}</b><span>${esc(x.m)}</span></div>`).join("")}
+    function renderHero(){const s=state.snapshot,clients=(s.clients?.results||[]).filter(x=>x.status==="connected");q("#heroMetrics").innerHTML=[{l:"Pexo Version",v:`v${s.runtime?.version||s.version||"1.0"}`,m:`${s.runtime?.active_profile||"unknown"} profile`},{l:"Connected Clients",v:String(clients.length),m:clients.length?clients.map(x=>x.client).join(", "):"No clients connected"},{l:"Open Sessions",v:String(s.stats?.chat_count||0),m:s.recent_chats?.length?`Last: ${s.recent_chats[0].title}`:"No recent chat sessions"},{l:"Stored Context",v:String((s.stats?.memory_count||0)+(s.stats?.artifact_count||0)),m:`${s.stats?.memory_count||0} memories | ${s.stats?.artifact_count||0} artifacts`}].map(x=>`<div class="metric"><div>${esc(x.l)}</div><b>${esc(x.v)}</b><span>${esc(x.m)}</span></div>`).join("")}
     
     function renderChat(){
       q("#chatBackend").innerHTML=['<option value="auto">auto</option>',...(state.chatBackends.results||[]).map(x=>`<option value="${esc(x.name)}"${(state.currentChat?.session?.backend||state.chatBackends.default_backend||"auto")===x.name?" selected":""}>${esc(x.name)}${x.available?"":" (missing)"}</option>`)].join("");
@@ -372,13 +377,13 @@
       q("#chatMeta").innerHTML=`<span class="code">${esc(session.workspace_path||"N/A")}</span> • Started ${esc(when(session.created_at))}`;
       q("#chatStatus").innerHTML=`<span class="badge ${tone(session.status)}">${esc(human(session.status))}</span>`;
       const messages=(state.currentChat.messages||[]).map(m=>`<div class="msg ${esc(m.role)}">${esc(m.content)}<small>${esc(m.role)} • ${esc(when(m.created_at))}</small></div>`);
-      if(state.sending&&state.pendingChatMessage){messages.push(`<div class="msg user">${esc(state.pendingChatMessage)}<small>USER • Now</small></div>`);messages.push('<div class="msg assistant"><div class="badge warn">PLANNING</div><small>PEXO • Now</small></div>')}
+      if(state.sending&&state.pendingChatMessage){messages.push(`<div class="msg user">${esc(state.pendingChatMessage)}<small>USER • Now</small></div>`);messages.push('<div class="msg assistant"><strong>Fetching Answer</strong><div style="margin-top:10px; display:flex; align-items:center; gap:10px;"><div class="typingDots" aria-label="typingDots"><span></span><span></span><span></span></div><span>Pexo is fetching an answer.</span></div><small>PEXO • Now</small></div>')}
       const t=q("#transcript");t.innerHTML=messages.length?messages.join(""): '<div class="empty" style="margin:auto">Transcript empty.</div>';t.scrollTop=t.scrollHeight;
     }
 
     function renderBrain(){
       const s=state.snapshot,profile=s.profile_answers||{personality_answers:{},scripting_answers:{}};
-      q("#brainStats").innerHTML=[{l:"Registry Agents",v:s.stats?.agent_count||0},{l:"LTM Records",v:s.stats?.memory_count||0},{l:"Artifact Assets",v:s.stats?.artifact_count||0},{l:"Swarm Ops",v:s.telemetry?.summary?.action_count||0}].map(x=>`<div class="stat-card"><div>${esc(x.l)}</div><b>${esc(String(x.v))}</b></div>`).join("");
+      q("#brainStats").innerHTML=[{l:"Registry Agents",v:s.stats?.agent_count||0},{l:"Memory Records",v:s.stats?.memory_count||0},{l:"Artifacts",v:s.stats?.artifact_count||0},{l:"Actions",v:s.telemetry?.summary?.action_count||0}].map(x=>`<div class="stat-card"><div>${esc(x.l)}</div><b>${esc(String(x.v))}</b></div>`).join("");
       const renderQuestions=(section,target,answers)=>{q(target).innerHTML=(state.questions?.[section]||[]).map(item=>`<label>${esc(item.text)}<select data-sec="${esc(section)}" data-id="${esc(item.id)}">${Object.entries(item.options||{}).map(([k,v])=>`<option value="${esc(k)}"${answers?.[item.id]===k?" selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")};
       renderQuestions("personality","#personalityFields",profile.personality_answers);
       renderQuestions("scripting","#scriptingFields",profile.scripting_answers);
@@ -419,28 +424,28 @@
 
     function renderAll(){if(!state.snapshot)return;renderHero();renderChat();renderBrain();renderAgents();renderMemory();renderContext();renderSessions();renderTools()}
     
-    async function createChat(){try{const payload=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=payload.id;await loadAll(false);notice("New operational session initialized.","success")}catch(e){notice(e.message,"danger")}}
+    async function createChat(){try{const payload=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=payload.id;await loadAll(false);notice("New chat session created.","success")}catch(e){notice(e.message,"danger")}}
     async function pickChat(id){try{state.currentChatId=id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(id)}`);renderChat()}catch(e){notice(e.message,"danger")}}
     async function refreshChat(){if(!state.currentChatId)return;try{state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`);renderChat()}catch(e){notice(e.message,"danger")}}
     async function saveChatSettings(){if(!state.currentChatId)return;try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"PATCH",body:JSON.stringify({backend:q("#chatBackend").value||null,workspace_path:q("#chatWorkspace").value||null})});await loadAll();notice("Session settings committed.")}catch(e){notice(e.message,"danger")}}
     async function deleteChat(){if(!state.currentChatId)return;try{await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`,{method:"DELETE"});state.currentChatId=null;state.currentChat=null;await loadAll(false);notice("Session archived.")}catch(e){notice(e.message,"danger")}}
-    async function sendChat(){const message=q("#chatInput").value.trim();if(!message||state.sending)return;try{state.sending=true;state.pendingChatMessage=message;q("#sendChatButton").disabled=true;notice("Strategic Planning In Progress...","warn");if(!state.currentChatId){const created=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=created.id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}renderChat();state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}/messages`,{method:"POST",body:JSON.stringify({message,timeout_seconds:480})});q("#chatInput").value="";await loadAll();notice("Swarm response received.","success")}catch(e){notice(e.message,"danger")}finally{state.sending=false;state.pendingChatMessage="";q("#sendChatButton").disabled=false;renderChat()}}
+    async function sendChat(){const message=q("#chatInput").value.trim();if(!message||state.sending)return;try{state.sending=true;state.pendingChatMessage=message;q("#sendChatButton").disabled=true;notice("Fetching Answer...","warn");if(!state.currentChatId){const created=await api("/chat/sessions",{method:"POST",body:JSON.stringify({backend:q("#chatBackend").value||"auto",workspace_path:q("#chatWorkspace").value||null})});state.currentChatId=created.id;state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}`)}renderChat();state.currentChat=await api(`/chat/sessions/${encodeURIComponent(state.currentChatId)}/messages`,{method:"POST",body:JSON.stringify({message,timeout_seconds:480})});q("#chatInput").value="";await loadAll();notice("Pexo reply received.","success")}catch(e){notice(e.message,"danger")}finally{state.sending=false;state.pendingChatMessage="";q("#sendChatButton").disabled=false;renderChat()}}
     async function saveProfile(){try{const personality={},scripting={};qq('[data-sec="personality"]').forEach(f=>personality[f.dataset.id]=f.value);qq('[data-sec="scripting"]').forEach(f=>scripting[f.dataset.id]=f.value);await api("/profile/",{method:"POST",body:JSON.stringify({name:"default_user",personality_answers:personality,scripting_answers:scripting,backup_path:q("#backupPath").value||"",clear_backup_path:false})});await loadAll();notice("User profile committed.","success")}catch(e){notice(e.message,"danger")}}
     async function repairClients(target){try{await api(`/admin/connect/${encodeURIComponent(target)}?scope=user`,{method:"POST"});await loadAll();notice(`Fleet connection for ${target} restored.`)}catch(e){notice(e.message,"danger")}}
     async function promote(profile){try{const res=await api(`/runtime/promote/${encodeURIComponent(profile)}`,{method:"POST"});await loadAll();notice(res.message||`Runtime upgraded to ${profile}.`)}catch(e){notice(e.message,"danger")}}
     function loadAgent(id){state.selectedAgentId=id;renderAgents()} function newAgent(){state.selectedAgentId=null;q("#agentName").value="";q("#agentRole").value="";q("#agentCaps").value="";q("#agentPrompt").value="";q("#deleteAgentButton").disabled=true}
-    async function saveAgent(){const name=q("#agentName").value.trim(),role=q("#agentRole").value.trim(),system_prompt=q("#agentPrompt").value.trim();if(!name||!role||!system_prompt)return;const capabilities=q("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean);try{if(state.selectedAgentId){await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify({name,role,system_prompt,capabilities})})}else{await api("/agents/",{method:"POST",body:JSON.stringify({name,role,system_prompt,capabilities})})}await loadAll();renderAgents();notice("Specialist registry updated.","success")}catch(e){notice(e.message,"danger")}}
+    async function saveAgent(){const name=q("#agentName").value.trim(),role=q("#agentRole").value.trim(),system_prompt=q("#agentPrompt").value.trim();if(!name||!role||!system_prompt)return;const capabilities=q("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean);try{if(state.selectedAgentId){await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify({name,role,system_prompt,capabilities})})}else{await api("/agents/",{method:"POST",body:JSON.stringify({name,role,system_prompt,capabilities})})}await loadAll();renderAgents();notice("Agent saved.","success")}catch(e){notice(e.message,"danger")}}
     async function deleteAgent(){if(!state.selectedAgentId)return;try{await api(`/agents/${state.selectedAgentId}`,{method:"DELETE"});state.selectedAgentId=null;await loadAll();renderAgents();notice("Agent decommissioned.")}catch(e){notice(e.message,"danger")}}
     async function searchMemory(){const query=q("#memoryQuery").value.trim();if(!query){state.memoryItems=state.snapshot.recent_memories||[];renderMemory();return}try{const payload=await api("/memory/search",{method:"POST",body:JSON.stringify({query,n_results:12})});state.memoryItems=payload.results||[];renderMemory()}catch(e){notice(e.message,"danger")}}
     async function saveMemory(id){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({content:q(`#mem-content-${id}`).value,task_context:q(`#mem-context-${id}`).value,is_archived:q(`#mem-state-${id}`).value==="archived"})});await loadAll();notice("Memory record updated.","success")}catch(e){notice(e.message,"danger")}}
     async function togglePinned(id,next){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({is_pinned:next})});await loadAll();notice("Record priority updated.")}catch(e){notice(e.message,"danger")}}
     async function deleteMemory(id){try{await api(`/memory/${id}`,{method:"DELETE"});await loadAll();notice("Memory purged.")}catch(e){notice(e.message,"danger")}}
-    async function runMemoryMaintenance(){try{await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await loadAll();notice("Cogmachine sweep complete.","success")}catch(e){notice(e.message,"danger")}}
+    async function runMemoryMaintenance(){try{await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await loadAll();notice("Memory sweep complete.","success")}catch(e){notice(e.message,"danger")}}
     async function attachPath(){const path=q("#contextPath").value.trim();if(!path)return;try{await api("/artifacts/register-path",{method:"POST",body:JSON.stringify({path,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",name:null})});q("#contextPath").value="";await loadAll();notice("Filesystem context ingested.","success")}catch(e){notice(e.message,"danger")}}
     async function attachText(){const content=q("#contextNote").value.trim();if(!content)return;try{await api("/artifacts/register-text",{method:"POST",body:JSON.stringify({name:q("#contextNoteName").value.trim()||"context-note.txt",content,session_id:q("#contextSession").value.trim()||"general_context",task_context:q("#contextTask").value.trim()||"general",source_uri:null,content_type:"text/plain"})});q("#contextNoteName").value="";q("#contextNote").value="";await loadAll();notice("Manual context ingested.","success")}catch(e){notice(e.message,"danger")}}
     async function deleteArtifact(id){try{await api(`/artifacts/${id}`,{method:"DELETE"});await loadAll();notice("Artifact removed.")}catch(e){notice(e.message,"danger")}}
     function newTool(){state.selectedToolName=null;q("#toolName").value="";q("#toolDescription").value="";q("#toolCode").value="def run(**kwargs):\n    return kwargs\n"} function loadTool(name){state.selectedToolName=name;renderTools()}
-    async function saveTool(){const name=q("#toolName").value.trim(),description=q("#toolDescription").value.trim(),python_code=q("#toolCode").value;if(!name||!python_code.trim())return;try{if(state.selectedToolName){await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})})}else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await loadAll();notice("Tool deployed to swarm.","success")}catch(e){notice(e.message,"danger")}}
+    async function saveTool(){const name=q("#toolName").value.trim(),description=q("#toolDescription").value.trim(),python_code=q("#toolCode").value;if(!name||!python_code.trim())return;try{if(state.selectedToolName){await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})})}else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await loadAll();notice("Tool saved.","success")}catch(e){notice(e.message,"danger")}}
     async function deleteTool(){if(!state.selectedToolName)return;try{await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"DELETE"});state.selectedToolName=null;await loadAll();notice("Tool removed.")}catch(e){notice(e.message,"danger")}}
     async function refreshAll(){try{await loadAll();notice("System state synchronized.","success")}catch(e){notice(e.message,"danger")}}
     

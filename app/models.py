@@ -80,7 +80,7 @@ class Artifact(Base):
 
 class DynamicTool(Base):
     """
-    The Genesis Engine: Stores metadata for tools that the AI swarm writes for itself.
+    Stores metadata for tools registered through Pexo's local tool system.
     """
     __tablename__ = "dynamic_tools"
     id = Column(Integer, primary_key=True, index=True)

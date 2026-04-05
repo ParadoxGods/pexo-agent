@@ -342,9 +342,9 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
 @router.post("/register")
 def register_tool(request: ToolRegistrationRequest, db: Session = Depends(get_db)):
     """
-    THE GENESIS ENGINE: Allows the AI swarm to write and register its own tools.
-    If the AI needs a specific API integration or data processing capability,
-    it writes the Python script and POSTs it here. Pexo dynamically exposes it.
+    Allows connected AI clients to register local tools for Pexo.
+    If a task needs a specific API integration or data-processing capability,
+    it can write a Python script and register it here.
     """
     safe_tool_name = validate_tool_name(request.name)
     _ensure_tool_code_compiles(safe_tool_name, request.python_code)
@@ -381,7 +381,7 @@ def register_tool(request: ToolRegistrationRequest, db: Session = Depends(get_db
 
     return {
         "status": "Success. Genesis Engine has assimilated the new tool.",
-        "message": f"Tool '{safe_tool_name}' is now permanently available to all agents.",
+        "message": f"Tool '{safe_tool_name}' is now available through Pexo.",
         "tool_id": new_tool.id,
     }
 

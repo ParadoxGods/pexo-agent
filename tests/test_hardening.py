@@ -2227,7 +2227,7 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(second_reply["session"]["status"], "working")
             self.assertEqual(second_reply["session"]["details"]["response_path"], "task_run_started")
             self.assertEqual(second_reply["session"]["details"]["task_run_status"], "running")
-            self.assertIn("developer step is running", second_reply["reply"]["user_message"].lower())
+            self.assertIn("step is running", second_reply["reply"]["user_message"].lower())
         finally:
             db.close()
 

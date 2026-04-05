@@ -13,7 +13,6 @@ from ..models import Memory
 from ..paths import CHROMA_DB_DIR
 from ..runtime import build_runtime_status, build_vector_promotion_offer, maybe_issue_vector_promotion_offer, promote_runtime
 from ..search_index import delete_memory_search_document, search_memory_ids, upsert_memory_search_document
-from ..direct_chat import run_direct_chat_backend, _adaptive_backend_order
 
 try:
     import chromadb
@@ -118,23 +117,9 @@ def _extract_summary_fragments(content: str) -> list[str]:
     return bullet_fragments or lines
 
 
-def _build_compacted_summary(task_context: str, fragments: list[str]) -> str:
+def _build_compacted_summary(task_context: str, fragments: list[str], db: Session | None = None) -> str:
     if not fragments:
         return f"Compacted memory summary for {task_context or 'general context'}."
-    
-    bullet_block = "\n".join([f"- {fragment}" for fragment in fragments])
-    prompt = (
-        f"Summarize the following memory fragments into a dense, semantic summary for {task_context or 'general context'}. "
-        f"Keep it extremely concise and factual. Do not include conversational filler.\n\n{bullet_block}"
-    )
-    
-    for backend in _adaptive_backend_order():
-        try:
-            summary = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=15)
-            if summary and "Error:" not in summary:
-                return summary.strip()
-        except Exception:
-            continue
 
     # Fallback to simple truncation
     unique_fragments: list[str] = []
@@ -311,7 +296,7 @@ def compact_memories_for_context(db: Session, task_context: str | None) -> dict:
     summary_fragments = (
         _extract_summary_fragments(active_summary.content) if active_summary else []
     ) + [memory.content for memory in source_memories]
-    summary_content = _build_compacted_summary(task_context, summary_fragments)
+    summary_content = _build_compacted_summary(task_context, summary_fragments, db)
 
     if active_summary is None:
         summary_memory = Memory(
@@ -399,7 +384,7 @@ def find_semantic_duplicates(db: Session, similarity_threshold: float = 0.65) ->
     if collection is None:
         return []
 
-    # Efficiency: Scan larger batches for the "Cogmachine"
+    # Scan larger batches during maintenance to keep context dense without losing detail.
     candidates = (
         db.query(Memory)
         .filter(Memory.is_archived.is_(False), Memory.is_compacted.is_(False))
@@ -472,30 +457,22 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
         return None
 
     primary = memories[0]
-    content_block = "\n".join([f"- {m.content}" for m in memories])
-    
-    prompt = (
-        "You are the Swarm Efficiency Manager. The following memories are redundant, repetitive, or use 'like-words' "
-        "to describe the same result. Your goal is to eliminate all fluff and consolidate them into ONE singular, "
-        "high-density factual record. If two memories differ only by phrasing, keep only the most accurate version. "
-        "Output ONLY the final merged text.\n\n"
-        f"{content_block}"
-    )
-
-    merged_content = None
-    for backend in _adaptive_backend_order():
-        try:
-            res = run_direct_chat_backend(backend, prompt, workspace_path=".", timeout_seconds=25)
-            if res and "Error:" not in res:
-                merged_content = res.strip()
-                break
-        except Exception:
+    unique_fragments: list[str] = []
+    seen = set()
+    for memory in memories:
+        cleaned = _summarize_fragment(memory.content)
+        if not cleaned:
             continue
-
-    if not merged_content:
+        fingerprint = cleaned.casefold()
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        unique_fragments.append(cleaned)
+    if not unique_fragments:
         return None
+    merged_content = unique_fragments[0] if len(unique_fragments) == 1 else "; ".join(unique_fragments[:3])
 
-    # Cogmachine logic: If the new content is essentially identical to an existing one, 
+    # If the new content is effectively identical to an existing record,
     # just pick one instead of creating a new record.
     norm_merged = normalize_for_likeness(merged_content)
     for m in memories:
@@ -583,7 +560,7 @@ def autonomous_memory_cogmachine_loop() -> None:
     import time
     
     logger = logging.getLogger("pexo.memory_cogmachine")
-    logger.info("Memory Cogmachine started.")
+    logger.info("Memory maintenance loop started.")
     
     while True:
         try:
@@ -593,16 +570,16 @@ def autonomous_memory_cogmachine_loop() -> None:
                 metrics = deduplicate_memories(db)
                 dedup_count = metrics.get("merges", 0)
                 if dedup_count > 0:
-                    logger.info(f"Memory Cogmachine cleaned up {dedup_count} redundant memory clusters.")
+                    logger.info(f"Memory maintenance cleaned up {dedup_count} redundant memory clusters.")
                 
                 # Global retention check
                 archived = apply_memory_retention(db)
                 if archived > 0:
-                    logger.info(f"Memory Cogmachine archived {archived} stale memories.")
+                    logger.info(f"Memory maintenance archived {archived} stale memories.")
             finally:
                 db.close()
         except Exception as e:
-            logger.error(f"Memory Cogmachine error: {e}")
+            logger.error(f"Memory maintenance error: {e}")
         
         # Sleep for 10 minutes between global sweeps to preserve local resources
         time.sleep(600)
@@ -643,11 +620,25 @@ class MemoryMaintenanceRequest(BaseModel):
 
 
 @router.post("/store")
-def store_memory(request: MemoryStoreRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def store_memory(
+    request: MemoryStoreRequest,
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db),
+):
     """
     Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
     This acts as the global, persistent brain across all tasks.
     """
+    run_maintenance_inline = background_tasks is None
+    if background_tasks is not None and hasattr(background_tasks, "query") and hasattr(background_tasks, "commit"):
+        db = background_tasks
+        background_tasks = None
+        run_maintenance_inline = True
+    if db is None or not hasattr(db, "query"):
+        raise HTTPException(status_code=500, detail="Database session is unavailable")
+    if background_tasks is None:
+        background_tasks = BackgroundTasks()
+
     promotion_offer, promotion_result = _resolve_vector_runtime(
         db,
         auto_promote_vector=request.auto_promote_vector,
@@ -676,7 +667,11 @@ def store_memory(request: MemoryStoreRequest, background_tasks: BackgroundTasks,
         session_id=new_memory.session_id,
     )
     
-    background_tasks.add_task(maintain_memory_health_bg, request.task_context)
+    maintenance = None
+    if run_maintenance_inline:
+        maintenance = maintain_memory_health(db, task_context=request.task_context)
+    else:
+        background_tasks.add_task(maintain_memory_health_bg, request.task_context)
     invalidate_surface_caches()
 
     return _with_runtime_metadata({
@@ -684,7 +679,7 @@ def store_memory(request: MemoryStoreRequest, background_tasks: BackgroundTasks,
         "memory_id": new_memory.id,
         "chroma_id": new_memory.chroma_id,
         "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
-        "maintenance": "Deferred to background task",
+        "maintenance": maintenance or "Deferred to background task",
     }, db, promotion_offer=promotion_offer, promotion_result=promotion_result)
 
 

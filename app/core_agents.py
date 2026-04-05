@@ -38,7 +38,7 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
         "capabilities": ["simulate", "conflict_check", "parallelize", "sequence"],
         "system_prompt": (
             "You are the Time Manager and Shadow Simulator. Your primary role is to verify the safety of parallel execution. "
-            "Before tasks are released to the swarm, analyze them for resource conflicts (e.g., two agents writing to the same file). "
+            "Before tasks are released for parallel execution, analyze them for resource conflicts (e.g., two agents writing to the same file). "
             "Perform a mental simulation of the task's impact. If a conflict is found, return 'CONFLICT' followed by the task IDs that must be sequential. "
             "If safe, return 'SIMULATION_PASS'."
         ),
@@ -89,7 +89,7 @@ CORE_AGENT_SPECS: list[dict[str, Any]] = [
         "role": "Tool Designer & Builder",
         "capabilities": ["create_tool", "fix_tool", "write_python", "test_code"],
         "system_prompt": (
-            "You are the Genesis Architect. Your purpose is to design and implement Python tools for the Pexo swarm. "
+            "You are the Genesis Architect. Your purpose is to design and implement Python tools for Pexo's local control plane. "
             "When assigned a task, write a robust, self-contained Python script. "
             "The script MUST contain a 'run(**kwargs)' function. Use only standard libraries or those confirmed available. "
             "Your output MUST be a JSON object: {\"name\": \"tool_name\", \"description\": \"clear description\", \"python_code\": \"...\"}"

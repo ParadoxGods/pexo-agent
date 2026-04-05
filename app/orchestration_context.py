@@ -35,7 +35,7 @@ def _build_context_payload(db: Session, query: str | None = None) -> dict:
     custom_agent_text = ", ".join([f"{agent.name} (Role: {agent.role})" for agent in custom_agents]) or "No custom agents registered."
     tool_text = ", ".join([f"{tool.name}: {tool.description}" for tool in tools])
     if not tool_text:
-        tool_text = "No dynamic tools generated yet. The swarm must rely on native capabilities or create new tools via /tools/register."
+        tool_text = "No dynamic tools generated yet. Use native capabilities or register a new tool via /tools/register."
 
     # Recursive Self-Evolution: Fetch recent lessons learned
     lessons = (

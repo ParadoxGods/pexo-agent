@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     # Initialize local persistence before serving requests.
     init_db()
     
-    # Cogmachine: Start the autonomous memory efficiency engine
+    # Start background memory maintenance.
     memory.start_autonomous_memory_cogmachine()
     
     if os.environ.get("PEXO_NO_BROWSER") != "1":
@@ -45,8 +45,8 @@ app.include_router(orchestrator.router, prefix="/orchestrator", tags=["Orchestra
 app.include_router(memory.router, prefix="/memory", tags=["Global Memory"])
 # Include the Self-Evolving Agents API
 app.include_router(evolve.router, prefix="/evolve", tags=["Evolution"])
-# Include the Genesis Engine (Dynamic Tool Creation)
-app.include_router(tools.router, prefix="/tools", tags=["Genesis Engine"])
+# Include dynamic tool management.
+app.include_router(tools.router, prefix="/tools", tags=["Tools"])
 # Include Automated Backup API
 app.include_router(backup.router, prefix="/backup", tags=["System Backup"])
 # Include runtime status and promotion API
