@@ -162,7 +162,7 @@ function Invoke-TrackedProcess {
 
         if ($exitCode -ne 0) {
             $errorText = if ($stderrText) { $stderrText } elseif ($stdoutText) { $stdoutText } else { "No process output was captured." }
-            throw "Command failed with exit code $exitCode: $FilePath $($ArgumentList -join ' ')`n$errorText"
+            throw "Command failed with exit code ${exitCode}: $FilePath $($ArgumentList -join ' ')`n$errorText"
         }
 
         if ($stdoutText) {
