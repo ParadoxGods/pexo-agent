@@ -1,52 +1,46 @@
 # Pexo
 
-Pexo is a local-first memory and control plane for AI work.
+**PEXO = Primary EXecution Operator**
 
-It gives Codex, Gemini, Claude, and other MCP-capable clients one shared local system for memory, artifacts, preferences, sessions, agents, and task state. Instead of each AI console becoming its own silo, Pexo keeps continuity on your machine and lets connected clients work against the same context.
+Pexo is a local-first operator layer for AI-assisted development.
 
-Pexo is most useful as the layer underneath your AI tools, not as a replacement for them.
+It sits between the user and the models. Codex, Gemini, Claude, and other MCP-capable clients can all work against the same local memory, artifacts, preferences, sessions, agents, and task state. Instead of rebuilding context every time you switch tools, Pexo keeps the continuity on your machine and makes the stack feel like one working system.
 
-## Highlights
-
-- One local memory layer shared by multiple AI clients.
-- Local artifacts, preferences, sessions, and task state.
-- MCP-first design for Codex, Gemini, Claude, and similar tools.
-- Healthy default install without optional vector dependencies.
-- Explicit trust model for local tool execution.
+This is not another disposable chat shell. It is the part of the system that keeps the work coherent.
 
 ## Why Pexo
 
-- Keep context local instead of trapped inside one AI client.
-- Hand work from one model to another without restating the same project history.
-- Store memory, artifacts, and decisions in one place on the local machine.
-- Use MCP as a stable buffer between the user and multiple AI clients.
-- Recover from client failures, model switching, or quota limits without losing project state.
-- Inspect what the system knows through one local UI instead of guessing what each model remembers.
+Most AI workflows break down the same way:
 
-## What Pexo Actually Does
+- context gets trapped inside one client
+- every model switch costs you project state
+- preferences get lost
+- artifacts drift away from the conversation that produced them
+- useful decisions vanish between sessions
 
-Pexo manages the local continuity layer:
+Pexo fixes that by keeping a shared local brain underneath the clients.
 
-- `Memory`
-  Durable facts, decisions, preferences, summaries, and lessons learned.
-- `Artifacts`
-  Files, notes, imported docs, and generated context stored locally.
-- `Sessions`
-  Shared task state that another AI client can continue later.
-- `Agents and tools`
-  Local definitions for how work is organized and reused.
-- `Routing and fallback`
-  Chooses available backends based on task type, installed clients, and recent health.
+What that buys you:
 
-That is the core value: Pexo turns repeated prompt reconstruction into reusable local system state.
+- one place for durable project memory
+- one place for attached files and working context
+- one place for session and task continuity
+- one place for reusable local agents and tools
+- one place to inspect what the stack actually knows
 
-## How It Works
+If you are serious about local control, repeatable AI workflows, and not restating the same repo context forever, this is the missing layer.
 
-1. Pexo runs locally and exposes a local MCP server.
-2. Connected AI clients read and write the same local memory, artifacts, and session state.
-3. Pexo preserves continuity even when you switch models, terminals, or clients.
+## What Pexo Is Good At
 
-This is why Pexo saves time: the expensive part of AI work is often rebuilding context. Pexo keeps that context on your machine so the next model starts from state instead of from scratch.
+Pexo is built for developers who want the system to compound over time.
+
+- It keeps memory local.
+- It lets one model pick up where another left off.
+- It stores artifacts with the work they belong to.
+- It preserves preferences so the stack stops asking the same setup questions.
+- It gives you a stable MCP surface instead of tying your workflow to one AI console.
+
+The important point is not that Pexo “talks.” The important point is that Pexo remembers, routes, and stabilizes the work.
 
 ## Install
 
@@ -87,31 +81,15 @@ pexo connect all --scope user
 pexo doctor
 ```
 
-Packaged installs keep mutable state under `~/.pexo` by default. Override it with `PEXO_HOME` if you need Pexo state somewhere else.
+Packaged installs keep mutable state under `~/.pexo` by default. Override it with `PEXO_HOME` if you want the state root somewhere else.
 
 ## Start Using Pexo
 
-The normal path is:
+The normal flow is short:
 
 1. Start Pexo.
 2. Use Codex, Gemini, or Claude normally.
-3. Let Pexo hold the local memory and handoff state underneath.
-
-## One-Minute Workflow
-
-```powershell
-pexo
-pexo doctor --json
-pexo connect all --scope user
-```
-
-Then use your AI client normally with one short instruction when needed:
-
-```text
-Use Pexo as the shared local brain for this task.
-Review this repo, tell me the top 3 concrete issues,
-and store the result in Pexo memory.
-```
+3. Let Pexo hold the continuity underneath.
 
 Start the local control plane:
 
@@ -119,24 +97,38 @@ Start the local control plane:
 pexo
 ```
 
-Useful follow-up commands:
+Basic verification:
 
 ```powershell
 pexo doctor --json
 pexo connect all --scope user
 ```
 
-If Pexo is connected, use it as the shared local brain for ordinary tasks. Some clients will reach for it automatically. Others may need one short instruction in the prompt.
+Then use your client as usual. Some clients will reach for it automatically. Others may need one short instruction.
 
-Open the local dashboard if you want to inspect state directly:
+Example:
+
+```text
+Use Pexo as the shared local brain for this task.
+Review this repo, tell me the top 3 concrete issues,
+and store the result in Pexo memory.
+```
+
+If you want to inspect the local state directly:
 
 `http://127.0.0.1:9999/ui/`
 
+Optional direct terminal chat is also available:
+
+```powershell
+pexo --chat
+```
+
 ## MCP First
 
-Pexo is built around a local MCP surface so multiple AI clients can work against the same state.
+Pexo is designed around MCP, because the real point is interoperability.
 
-You do not need to pick one AI console as the source of truth. Pexo keeps that state locally and makes it available to whichever connected client is working next.
+You should not have to pick one AI client as the source of truth. Pexo keeps that state local and lets whichever connected model is active work against the same substrate.
 
 Packaged installs expose this MCP entrypoint:
 
@@ -153,31 +145,31 @@ Packaged installs expose this MCP entrypoint:
 
 Repository-level AI usage rules live in `AGENTS.md`.
 
-## Safety Model
+## Safety And Control
 
-Pexo is designed to be a middle layer, so trust boundaries matter.
+Pexo is meant to be a middle layer, so local trust boundaries matter.
 
-- Default installs are healthy without semantic vector memory.
-- Local memory uses SQLite and keyword-backed retrieval by default.
-- Optional semantic vector memory can be added later, but it is not required for a normal install.
-- Genesis tool execution is not unrestricted by default.
-- The default Genesis trust mode is `approval-required`.
-- Tool mutation and broad local execution require explicit host trust via `full-local-exec`.
+- default installs work without extra semantic-memory dependencies
+- local memory uses SQLite and keyword-backed retrieval by default
+- semantic vector memory is optional
+- Genesis tool execution is not wide open by default
+- the default Genesis trust mode is `approval-required`
+- broad local execution requires explicit host trust via `full-local-exec`
 
-In other words: a normal install works out of the box, and the more dangerous local-exec path is opt-in.
+That is deliberate. The safe default should still be useful.
 
 ## Commands
 
 - `pexo`
   Start the local control plane.
 - `pexo --chat`
-  Talk to Pexo directly in the terminal.
+  Start direct terminal chat.
 - `pexo --no-browser`
   Start the local API without opening the browser.
 - `pexo --mcp` or `pexo-mcp`
   Start MCP only.
 - `pexo --update`
-  Update the current Pexo install.
+  Update the current install.
 - `pexo doctor`
   Print local installation and runtime diagnostics.
 - `pexo connect all --scope user`
@@ -191,24 +183,24 @@ In other words: a normal install works out of the box, and the more dangerous lo
 - `pexo uninstall`
   Remove the current install.
 - `pexo uninstall --keep-state`
-  Remove the install but preserve local memory, artifacts, and state.
+  Remove the install but preserve local state.
 
 ## Maintenance
 
-Routine maintenance is usually just:
+For most users, maintenance is just:
 
 ```powershell
 pexo --update
 pexo doctor --json
 ```
 
-If MCP client wiring drifts:
+If client wiring drifts:
 
 ```powershell
 pexo connect all --scope user
 ```
 
-Important note: semantic vector memory is optional. A default install is healthy and usable without it.
+That is the whole point of the product. The stack should stay simple even as the local state gets deeper.
 
 ## Repo-Local Mode
 
@@ -228,33 +220,8 @@ macOS/Linux:
 
 Checkout mode keeps mutable state under the repo-local `.pexo` directory.
 
-## Direct Chat
-
-Pexo also has first-party direct chat surfaces, but they are optional:
-
-- `pexo`
-  Starts the local API and browser control plane.
-- `pexo --chat`
-  Starts terminal chat.
-
-Direct chat is useful when you want to talk to Pexo itself, but the primary product value is still the shared local memory and control layer underneath your AI clients.
-
-## Uninstall
-
-Remove the current Pexo install and local state:
-
-```powershell
-pexo uninstall
-```
-
-Keep local memory, artifacts, and state:
-
-```powershell
-pexo uninstall --keep-state
-```
-
 ## Bottom Line
 
-If you use more than one AI client, switch models often, or care about keeping project context local, Pexo gives you one place to keep continuity.
+Pexo is what you install when you want AI clients to stop behaving like isolated terminals and start behaving like interchangeable workers on top of one local operator layer.
 
-It is the local layer that makes multiple AI tools behave more like one working system.
+It keeps the memory, context, preferences, artifacts, and task state where they belong: on your machine, under your control, and reusable across the whole stack.
