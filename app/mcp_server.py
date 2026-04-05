@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException
@@ -295,6 +296,41 @@ def _build_exchange_task_view(task_payload: dict | None, notice: str | None = No
     return response
 
 
+def _build_compact_lookup_payload(
+    db,
+    *,
+    query: str,
+    memory_results: int,
+    artifact_results: int,
+    auto_promote_vector: bool = False,
+) -> dict:
+    memory_payload = search_memory(
+        MemorySearchRequest(
+            query=query,
+            n_results=max(1, min(memory_results, 10)),
+            auto_promote_vector=auto_promote_vector,
+        ),
+        db,
+    )
+    artifact_payload = list_artifacts(
+        limit=max(1, min(artifact_results, 10)),
+        query=query,
+        session_id=None,
+        task_context=None,
+        db=db,
+    )
+    return {
+        "memory": {
+            "query": query,
+            "results": [_compact_memory_result(item) for item in memory_payload.get("results", [])],
+        },
+        "artifacts": {
+            "query": query,
+            "results": [_compact_artifact_result(item) for item in artifact_payload.get("artifacts", [])],
+        },
+    }
+
+
 def _exchange_operation(
     db,
     *,
@@ -309,16 +345,32 @@ def _exchange_operation(
     attach_name: str | None = None,
     attach_text: str | None = None,
     include_brain: bool = False,
+    compact: bool = False,
     memory_results: int = 4,
     artifact_results: int = 4,
     auto_promote_vector: bool = False,
 ) -> dict:
+    effective_query = query
+    effective_remember = remember
+    if effective_remember is None:
+        effective_remember = _extract_inline_memory_message(message)
+    if effective_query is None and _looks_like_lookup_only_message(message):
+        effective_query = (message or "").strip()
+
     if attach_text and not attach_name:
         attach_text_name = "context.txt"
     else:
         attach_text_name = attach_name
 
-    if message is None and session_id is None and query is None and remember is None and attach_path is None and attach_text is None and not include_brain:
+    if (
+        message is None
+        and session_id is None
+        and effective_query is None
+        and effective_remember is None
+        and attach_path is None
+        and attach_text is None
+        and not include_brain
+    ):
         raise ValueError(
             "Provide a message to start a task, a session_id to continue one, or context to store/recall."
         )
@@ -327,11 +379,11 @@ def _exchange_operation(
         raise ValueError("agent_result requires an existing session_id.")
 
     writes: dict[str, Any] = {}
-    if remember:
+    if effective_remember:
         stored_memory = store_memory(
             MemoryStoreRequest(
                 session_id=session_id or "brain_session",
-                content=remember,
+                content=effective_remember,
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
@@ -405,21 +457,41 @@ def _exchange_operation(
                 notice = "Pexo did not use agent_result because this session is not waiting for agent work."
         else:
             task_payload = current_status
-    elif message is not None and not _looks_like_storage_only_message(
+    elif message is not None and effective_query is None and not _looks_like_storage_only_message(
         message,
-        remember=remember,
+        remember=effective_remember,
         attach_path=attach_path,
         attach_text=attach_text,
-        query=query,
+        query=effective_query,
     ):
         task_payload = start_simple_task(
             PromptRequest(user_id=user_id, prompt=message, session_id=None),
             db,
         )
 
-    recall_query = (query or (message if not session_id else None) or remember or "").strip()
+    recall_query = (effective_query or effective_remember or "").strip()
     brain = None
-    if include_brain or query is not None or (message is not None and session_id is None):
+    lookup = None
+    if include_brain:
+        brain = _brain_bootstrap_payload(
+            db,
+            prompt=None,
+            query=recall_query or None,
+            user_id=user_id,
+            session_id=session_id,
+            memory_results=memory_results,
+            artifact_results=artifact_results,
+        )
+        brain["task"] = None
+    elif recall_query and compact:
+        lookup = _build_compact_lookup_payload(
+            db,
+            query=recall_query,
+            memory_results=memory_results,
+            artifact_results=artifact_results,
+            auto_promote_vector=auto_promote_vector,
+        )
+    elif effective_query is not None or (message is not None and session_id is None):
         brain = _brain_bootstrap_payload(
             db,
             prompt=None,
@@ -440,6 +512,8 @@ def _exchange_operation(
     }
     if brain is not None:
         response["brain"] = brain
+    if lookup is not None:
+        response.update(lookup)
     if writes:
         response["writes"] = writes
     if recall_query:
@@ -533,6 +607,68 @@ def _normalize_exchange_message(text: str | None) -> str:
     return " ".join((text or "").strip().lower().split())
 
 
+def _extract_inline_memory_message(text: str | None) -> str | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    quoted_match = re.search(
+        r"""(?is)\b(?:store|remember|save)\b.*?\b(?:memory|note|context)\b.*?["'](?P<content>.+?)["']\s*[.!?]?\s*$""",
+        raw,
+    )
+    if quoted_match:
+        return quoted_match.group("content").strip()
+
+    colon_match = re.search(
+        r"""(?is)^\s*(?:store|remember|save)\b.*?\b(?:memory|note|context)\b\s*:?\s*(?P<content>.+?)\s*$""",
+        raw,
+    )
+    if colon_match:
+        candidate = colon_match.group("content").strip().strip("\"'")
+        if len(candidate.split()) >= 3:
+            return candidate
+    return None
+
+
+def _looks_like_lookup_only_message(message: str | None, *, query: str | None = None) -> bool:
+    if query is not None:
+        return True
+
+    normalized = _normalize_exchange_message(message)
+    if not normalized:
+        return False
+
+    lookup_prefixes = (
+        "find ",
+        "search ",
+        "look up ",
+        "recall ",
+        "tell me ",
+        "show me ",
+        "read ",
+        "list ",
+        "what do you know",
+        "do we have ",
+    )
+    lookup_markers = (
+        "memory",
+        "memories",
+        "artifact",
+        "artifacts",
+        "context",
+        "readme",
+        "note",
+        "notes",
+        "profile",
+        "preferences",
+        "session",
+        "sessions",
+    )
+    return any(normalized.startswith(prefix) for prefix in lookup_prefixes) and any(
+        marker in normalized for marker in lookup_markers
+    )
+
+
 def _looks_like_storage_only_message(
     message: str | None,
     *,
@@ -546,7 +682,7 @@ def _looks_like_storage_only_message(
         return False
     if query is not None:
         return True
-    if remember is None and attach_path is None and attach_text is None:
+    if remember is None and attach_path is None and attach_text is None and _extract_inline_memory_message(message) is None:
         return False
 
     storage_prefixes = ("store ", "remember ", "save ", "attach ", "add ")
@@ -634,6 +770,7 @@ def pexo(
             attach_name=attach_name,
             attach_text=attach_text,
             include_brain=include_brain,
+            compact=True,
             memory_results=memory_results,
             artifact_results=artifact_results,
             auto_promote_vector=auto_promote_vector,
@@ -673,6 +810,7 @@ def pexo_exchange(
             attach_name=attach_name,
             attach_text=attach_text,
             include_brain=include_brain,
+            compact=False,
             memory_results=memory_results,
             artifact_results=artifact_results,
             auto_promote_vector=auto_promote_vector,
@@ -1022,6 +1160,31 @@ def pexo_search_memory(query: str, n_results: int = 3, auto_promote_vector: bool
 
 
 @mcp.tool()
+def pexo_find_memory(query: str, limit: int = 3, auto_promote_vector: bool = False) -> dict:
+    """Finds the best matching memory records for a plain-language lookup and returns a compact result set."""
+
+    def operation(db):
+        payload = search_memory(
+            MemorySearchRequest(
+                query=query,
+                n_results=max(1, min(limit, 10)),
+                auto_promote_vector=auto_promote_vector,
+            ),
+            db,
+        )
+        results = [_compact_memory_result(item) for item in payload.get("results", [])]
+        return {
+            "status": "success",
+            "user_message": f"Pexo searched memory for '{query}'.",
+            "query": query,
+            "results": results,
+            "best_match": results[0] if results else None,
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
 def pexo_store_memory(
     content: str,
     task_context: str,
@@ -1299,6 +1462,35 @@ def pexo_list_artifacts(
     return _with_db(
         lambda db: list_artifacts(limit=limit, query=query, session_id=session_id, task_context=task_context, db=db)
     )
+
+
+@mcp.tool()
+def pexo_find_artifact(
+    query: str,
+    limit: int = 5,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> dict:
+    """Finds the best matching artifacts for a plain-language lookup and returns a compact result set."""
+
+    def operation(db):
+        payload = list_artifacts(
+            limit=max(1, min(limit, 20)),
+            query=query,
+            session_id=session_id,
+            task_context=task_context,
+            db=db,
+        )
+        results = [_compact_artifact_result(item) for item in payload.get("artifacts", [])]
+        return {
+            "status": "success",
+            "user_message": f"Pexo searched artifacts for '{query}'.",
+            "query": query,
+            "results": results,
+            "best_match": results[0] if results else None,
+        }
+
+    return _with_db(operation)
 
 
 @mcp.tool()

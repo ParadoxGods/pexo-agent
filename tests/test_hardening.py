@@ -47,6 +47,8 @@ from app.mcp_server import (
     pexo_execute_tool,
     pexo_get_admin_snapshot,
     pexo_get_artifact,
+    pexo_find_artifact,
+    pexo_find_memory,
     pexo_get_memory,
     pexo_get_next_task,
     pexo_get_profile,
@@ -3227,6 +3229,37 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(memory_only_exchange["next_action"], "reply_to_user")
         self.assertIn("writes", memory_only_exchange)
         self.assertEqual(memory_only_exchange["writes"]["memory"]["content"], "MEMORY_ONLY_EXCHANGE_TEST.")
+
+        auto_memory_only_exchange = pexo(
+            message='Store this exact memory in Pexo: "AUTO_MEMORY_ONLY_EXCHANGE_TEST."',
+            task_context="brain-test",
+        )
+        self.assertEqual(auto_memory_only_exchange["mode"], "exchange")
+        self.assertEqual(auto_memory_only_exchange["status"], "context_ready")
+        self.assertEqual(auto_memory_only_exchange["next_action"], "reply_to_user")
+        self.assertEqual(auto_memory_only_exchange["writes"]["memory"]["content"], "AUTO_MEMORY_ONLY_EXCHANGE_TEST.")
+
+        memory_lookup_exchange = pexo(
+            message='Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."',
+            task_context="brain-test",
+        )
+        self.assertEqual(memory_lookup_exchange["mode"], "exchange")
+        self.assertEqual(memory_lookup_exchange["status"], "context_ready")
+        self.assertEqual(memory_lookup_exchange["next_action"], "reply_to_user")
+        self.assertEqual(memory_lookup_exchange["query"], 'Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."')
+        self.assertIn("memory", memory_lookup_exchange)
+        self.assertEqual(
+            memory_lookup_exchange["memory"]["results"][0]["content"],
+            "AUTO_MEMORY_ONLY_EXCHANGE_TEST.",
+        )
+
+        compact_memory_lookup = pexo_find_memory('Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."')
+        self.assertEqual(compact_memory_lookup["status"], "success")
+        self.assertEqual(compact_memory_lookup["best_match"]["content"], "AUTO_MEMORY_ONLY_EXCHANGE_TEST.")
+
+        compact_artifact_lookup = pexo_find_artifact("brain artifact")
+        self.assertEqual(compact_artifact_lookup["status"], "success")
+        self.assertIsNotNone(compact_artifact_lookup["best_match"])
 
         exchange_continue = pexo_exchange(
             session_id=exchange["session_id"],
