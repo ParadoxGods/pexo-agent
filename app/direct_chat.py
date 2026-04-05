@@ -2508,7 +2508,7 @@ def _lookup_timeout_for_attempt(timeout_seconds: int, attempt_index: int) -> int
 
 
 def _build_backend_unavailable_reply(backend_name: str, *, mode: str, error_text: str | None = None) -> str:
-    label = backend_name.capitalize()
+    label = backend_name.capitalize() if backend_name else "an AI backend"
     if mode == "brain_lookup":
         return (
             f"I couldn't get a quick retrieval answer from {label} just now, but Pexo is still running. "
@@ -2576,16 +2576,21 @@ def _resolve_backend_name(
     mode: str | None = None,
     db: Session | None = None,
     capability: str | None = None,
+    allow_missing: bool = False,
 ) -> str:
     normalized = (preferred or "auto").strip().lower()
     if normalized and normalized != "auto":
         plan = build_client_connection_plan(normalized, scope="user")
         if not plan["available"]:
+            if allow_missing:
+                return ""
             raise RuntimeError(f"{normalized} is not installed or not visible in PATH.")
         return normalized
 
     for candidate in _available_backends_for_mode(mode or "conversation", db=db, capability=capability):
         return candidate
+    if allow_missing:
+        return ""
     raise RuntimeError("No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first.")
 
 
@@ -3058,12 +3063,19 @@ def create_chat_session(
 ) -> dict:
     ensure_db_ready()
     backend_policy = "auto" if (backend or "auto").strip().lower() == "auto" else "manual"
-    backend_name = _resolve_backend_name(backend, mode="conversation", db=db)
+    backend_name = _resolve_backend_name(
+        backend,
+        mode="conversation",
+        db=db,
+        allow_missing=(backend_policy == "auto"),
+    )
     details = {
         "connected_backend": backend_name,
         "backend_policy": backend_policy,
         "backend_verified": False,
     }
+    if not backend_name and backend_policy == "auto":
+        details["backend_warning"] = "No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first."
     session = ChatSession(
         id=str(uuid.uuid4()),
         title=title or "New Chat",
@@ -3097,13 +3109,21 @@ def update_chat_session(
         session.title = title.strip() or session.title
     if backend is not None:
         backend_policy = "auto" if backend.strip().lower() == "auto" else "manual"
-        backend_name = _resolve_backend_name(backend, mode="conversation", db=db)
+        backend_name = _resolve_backend_name(
+            backend,
+            mode="conversation",
+            db=db,
+            allow_missing=(backend_policy == "auto"),
+        )
         session.backend = backend_name
         details = dict(session.details or {})
         details["connected_backend"] = backend_name
         details["backend_policy"] = backend_policy
         details["backend_verified"] = False
-        details.pop("backend_warning", None)
+        if backend_name:
+            details.pop("backend_warning", None)
+        else:
+            details["backend_warning"] = "No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first."
         session.details = details
     if workspace_path is not None:
         session.workspace_path = _default_workspace_path(workspace_path)
@@ -3221,12 +3241,16 @@ def send_chat_message(
         mode=mode,
         direct_fact_intent=direct_fact_intent,
     )
+    backend_resolution_error = None
     backend_name = _resolve_backend_name(
         "auto" if backend_policy == "auto" else (session.backend or "auto"),
         mode=mode,
         db=db,
         capability=capability,
+        allow_missing=(backend_policy == "auto"),
     )
+    if not backend_name and backend_policy == "auto":
+        backend_resolution_error = "No supported direct-chat backend is installed. Install Codex, Gemini, or Claude and connect Pexo first."
     session.backend = backend_name
     preference_memory = _remember_preference(db, session, user_message)
     learned_preferences = _learned_preference_summary(db, limit=6)
@@ -3250,7 +3274,7 @@ def send_chat_message(
     )
     details = dict(session.details or {})
     details["backend_policy"] = backend_policy
-    if mode == "task" and (
+    if mode == "task" and backend_name and (
         details.get("connected_backend") != backend_name
         or details.get("backend_warning")
         or not details.get("backend_verified")
@@ -3371,6 +3395,15 @@ def send_chat_message(
             response_path = "web_fact"
             web_fact_source = str(web_fact.get("source") or "").strip() or None
             web_fact_title = str(web_fact.get("title") or "").strip() or None
+        if assistant_text is None and not backend_name:
+            assistant_text = _maybe_build_local_reply(
+                db,
+                mode=mode,
+                user_message=user_message,
+            )
+            response_path = "local_fallback" if assistant_text is not None else "backend_unavailable"
+            if assistant_text is None:
+                assistant_text = _build_backend_unavailable_reply("", mode=mode, error_text=backend_resolution_error)
         if assistant_text is None:
             backend_candidates = [backend_name]
             should_try_backend_fallbacks = (
@@ -3476,6 +3509,8 @@ def send_chat_message(
     details["connected_backend"] = backend_name
     details["response_path"] = response_path
     details["total_latency_ms"] = total_latency_ms
+    if backend_resolution_error and not backend_name:
+        details["backend_warning"] = backend_resolution_error
     if task_payload:
         details["pexo_task_status"] = str(task_payload.get("status") or "").strip()
         details["pexo_task_role"] = str(task_payload.get("role") or "").strip()
