@@ -1590,7 +1590,10 @@ class HardeningTests(unittest.TestCase):
             finally:
                 db.close()
 
-            self.assertEqual(Path(PEXO_DB_PATH), root_one / "pexo.db")
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(Path(PEXO_DB_PATH)))),
+                os.path.normcase(os.path.realpath(str(root_one / "pexo.db"))),
+            )
             self.assertTrue((root_one / "pexo.db").exists())
 
             set_runtime_path_context(env_override=str(root_two))
@@ -1601,7 +1604,10 @@ class HardeningTests(unittest.TestCase):
             finally:
                 db.close()
 
-            self.assertEqual(Path(PEXO_DB_PATH), root_two / "pexo.db")
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(Path(PEXO_DB_PATH)))),
+                os.path.normcase(os.path.realpath(str(root_two / "pexo.db"))),
+            )
             self.assertTrue((root_two / "pexo.db").exists())
             self.assertNotIn("state-one-profile", names)
 

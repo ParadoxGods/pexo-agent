@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .cache import cached_value, invalidate_context_caches
-from .database import SessionLocal
+from .database import ensure_db_ready, SessionLocal
 from .models import AgentProfile, DynamicTool, Profile, Memory, Artifact
 from .search_index import search_memory_ids, search_artifact_ids
 
@@ -82,6 +82,7 @@ def build_session_context_snapshot(db: Session | None = None, query: str | None 
         return _build_context_payload(db, query=query)
 
     def loader():
+        ensure_db_ready()
         local_db = SessionLocal()
         try:
             return _build_context_payload(local_db, query=query)
