@@ -241,10 +241,11 @@ def _truncate(value: str | None, limit: int = 220) -> str:
 
 
 def _compact_memory_result(payload: dict) -> dict:
+    metadata = payload.get("metadata") or {}
     return {
-        "id": payload.get("id"),
-        "session_id": payload.get("session_id"),
-        "task_context": payload.get("task_context"),
+        "id": payload.get("id", payload.get("memory_id")),
+        "session_id": payload.get("session_id", metadata.get("session_id")),
+        "task_context": payload.get("task_context", metadata.get("task_context")),
         "content": _truncate(payload.get("content"), limit=240),
         "is_archived": bool(payload.get("is_archived")),
         "is_pinned": bool(payload.get("is_pinned")),

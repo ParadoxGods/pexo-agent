@@ -38,6 +38,12 @@ _memory_cogmachine_thread = None
 _memory_cogmachine_stop_event = None
 
 
+def _coerce_db_session(db: Session | None) -> tuple[Session, bool]:
+    if db is not None and hasattr(db, "query") and hasattr(db, "commit"):
+        return db, False
+    return SessionLocal(), True
+
+
 def refresh_memory_runtime() -> bool:
     global chromadb, Settings, _memory_collection
     if chromadb is not None and Settings is not None:
@@ -743,53 +749,59 @@ def store_memory(
         db = background_tasks
         background_tasks = None
         run_maintenance_inline = True
-    if db is None or not hasattr(db, "query"):
-        raise HTTPException(status_code=500, detail="Database session is unavailable")
-    if background_tasks is None:
-        background_tasks = BackgroundTasks()
-
-    promotion_offer, promotion_result = _resolve_vector_runtime(
-        db,
-        auto_promote_vector=request.auto_promote_vector,
-    )
-
-    new_memory = Memory(
-        session_id=request.session_id,
-        content=request.content,
-        task_context=request.task_context,
-    )
-    db.add(new_memory)
-    db.flush()
-
+    db, owns_db = _coerce_db_session(db)
     try:
-        _upsert_memory_embedding(new_memory)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to write memory to ChromaDB: {str(exc)}")
+        if owns_db:
+            background_tasks = None
+            run_maintenance_inline = True
+        elif background_tasks is None:
+            background_tasks = BackgroundTasks()
 
-    db.commit()
-    db.refresh(new_memory)
-    upsert_memory_search_document(
-        new_memory.id,
-        content=new_memory.content,
-        task_context=new_memory.task_context,
-        session_id=new_memory.session_id,
-    )
-    
-    maintenance = None
-    if run_maintenance_inline:
-        maintenance = maintain_memory_health(db, task_context=request.task_context)
-    else:
-        background_tasks.add_task(maintain_memory_health_bg, request.task_context)
-    invalidate_surface_caches()
+        promotion_offer, promotion_result = _resolve_vector_runtime(
+            db,
+            auto_promote_vector=request.auto_promote_vector,
+        )
 
-    return _with_runtime_metadata({
-        "status": "Memory permanently embedded into Pexo's global brain.",
-        "memory_id": new_memory.id,
-        "chroma_id": new_memory.chroma_id,
-        "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
-        "maintenance": maintenance or "Deferred to background task",
-    }, db, promotion_offer=promotion_offer, promotion_result=promotion_result)
+        new_memory = Memory(
+            session_id=request.session_id,
+            content=request.content,
+            task_context=request.task_context,
+        )
+        db.add(new_memory)
+        db.flush()
+
+        try:
+            _upsert_memory_embedding(new_memory)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to write memory to ChromaDB: {str(exc)}")
+
+        db.commit()
+        db.refresh(new_memory)
+        upsert_memory_search_document(
+            new_memory.id,
+            content=new_memory.content,
+            task_context=new_memory.task_context,
+            session_id=new_memory.session_id,
+        )
+
+        maintenance = None
+        if run_maintenance_inline:
+            maintenance = maintain_memory_health(db, task_context=request.task_context)
+        else:
+            background_tasks.add_task(maintain_memory_health_bg, request.task_context)
+        invalidate_surface_caches()
+
+        return _with_runtime_metadata({
+            "status": "Memory permanently embedded into Pexo's global brain.",
+            "memory_id": new_memory.id,
+            "chroma_id": new_memory.chroma_id,
+            "embedding_mode": "vector" if memory_embeddings_enabled() else "sqlite_keyword_fallback",
+            "maintenance": maintenance or "Deferred to background task",
+        }, db, promotion_offer=promotion_offer, promotion_result=promotion_result)
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.post("/search")
@@ -798,152 +810,182 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
     Allows the AI to perform a semantic vector search across Pexo's entire history
     to find relevant context, past bug fixes, or user patterns.
     """
-    promotion_offer, promotion_result = _resolve_vector_runtime(
-        db,
-        auto_promote_vector=request.auto_promote_vector,
-    )
+    db, owns_db = _coerce_db_session(db)
+    try:
+        promotion_offer, promotion_result = _resolve_vector_runtime(
+            db,
+            auto_promote_vector=request.auto_promote_vector,
+        )
 
-    collection = get_memory_collection()
-    if collection is None:
+        collection = get_memory_collection()
+        if collection is None:
+            return _with_runtime_metadata(
+                _search_memories_without_embeddings(request, db),
+                db,
+                promotion_offer=promotion_offer,
+                promotion_result=promotion_result,
+            )
+
+        results = collection.query(query_texts=[request.query], n_results=request.n_results)
+
+        documents = results.get("documents") or []
+        ids = results.get("ids") or []
+        metadatas = results.get("metadatas") or []
+        distances = results.get("distances") or []
+        if not documents or not documents[0]:
+            return _with_runtime_metadata(
+                {"results": []},
+                db,
+                promotion_offer=promotion_offer,
+                promotion_result=promotion_result,
+            )
+
+        chroma_ids = ids[0] if ids else []
+        memory_records = (
+            db.query(Memory).filter(Memory.chroma_id.in_(chroma_ids)).all()
+            if chroma_ids
+            else []
+        )
+        memory_map = {record.chroma_id: record for record in memory_records}
+
+        matched_records: list[Memory] = []
+        distance_by_id: dict[int, float | None] = {}
+        metadata_by_id: dict[int, dict] = {}
+        for index, document in enumerate(documents[0]):
+            chroma_id = chroma_ids[index] if index < len(chroma_ids) else None
+            memory_record = memory_map.get(chroma_id)
+            if memory_record is None:
+                continue
+            memory_record.content = document
+            matched_records.append(memory_record)
+            metadata_by_id[memory_record.id] = metadatas[0][index] if metadatas and metadatas[0] else {}
+            distance_by_id[memory_record.id] = distances[0][index] if distances and distances[0] else None
+
         return _with_runtime_metadata(
-            _search_memories_without_embeddings(request, db),
+            _format_memory_search_results(
+                matched_records,
+                distance_by_id=distance_by_id,
+                metadata_by_id=metadata_by_id,
+            ),
             db,
             promotion_offer=promotion_offer,
             promotion_result=promotion_result,
         )
-
-    results = collection.query(query_texts=[request.query], n_results=request.n_results)
-
-    documents = results.get("documents") or []
-    ids = results.get("ids") or []
-    metadatas = results.get("metadatas") or []
-    distances = results.get("distances") or []
-    if not documents or not documents[0]:
-        return _with_runtime_metadata(
-            {"results": []},
-            db,
-            promotion_offer=promotion_offer,
-            promotion_result=promotion_result,
-        )
-
-    chroma_ids = ids[0] if ids else []
-    memory_records = (
-        db.query(Memory).filter(Memory.chroma_id.in_(chroma_ids)).all()
-        if chroma_ids
-        else []
-    )
-    memory_map = {record.chroma_id: record for record in memory_records}
-
-    matched_records: list[Memory] = []
-    distance_by_id: dict[int, float | None] = {}
-    metadata_by_id: dict[int, dict] = {}
-    for index, document in enumerate(documents[0]):
-        chroma_id = chroma_ids[index] if index < len(chroma_ids) else None
-        memory_record = memory_map.get(chroma_id)
-        if memory_record is None:
-            continue
-        memory_record.content = document
-        matched_records.append(memory_record)
-        metadata_by_id[memory_record.id] = metadatas[0][index] if metadatas and metadatas[0] else {}
-        distance_by_id[memory_record.id] = distances[0][index] if distances and distances[0] else None
-
-    return _with_runtime_metadata(
-        _format_memory_search_results(
-            matched_records,
-            distance_by_id=distance_by_id,
-            metadata_by_id=metadata_by_id,
-        ),
-        db,
-        promotion_offer=promotion_offer,
-        promotion_result=promotion_result,
-    )
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.get("/recent")
 def list_recent_memories(limit: int = 12, include_archived: bool = True, db: Session = Depends(get_db)):
-    safe_limit = max(1, min(limit, 100))
-    query = db.query(Memory)
-    if not include_archived:
-        query = query.filter(Memory.is_archived.is_(False))
-    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
-    memories = query.order_by(recency_order.desc(), Memory.id.desc()).limit(safe_limit).all()
-    return {"memories": [serialize_memory(memory) for memory in memories]}
+    db, owns_db = _coerce_db_session(db)
+    try:
+        safe_limit = max(1, min(limit, 100))
+        query = db.query(Memory)
+        if not include_archived:
+            query = query.filter(Memory.is_archived.is_(False))
+        recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+        memories = query.order_by(recency_order.desc(), Memory.id.desc()).limit(safe_limit).all()
+        return {"memories": [serialize_memory(memory) for memory in memories]}
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.post("/maintenance")
 def run_memory_maintenance(request: MemoryMaintenanceRequest, db: Session = Depends(get_db)):
-    result = maintain_memory_health(db, task_context=request.task_context)
-    return {"status": "success", **result}
+    db, owns_db = _coerce_db_session(db)
+    try:
+        result = maintain_memory_health(db, task_context=request.task_context)
+        return {"status": "success", **result}
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.get("/{memory_id}")
 def get_memory(memory_id: int, db: Session = Depends(get_db)):
-    memory = db.query(Memory).filter(Memory.id == memory_id).first()
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
-    return serialize_memory(memory)
+    db, owns_db = _coerce_db_session(db)
+    try:
+        memory = db.query(Memory).filter(Memory.id == memory_id).first()
+        if not memory:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        return serialize_memory(memory)
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.put("/{memory_id}")
 def update_memory(memory_id: int, request: MemoryUpdateRequest, db: Session = Depends(get_db)):
-    memory = db.query(Memory).filter(Memory.id == memory_id).first()
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
-
-    previous_task_context = memory.task_context
-
-    if request.content is not None:
-        memory.content = request.content
-    if request.task_context is not None:
-        memory.task_context = request.task_context
-    if request.is_compacted is not None:
-        memory.is_compacted = request.is_compacted
-    if request.is_pinned is not None:
-        memory.is_pinned = request.is_pinned
-    if request.is_archived is not None:
-        memory.is_archived = request.is_archived
-
+    db, owns_db = _coerce_db_session(db)
     try:
+        memory = db.query(Memory).filter(Memory.id == memory_id).first()
+        if not memory:
+            raise HTTPException(status_code=404, detail="Memory not found")
+
+        previous_task_context = memory.task_context
+
+        if request.content is not None:
+            memory.content = request.content
+        if request.task_context is not None:
+            memory.task_context = request.task_context
+        if request.is_compacted is not None:
+            memory.is_compacted = request.is_compacted
+        if request.is_pinned is not None:
+            memory.is_pinned = request.is_pinned
+        if request.is_archived is not None:
+            memory.is_archived = request.is_archived
+
+        try:
+            if memory.is_archived:
+                _delete_memory_embeddings([memory.chroma_id])
+            else:
+                _upsert_memory_embedding(memory)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to sync ChromaDB memory: {str(exc)}")
+
+        db.commit()
+        db.refresh(memory)
         if memory.is_archived:
-            _delete_memory_embeddings([memory.chroma_id])
+            delete_memory_search_document(memory.id)
         else:
-            _upsert_memory_embedding(memory)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to sync ChromaDB memory: {str(exc)}")
+            upsert_memory_search_document(
+                memory.id,
+                content=memory.content,
+                task_context=memory.task_context,
+                session_id=memory.session_id,
+            )
 
-    db.commit()
-    db.refresh(memory)
-    if memory.is_archived:
-        delete_memory_search_document(memory.id)
-    else:
-        upsert_memory_search_document(
-            memory.id,
-            content=memory.content,
-            task_context=memory.task_context,
-            session_id=memory.session_id,
-        )
+        task_contexts_to_maintain = {context for context in [previous_task_context, memory.task_context] if context}
+        maintenance = {"compacted_count": 0, "summary_memory_id": None, "archived_count": 0}
+        for task_context in task_contexts_to_maintain:
+            result = maintain_memory_health(db, task_context=task_context)
+            maintenance["compacted_count"] += result["compacted_count"]
+            maintenance["archived_count"] += result["archived_count"]
+            maintenance["summary_memory_id"] = maintenance["summary_memory_id"] or result["summary_memory_id"]
+        invalidate_surface_caches()
 
-    task_contexts_to_maintain = {context for context in [previous_task_context, memory.task_context] if context}
-    maintenance = {"compacted_count": 0, "summary_memory_id": None, "archived_count": 0}
-    for task_context in task_contexts_to_maintain:
-        result = maintain_memory_health(db, task_context=task_context)
-        maintenance["compacted_count"] += result["compacted_count"]
-        maintenance["archived_count"] += result["archived_count"]
-        maintenance["summary_memory_id"] = maintenance["summary_memory_id"] or result["summary_memory_id"]
-    invalidate_surface_caches()
-
-    return {"status": "success", "memory": serialize_memory(memory), "maintenance": maintenance}
+        return {"status": "success", "memory": serialize_memory(memory), "maintenance": maintenance}
+    finally:
+        if owns_db:
+            db.close()
 
 
 @router.delete("/{memory_id}")
 def delete_memory(memory_id: int, db: Session = Depends(get_db)):
-    memory = db.query(Memory).filter(Memory.id == memory_id).first()
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
+    db, owns_db = _coerce_db_session(db)
+    try:
+        memory = db.query(Memory).filter(Memory.id == memory_id).first()
+        if not memory:
+            raise HTTPException(status_code=404, detail="Memory not found")
 
-    _delete_memory_embeddings([memory.chroma_id])
-    delete_memory_search_document(memory.id)
-    db.delete(memory)
-    db.commit()
-    invalidate_surface_caches()
-    return {"status": "success", "message": f"Memory {memory_id} deleted successfully"}
+        _delete_memory_embeddings([memory.chroma_id])
+        delete_memory_search_document(memory.id)
+        db.delete(memory)
+        db.commit()
+        invalidate_surface_caches()
+        return {"status": "success", "message": f"Memory {memory_id} deleted successfully"}
+    finally:
+        if owns_db:
+            db.close()

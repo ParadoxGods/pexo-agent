@@ -15,7 +15,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
@@ -110,6 +110,8 @@ from app.routers.memory import (
     MemoryStoreRequest,
     MemoryUpdateRequest,
     delete_memory,
+    get_memory,
+    list_recent_memories,
     maintain_memory_health,
     search_memory,
     store_memory,
@@ -528,21 +530,22 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", readme)
         self.assertIn("pexo-install-windows.zip", readme)
         self.assertIn("pexo-install-unix.tar.gz", readme)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"', readme)
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
         self.assertIn("pexo connect all --scope user", readme)
         self.assertIn("pexo --chat", readme)
-        self.assertIn("use it automatically", readme)
-        self.assertIn("default local brain", readme)
+        self.assertIn("Some clients will reach for it automatically", readme)
+        self.assertIn("shared local brain", readme)
         self.assertIn("Repository-level AI usage rules live in `AGENTS.md`", readme)
-        self.assertIn("Existing Git checkouts are protected by default", readme)
         self.assertIn(".\\install.cmd", readme)
         self.assertIn("./install.sh", readme)
         self.assertIn("-AllowRepoInstall", readme)
         self.assertIn("## Install", readme)
-        self.assertIn("## Use", readme)
+        self.assertIn("## Start Using Pexo", readme)
+        self.assertIn("## Why Pexo", readme)
+        self.assertIn("## MCP First", readme)
+        self.assertIn("semantic vector memory is optional", readme)
         self.assertNotIn("## Core Architecture", readme)
         self.assertNotIn("## Fleet Quickstart", readme)
         self.assertNotIn("pexo_exchange", readme)
@@ -3156,6 +3159,33 @@ class HardeningTests(unittest.TestCase):
         deleted = pexo_delete_memory(memory_id)
         self.assertEqual(deleted["status"], "success")
 
+    @patch("app.routers.memory.get_memory_collection")
+    def test_memory_router_functions_recover_when_db_dependency_is_unresolved(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+
+        stored = store_memory(
+            MemoryStoreRequest(
+                session_id="dependency-fallback-session",
+                content="Fallback memory dependency path.",
+                task_context="dependency-fallback",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+        memory_id = stored["memory_id"]
+        self.assertIsInstance(memory_id, int)
+
+        searched = search_memory(
+            MemorySearchRequest(query="Fallback memory dependency path.", n_results=3),
+        )
+        self.assertTrue(any("Fallback memory dependency path." in item["content"] for item in searched["results"]))
+
+        recent = list_recent_memories(limit=5, include_archived=True)
+        self.assertTrue(any(memory["id"] == memory_id for memory in recent["memories"]))
+
+        fetched = get_memory(memory_id)
+        self.assertEqual(fetched["task_context"], "dependency-fallback")
+
     def test_mcp_brain_surface_bootstraps_context_and_exposes_resources(self):
         init_db()
         pexo_quick_setup_profile("efficient_operator")
@@ -3256,6 +3286,8 @@ class HardeningTests(unittest.TestCase):
         compact_memory_lookup = pexo_find_memory('Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."')
         self.assertEqual(compact_memory_lookup["status"], "success")
         self.assertEqual(compact_memory_lookup["best_match"]["content"], "AUTO_MEMORY_ONLY_EXCHANGE_TEST.")
+        self.assertIsInstance(compact_memory_lookup["best_match"]["id"], int)
+        self.assertEqual(compact_memory_lookup["best_match"]["task_context"], "brain-test")
 
         compact_artifact_lookup = pexo_find_artifact("brain artifact")
         self.assertEqual(compact_artifact_lookup["status"], "success")
