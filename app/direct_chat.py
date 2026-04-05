@@ -211,6 +211,8 @@ TASK_HINTS = (
     "ping",
     "cmd",
     "command",
+    "one liner",
+    "one-liner",
 )
 BRAIN_LOOKUP_HINTS = (
     "memory",
@@ -470,6 +472,14 @@ def _looks_like_general_knowledge_question(text: str) -> bool:
         return False
     if _looks_like_task(text) or _looks_like_brain_lookup(text):
         return False
+    
+    # Efficiency: Don't trigger Wikipedia for very short common terms
+    words = text.split()
+    if len(words) < 3:
+        # Check if it's one of the few high-intent search starters
+        if not text.startswith(("google ", "search ")):
+            return False
+
     prefixes = (
         "who ",
         "what ",
@@ -1104,36 +1114,50 @@ def _infer_direct_fact_intent(user_message: str) -> str | None:
     text = _normalize_chat_text(user_message)
     if not text:
         return None
+    
+    # Cogmachine efficiency: ignore denial prefixes for fact lookups
+    if text.startswith(("no ", "nope ", "wait ")):
+        text = " ".join(text.split()[1:])
 
     if any(_contains_hint(text, hint) for hint in ("what is your name", "what's your name", "your name")):
         return "identity"
-    if any(
-        phrase in text
-        for phrase in (
-            "what day is it",
-            "what day is it today",
-            "what day is today",
-            "what is todays day",
-            "what is today's day",
-            "what is today",
-            "what's today",
-            "todays date",
-            "today's date",
-            "what is todays date",
-            "what is today's date",
-        )
-    ):
+    
+    # Check for date intent
+    date_hints = (
+        "what day is it",
+        "what day is it today",
+        "what day is today",
+        "what is todays day",
+        "what is today's day",
+        "what is today",
+        "what's today",
+        "todays date",
+        "today's date",
+        "what is todays date",
+        "what is today's date",
+    )
+    if any(phrase in text for phrase in date_hints):
         return "date"
-    if any(
-        phrase in text
-        for phrase in (
-            "what time is it",
-            "what's the time",
-            "what is the time",
-            "current time",
-        )
-    ):
+    
+    # Catch very short date queries
+    if text in ("today", "date", "day", "today?", "date?", "day?"):
+        return "date"
+
+    # Check for time intent
+    time_hints = (
+        "what time is it",
+        "what's the time",
+        "what is the time",
+        "current time",
+        "what time",
+    )
+    if any(phrase in text for phrase in time_hints):
         return "time"
+    
+    # Catch very short time queries
+    if text in ("time", "clock", "time?", "clock?"):
+        return "time"
+
     if any(_contains_hint(text, hint) for hint in ("are you there", "are you online", "hello", "hi", "hey")):
         return "availability"
     if any(_contains_hint(text, hint) for hint in ("how are you",)):
@@ -1198,41 +1222,29 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     text = _normalize_chat_text(user_message)
     if not text:
         return "Pexo is online and ready."
+    
+    # Ultra-fast path for common keywords
+    if text in ("today", "today?", "date"):
+        return f"Today is {_format_local_date()}."
+    if text in ("time", "time?", "clock"):
+        return f"It is {_format_local_time()}."
 
     if _extract_preference_instruction(user_message):
         return "Noted. I'll keep that as a working preference going forward."
 
-    if any(_contains_hint(text, hint) for hint in ("what is your name", "what's your name", "your name")):
+    intent = _infer_direct_fact_intent(user_message)
+    
+    if intent == "identity":
         return "My name is Pexo."
-
-    if any(
-        phrase in text
-        for phrase in (
-            "what day is it",
-            "what day is it today",
-            "what day is today",
-            "what is todays day",
-            "what is today's day",
-            "what is today",
-            "what's today",
-            "todays date",
-            "today's date",
-            "what is todays date",
-            "what is today's date",
-        )
-    ):
+    
+    if intent == "date":
         return f"Today is {_format_local_date()}."
-
-    if any(
-        phrase in text
-        for phrase in (
-            "what time is it",
-            "what's the time",
-            "what is the time",
-            "current time",
-        )
-    ):
+    
+    if intent == "time":
         return f"It is {_format_local_time()}."
+    
+    if intent in ("availability", "status"):
+        return "I'm online, responsive, and ready to help."
 
     if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
         return "You're welcome. Pexo is ready for the next step."
@@ -1280,10 +1292,15 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
             "this is bad",
             "this sucks",
             "not good",
-            "this is terrible",
+            "horrible",
+            "sucks",
+            "terrible",
         )
     ):
-        return "Understood. I'll keep it simpler and more direct. Tell me what you want changed."
+        return (
+            "I'm sorry to hear that. I'm constantly learning and evolving. "
+            "Please tell me what specifically went wrong so my Cogmachine loop can fix it."
+        )
 
     if any(_contains_hint(text, hint) for hint in ("what can you do", "help")):
         return (
@@ -1502,6 +1519,11 @@ def _build_local_task_follow_up_reply(user_message: str, *, task_payload: dict |
             msg = task_payload.get("user_message") or task_payload.get("response") or "preparing the next strategic move."
             return f"The swarm is currently in the **{role}** phase. I'm {msg}"
         return "I'm currently coordinating the swarm's next move. Use /status for a deep reasoning trace."
+
+    # Cogmachine: Allow high-confidence local facts to bypass task context if they aren't constraints
+    intent = _infer_direct_fact_intent(user_message)
+    if intent in ("time", "date"):
+        return _build_local_conversation_reply(user_message)
 
     if text.startswith("yes, keep it "):
         return f"Understood. I'll keep it {user_message.strip()[13:].strip().rstrip('.')}."
