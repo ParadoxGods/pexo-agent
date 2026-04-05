@@ -1480,20 +1480,29 @@ def _looks_like_generic_backend_filler(text: str) -> bool:
 def _build_local_task_reply(user_message: str) -> str:
     text = _normalize_chat_text(user_message)
     if text.startswith(("can you help me", "help me ")):
-        return "Yes. I can help with that. I'll start by framing the structure, visual direction, and first build step."
+        return "I've initiated a strategic session. I'll start by framing the structure and defining the first operational step."
     if "agent" in text and any(_contains_hint(text, hint) for hint in ("create", "new", "make", "add")):
-        return "I can handle that. I'll define the agent's role, capabilities, and first working prompt."
+        return "Specialist deployment initiated. I'm defining the agent's core protocol and capability set now."
     if any(_contains_hint(text, hint) for hint in ("design", "build", "landing page", "website", "dashboard", "homepage")):
-        return "I can handle that. I'll start with the structure, visual direction, and first concrete implementation step."
+        return "Development swarm active. I'm architecting the structure and preparing the first implementation cycle."
     if any(_contains_hint(text, hint) for hint in ("review", "audit", "analyze", "analyse", "inspect")):
-        return "I can handle that. I'll start by inspecting the current state and identifying the highest-value issues."
+        return "Analysis mode engaged. I'm inspecting the system state to identify high-value improvements."
     if any(_contains_hint(text, hint) for hint in ("fix", "debug", "repair", "broken", "error", "bug")):
-        return "I can handle that. I'll start by isolating the failure and narrowing the likely cause."
-    return "I can handle that. I'll start with a short plan and the first concrete step."
+        return "Maintenance protocol active. I'm isolating the failure and preparing a recovery plan."
+    return "I've engaged the swarm for this task. I'll start with a strategic plan and the first concrete execution step."
 
 
-def _build_local_task_follow_up_reply(user_message: str) -> str | None:
+def _build_local_task_follow_up_reply(user_message: str, *, task_payload: dict | None = None) -> str | None:
     text = _normalize_chat_text(user_message)
+    
+    # Meta-awareness: Answer questions about the swarm's current state
+    if any(h in text for h in ("what step", "what task", "status", "progress", "what are you doing")):
+        if task_payload:
+            role = task_payload.get("role") or "Supervisor"
+            msg = task_payload.get("user_message") or task_payload.get("response") or "preparing the next strategic move."
+            return f"The swarm is currently in the **{role}** phase. I'm {msg}"
+        return "I'm currently coordinating the swarm's next move. Use /status for a deep reasoning trace."
+
     if text.startswith("yes, keep it "):
         return f"Understood. I'll keep it {user_message.strip()[13:].strip().rstrip('.')}."
     if text.startswith("keep it "):
@@ -2516,7 +2525,10 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in (LOCAL_FIRST_FACT_INTENTS | {"status"})
 
 
-def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None) -> bool:
+def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None, *, has_active_task: bool = False) -> bool:
+    if has_active_task:
+        # Never trigger Wikipedia misfires during a strategic implementation session.
+        return False
     normalized = _normalize_chat_text(user_message)
     if not (_looks_like_general_knowledge_question(normalized) or any(_contains_hint(normalized, hint) for hint in SEARCH_HINTS)):
         return False
@@ -3289,11 +3301,12 @@ def send_chat_message(
     general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
         user_message,
         direct_fact_intent=direct_fact_intent,
+        has_active_task=bool(session.pexo_session_id),
     )
     previous_mode = str((session.details or {}).get("mode") or "").strip().lower()
     task_follow_up_local_reply = (
-        _build_local_task_follow_up_reply(user_message)
-        if mode == "task" and previous_mode == "task"
+        _build_local_task_follow_up_reply(user_message, task_payload=active_task_payload)
+        if (mode == "task" or session.pexo_session_id)
         else None
     )
     local_first = (
