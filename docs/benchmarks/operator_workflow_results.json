@@ -1,0 +1,431 @@
+{
+  "generated_at_utc": "2026-04-05T22:59:23.928171+00:00",
+  "seed": 20260405,
+  "host": {
+    "timestamp_utc": "2026-04-05T22:59:23.902626+00:00",
+    "machine": "CDX-DUSTIN",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cores": 32,
+    "total_ram_gb": 47.72,
+    "pexo_version": "1.1.1"
+  },
+  "runtime": {
+    "memory_backend": "keyword",
+    "install_mode": "checkout",
+    "active_profile": "full"
+  },
+  "state_root": "C:\\CDXCLI\\pexo\\sandbox\\benchmark_operator_realworld_fresh\\pexo_state",
+  "cases": [
+    {
+      "track": "retrieval",
+      "slug": "repo_trust_mode",
+      "title": "Repo retrieval: default Genesis trust mode",
+      "expected_answer": "approval-required",
+      "baseline_answer": "approval-required",
+      "pexo_answer": "approval-required",
+      "correct": true,
+      "source_bytes": 394088,
+      "traditional_context_bytes": 394088,
+      "traditional_tokens": 98522,
+      "baseline": {
+        "wall_seconds": 0.0024981999886222184,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 110.48
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.28220299998065457,
+        "cpu_seconds": 0.203125,
+        "peak_rss_mb": 111.38
+      },
+      "pexo_query": {
+        "wall_seconds": 0.04267579998122528,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 111.36
+      },
+      "pexo_tokens": 2816,
+      "compaction_ratio": 34.99,
+      "sessions": [
+        "realworld-repo_trust_mode-search"
+      ],
+      "notes": "Actual repo corpus registered as Pexo artifacts; answer resolved through Pexo artifact lookup over the real codebase."
+    },
+    {
+      "track": "retrieval",
+      "slug": "repo_qa_gate",
+      "title": "Repo retrieval: QA hard gate after developer",
+      "expected_answer": "Quality Assurance Manager",
+      "baseline_answer": "Quality Assurance Manager",
+      "pexo_answer": "Quality Assurance Manager",
+      "correct": true,
+      "source_bytes": 394088,
+      "traditional_context_bytes": 394088,
+      "traditional_tokens": 98522,
+      "baseline": {
+        "wall_seconds": 0.00224170001456514,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 111.72
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.2240060999756679,
+        "cpu_seconds": 0.171875,
+        "peak_rss_mb": 112.0
+      },
+      "pexo_query": {
+        "wall_seconds": 0.04582489997847006,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 112.24
+      },
+      "pexo_tokens": 2858,
+      "compaction_ratio": 34.47,
+      "sessions": [
+        "realworld-repo_qa_gate-search"
+      ],
+      "notes": "Actual repo corpus registered as Pexo artifacts; answer resolved through Pexo artifact lookup over the real codebase."
+    },
+    {
+      "track": "retrieval",
+      "slug": "repo_mcp_command",
+      "title": "Repo retrieval: packaged MCP command",
+      "expected_answer": "pexo-mcp",
+      "baseline_answer": "pexo-mcp",
+      "pexo_answer": "pexo-mcp",
+      "correct": true,
+      "source_bytes": 394088,
+      "traditional_context_bytes": 394088,
+      "traditional_tokens": 98522,
+      "baseline": {
+        "wall_seconds": 0.002173100016079843,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.41
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.21955320000415668,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 112.67
+      },
+      "pexo_query": {
+        "wall_seconds": 0.04278439999325201,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 112.78
+      },
+      "pexo_tokens": 2839,
+      "compaction_ratio": 34.7,
+      "sessions": [
+        "realworld-repo_mcp_command-search"
+      ],
+      "notes": "Actual repo corpus registered as Pexo artifacts; answer resolved through Pexo artifact lookup over the real codebase."
+    },
+    {
+      "track": "retrieval",
+      "slug": "repo_keep_state_uninstall",
+      "title": "Repo retrieval: uninstall while keeping state",
+      "expected_answer": "pexo uninstall --keep-state",
+      "baseline_answer": "pexo uninstall --keep-state",
+      "pexo_answer": "pexo uninstall --keep-state",
+      "correct": true,
+      "source_bytes": 394088,
+      "traditional_context_bytes": 394088,
+      "traditional_tokens": 98522,
+      "baseline": {
+        "wall_seconds": 0.002141500008292496,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.78
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.22916129999794066,
+        "cpu_seconds": 0.140625,
+        "peak_rss_mb": 112.82
+      },
+      "pexo_query": {
+        "wall_seconds": 0.03856299998005852,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 112.3
+      },
+      "pexo_tokens": 2899,
+      "compaction_ratio": 33.98,
+      "sessions": [
+        "realworld-repo_keep_state_uninstall-search"
+      ],
+      "notes": "Actual repo corpus registered as Pexo artifacts; answer resolved through Pexo artifact lookup over the real codebase."
+    },
+    {
+      "track": "handoff",
+      "slug": "handoff_landing_page",
+      "title": "Cross-client handoff: landing page brief",
+      "expected_answer": "FastAPI HTML shell | clean premium dark | local-first packaged release",
+      "baseline_answer": "FastAPI HTML shell | clean premium dark | local-first packaged release",
+      "pexo_answer": "FastAPI HTML shell | clean premium dark | local-first packaged release",
+      "correct": true,
+      "source_bytes": 48865,
+      "traditional_context_bytes": 48865,
+      "traditional_tokens": 12216,
+      "baseline": {
+        "wall_seconds": 0.0009472999954596162,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.32
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.05991159996483475,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 112.37
+      },
+      "pexo_query": {
+        "wall_seconds": 0.04749160003848374,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 112.42
+      },
+      "pexo_tokens": 3158,
+      "compaction_ratio": 3.87,
+      "sessions": [
+        "handoff-landing-query"
+      ],
+      "notes": "Simulated Gemini -> Codex -> Claude handoff through Pexo memories and artifact text, without replaying the full brief to the final client."
+    },
+    {
+      "track": "handoff",
+      "slug": "handoff_bug_triage",
+      "title": "Cross-client handoff: bug triage continuity",
+      "expected_answer": "import-time global state root | platform-runtime | gemini",
+      "baseline_answer": "import-time global state root | platform-runtime | gemini",
+      "pexo_answer": "import-time global state root | platform-runtime | gemini",
+      "correct": true,
+      "source_bytes": 48838,
+      "traditional_context_bytes": 48838,
+      "traditional_tokens": 12209,
+      "baseline": {
+        "wall_seconds": 0.0009457999840378761,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.44
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.05777929996838793,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 112.45
+      },
+      "pexo_query": {
+        "wall_seconds": 0.0456784000271,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 112.45
+      },
+      "pexo_tokens": 3314,
+      "compaction_ratio": 3.68,
+      "sessions": [
+        "handoff-bug-query"
+      ],
+      "notes": "Simulated cross-client bug triage where Pexo holds root cause, owner, and fallback-client state between handoffs."
+    },
+    {
+      "track": "compounding",
+      "slug": "compound_repo_sequence",
+      "title": "Repeated-use compounding: repo facts reused across tasks",
+      "expected_answer": "approval-required | pexo-mcp | pexo uninstall --keep-state",
+      "baseline_answer": "approval-required | pexo-mcp | pexo uninstall --keep-state",
+      "pexo_answer": "approval-required | pexo-mcp | pexo uninstall --keep-state",
+      "correct": true,
+      "source_bytes": 394088,
+      "traditional_context_bytes": 1182322,
+      "traditional_tokens": 295580,
+      "baseline": {
+        "wall_seconds": 0.005302899982780218,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.46
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.2264943000045605,
+        "cpu_seconds": 0.15625,
+        "peak_rss_mb": 112.49
+      },
+      "pexo_query": {
+        "wall_seconds": 0.205390399962198,
+        "cpu_seconds": 0.140625,
+        "peak_rss_mb": 112.51
+      },
+      "pexo_tokens": 9492,
+      "compaction_ratio": 31.14,
+      "sessions": [
+        "compound-repo-step-1",
+        "compound-repo-step-2",
+        "compound-repo-step-3"
+      ],
+      "notes": "One ingest, multiple follow-up tasks, and a final answer built from Pexo memories instead of rereading the repo each turn."
+    },
+    {
+      "track": "compounding",
+      "slug": "compound_design_defaults",
+      "title": "Repeated-use compounding: accepted defaults reused later",
+      "expected_answer": "keyword | packaged | pexo --update | pexo doctor --json",
+      "baseline_answer": "keyword | packaged | pexo --update | pexo doctor --json",
+      "pexo_answer": "keyword | packaged | pexo --update | pexo doctor --json",
+      "correct": true,
+      "source_bytes": 48771,
+      "traditional_context_bytes": 121921,
+      "traditional_tokens": 30480,
+      "baseline": {
+        "wall_seconds": 0.0019082999788224697,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.5
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.0799480999703519,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 112.55
+      },
+      "pexo_query": {
+        "wall_seconds": 0.03585909999674186,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 112.52
+      },
+      "pexo_tokens": 3305,
+      "compaction_ratio": 9.22,
+      "sessions": [
+        "compound-design-query"
+      ],
+      "notes": "Sequential decisions are stored once, then recalled as compact local memory instead of replaying the full prior thread."
+    },
+    {
+      "track": "resilience",
+      "slug": "resilience_interrupted_review",
+      "title": "Failure recovery: interrupted review resumed from stored state",
+      "expected_answer": "run QA review | package lifecycle",
+      "baseline_answer": "run QA review | package lifecycle",
+      "pexo_answer": "run QA review | package lifecycle",
+      "correct": true,
+      "source_bytes": 29872,
+      "traditional_context_bytes": 29872,
+      "traditional_tokens": 7468,
+      "baseline": {
+        "wall_seconds": 0.0008239999879151583,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.54
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.036667700042016804,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 112.54
+      },
+      "pexo_query": {
+        "wall_seconds": 0.07104869995964691,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 112.55
+      },
+      "pexo_tokens": 3310,
+      "compaction_ratio": 2.26,
+      "sessions": [
+        "resilience-review-query"
+      ],
+      "notes": "Simulates process interruption: Pexo state survives a runtime reset and answers the resumed question without replaying the full brief."
+    },
+    {
+      "track": "resilience",
+      "slug": "resilience_client_switch",
+      "title": "Failure recovery: client switch without context replay",
+      "expected_answer": "gemini | docs/ARCHITECTURE.md | SQLite local-first",
+      "baseline_answer": "gemini | docs/ARCHITECTURE.md | SQLite local-first",
+      "pexo_answer": "gemini | docs/ARCHITECTURE.md | SQLite local-first",
+      "correct": true,
+      "source_bytes": 29871,
+      "traditional_context_bytes": 29871,
+      "traditional_tokens": 7467,
+      "baseline": {
+        "wall_seconds": 0.0008446000283583999,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.55
+      },
+      "pexo_setup": {
+        "wall_seconds": 0.0401288999710232,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 112.55
+      },
+      "pexo_query": {
+        "wall_seconds": 0.06273180001880974,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 112.77
+      },
+      "pexo_tokens": 3322,
+      "compaction_ratio": 2.25,
+      "sessions": [
+        "resilience-switch-query"
+      ],
+      "notes": "Simulates a dead client handoff where the next client continues from stored Pexo memory instead of replaying the failed thread."
+    }
+  ],
+  "tracks": [
+    {
+      "track": "retrieval",
+      "case_count": 4,
+      "source_bytes": 1576352,
+      "traditional_tokens": 394088,
+      "pexo_tokens": 11412,
+      "avg_compaction_ratio": 34.53,
+      "baseline_wall_seconds": 0.009,
+      "pexo_setup_wall_seconds": 0.955,
+      "pexo_query_wall_seconds": 0.17,
+      "all_correct": true
+    },
+    {
+      "track": "handoff",
+      "case_count": 2,
+      "source_bytes": 97703,
+      "traditional_tokens": 24425,
+      "pexo_tokens": 6472,
+      "avg_compaction_ratio": 3.78,
+      "baseline_wall_seconds": 0.002,
+      "pexo_setup_wall_seconds": 0.118,
+      "pexo_query_wall_seconds": 0.093,
+      "all_correct": true
+    },
+    {
+      "track": "compounding",
+      "case_count": 2,
+      "source_bytes": 442859,
+      "traditional_tokens": 326060,
+      "pexo_tokens": 12797,
+      "avg_compaction_ratio": 20.18,
+      "baseline_wall_seconds": 0.007,
+      "pexo_setup_wall_seconds": 0.306,
+      "pexo_query_wall_seconds": 0.241,
+      "all_correct": true
+    },
+    {
+      "track": "resilience",
+      "case_count": 2,
+      "source_bytes": 59743,
+      "traditional_tokens": 14935,
+      "pexo_tokens": 6632,
+      "avg_compaction_ratio": 2.25,
+      "baseline_wall_seconds": 0.002,
+      "pexo_setup_wall_seconds": 0.077,
+      "pexo_query_wall_seconds": 0.134,
+      "all_correct": true
+    }
+  ],
+  "suite_performance": {
+    "baseline": {
+      "wall_seconds": 0.02,
+      "cpu_seconds": 0.0,
+      "peak_rss_mb": 112.78
+    },
+    "pexo": {
+      "wall_seconds": 2.094,
+      "cpu_seconds": 1.531,
+      "peak_rss_mb": 112.82
+    },
+    "delta": {
+      "wall_seconds": 2.074,
+      "cpu_seconds": 1.531,
+      "peak_rss_mb": 0.04
+    },
+    "pexo_state_mb": 7.16
+  },
+  "summary": {
+    "case_count": 10,
+    "source_bytes": 2176657,
+    "traditional_tokens": 759508,
+    "pexo_tokens": 37313,
+    "avg_compaction_ratio": 19.06,
+    "median_compaction_ratio": 31.14,
+    "all_correct": true
+  }
+}
