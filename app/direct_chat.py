@@ -32,83 +32,6 @@ from .search_index import upsert_memory_search_document
 PREFERRED_CHAT_BACKENDS = ("codex", "gemini", "claude")
 PREFERRED_CONVERSATION_BACKENDS = ("gemini", "claude", "codex")
 PREFERRED_TASK_BACKENDS = ("codex", "gemini", "claude")
-SEARCH_HINTS = (
-    "search ",
-    "search for",
-    "look up",
-    "lookup",
-    "google ",
-    "google for",
-    "latest ",
-    "latest news",
-    "news about",
-    "what happened",
-)
-IMAGE_TASK_HINTS = (
-    "image",
-    "images",
-    "logo",
-    "icon",
-    "illustration",
-    "artwork",
-    "photo",
-    "photos",
-    "picture",
-    "pictures",
-    "hero image",
-    "poster",
-    "banner",
-    "screenshot",
-    "sprite",
-    "mockup",
-    "thumbnail",
-)
-FRONTEND_TASK_HINTS = (
-    "landing page",
-    "homepage",
-    "website",
-    "web app",
-    "dashboard",
-    "frontend",
-    "front-end",
-    "ui",
-    "ux",
-    "design system",
-    "component",
-    "page layout",
-)
-CODE_TASK_HINTS = (
-    "code",
-    "repo",
-    "repository",
-    "codebase",
-    "function",
-    "bug",
-    "debug",
-    "fix",
-    "refactor",
-    "implement",
-    "build",
-    "script",
-    "api",
-    "database",
-    "query",
-    "test",
-    "automation",
-    "scraping",
-    "ping",
-    "server",
-)
-PLANNING_TASK_HINTS = (
-    "plan",
-    "strategy",
-    "roadmap",
-    "outline",
-    "brainstorm",
-    "proposal",
-    "decide",
-    "compare",
-)
 FAST_CHAT_TIMEOUT_SECONDS = 30
 FAST_LOOKUP_TIMEOUT_SECONDS = 40
 FACTUAL_CHAT_TIMEOUT_SECONDS = 30
@@ -156,101 +79,8 @@ PREFERRED_BACKENDS_BY_CAPABILITY = {
     "planning": ("gemini", "claude", "codex"),
     "task": ("codex", "gemini", "claude"),
 }
-CONVERSATION_HINTS = (
-    "hello",
-    "hi",
-    "hey",
-    "good morning",
-    "good afternoon",
-    "good evening",
-    "how are you",
-    "thanks",
-    "thank you",
-    "testing",
-    "test",
-    "this is a test",
-    "are you there",
-    "are you online",
-    "who are you",
-    "what can you do",
-    "help",
-)
-TASK_HINTS = (
-    "build",
-    "create",
-    "design",
-    "implement",
-    "fix",
-    "refactor",
-    "review",
-    "audit",
-    "analyze",
-    "plan",
-    "write",
-    "edit",
-    "update",
-    "change",
-    "debug",
-    "optimize",
-    "scaffold",
-    "generate",
-    "develop",
-    "start a new",
-    "new website",
-    "landing page",
-    "dashboard",
-    "repo",
-    "repository",
-    "codebase",
-    "script",
-    "app",
-    "application",
-    "tool",
-    "program",
-    "powershell",
-    "ping",
-    "cmd",
-    "command",
-    "one liner",
-    "one-liner",
-)
-BRAIN_LOOKUP_HINTS = (
-    "memory",
-    "remember",
-    "recall",
-    "artifact",
-    "artifacts",
-    "stored",
-    "store",
-    "session",
-    "sessions",
-    "agent",
-    "agents",
-    "profile",
-    "runtime",
-    "telemetry",
-    "readme",
-    "what do you know",
-    "what do we know",
-    "what is stored",
-    "what's stored",
-)
 LEARNED_PREFERENCE_PREFIX = "User preference: "
 TASK_RUN_HEARTBEAT_SECONDS = 2.0
-TASK_RUN_STATUS_PHRASES = (
-    "status",
-    "are you done",
-    "done yet",
-    "hows it going",
-    "how's it going",
-    "still working",
-    "what is the status",
-    "what's the status",
-    "whats the status",
-    "progress",
-    "check in",
-    "check-in",
-)
 
 _TASK_RUN_LOCK = threading.Lock()
 _TASK_RUN_THREADS: dict[str, dict[str, Any]] = {}
@@ -367,13 +197,70 @@ def _normalize_chat_text(message: str) -> str:
     return " ".join(normalized.split())
 
 
-def _contains_hint(text: str, hint: str) -> bool:
-    normalized_hint = hint.strip().lower()
-    if not normalized_hint:
-        return False
-    if " " in normalized_hint:
-        return normalized_hint in text
-    return re.search(rf"\b{re.escape(normalized_hint)}\b", text) is not None
+def _get_swarm_status():
+    with _TASK_RUN_LOCK:
+        count = len(_TASK_RUN_THREADS)
+    if count > 0:
+        return f"Pexo swarm is active with {count} running sessions."
+    return "Pexo swarm is online and idle."
+
+
+def _resolve_osrs_world(text: str):
+    match = re.search(r"world\s*(\d+)", text)
+    world_num = match.group(1) if match else "1"
+    return (
+        f"I've resolved the OSRS world connection for you.\n"
+        f"World {world_num} maps to `oldschool{world_num}.runescape.com`.\n"
+        f"PowerShell Command: `Test-Connection -ComputerName oldschool{world_num}.runescape.com -Count 1`"
+    )
+
+
+LOCAL_TOOLBOX = {
+    "get_time": {
+        "description": "Returns current time",
+        "handler": lambda _: f"The current time is {datetime.now().astimezone().strftime('%I:%M %p').lstrip('0')}."
+    },
+    "get_date": {
+        "description": "Returns current date",
+        "handler": lambda _: f"Today is {datetime.now().astimezone().strftime('%A, %B %d, %Y')}."
+    },
+    "get_swarm_status": {
+        "description": "Returns active session status",
+        "handler": lambda _: _get_swarm_status()
+    },
+    "resolve_osrs_world": {
+        "description": "Returns OSRS world connection strings",
+        "handler": lambda msg: _resolve_osrs_world(msg)
+    },
+    "get_system_help": {
+        "description": "Returns Pexo capability summary",
+        "handler": lambda _: "Pexo is a local-first control plane for memory, artifacts, agents, and task flow."
+    }
+}
+
+
+def _classify_intent(user_message: str) -> str:
+    text = _normalize_chat_text(user_message)
+    words = text.split()
+    
+    # Check LOCAL_TOOLBOX match
+    if "time" in text and len(words) < 4:
+        return "get_time"
+    if "date" in text and len(words) < 4:
+        return "get_date"
+    if "status" in text and len(words) < 4:
+        return "get_swarm_status"
+    if "osrs" in text:
+        return "resolve_osrs_world"
+    if any(h in text for h in ("help", "what can you do", "who are you")) and len(words) < 6:
+        return "get_system_help"
+        
+    # Technical Intent
+    technical_terms = ('script', 'code', 'build', 'fix', 'implement', 'run', 'ping', 'install')
+    if any(term in text for term in technical_terms) or len(user_message) > 50:
+        return "TASK"
+        
+    return "CHAT"
 
 
 def _parse_backend_capability_override(raw_value: str | None) -> set[str]:
@@ -410,31 +297,6 @@ def _preferred_backends_for_capability(mode: str, capability: str | None) -> tup
     return _default_backend_order_for_mode(mode)
 
 
-def _looks_like_conversation(text: str) -> bool:
-    if not text:
-        return True
-    if any(_contains_hint(text, hint) for hint in CONVERSATION_HINTS):
-        return True
-    words = text.split()
-    if len(words) <= 10 and not any(_contains_hint(text, hint) for hint in TASK_HINTS + BRAIN_LOOKUP_HINTS):
-        return True
-    if text.endswith("?") and not any(_contains_hint(text, hint) for hint in TASK_HINTS):
-        return True
-    return False
-
-
-def _looks_like_brain_lookup(text: str) -> bool:
-    if not text:
-        return False
-    return any(_contains_hint(text, hint) for hint in BRAIN_LOOKUP_HINTS)
-
-
-def _looks_like_task(text: str) -> bool:
-    if not text:
-        return False
-    return any(_contains_hint(text, hint) for hint in TASK_HINTS)
-
-
 def _looks_like_task_follow_up(text: str) -> bool:
     if not text:
         return False
@@ -465,40 +327,6 @@ def _looks_like_task_follow_up(text: str) -> bool:
         "less ",
     )
     return text.startswith(follow_up_prefixes)
-
-
-def _looks_like_general_knowledge_question(text: str) -> bool:
-    if not text:
-        return False
-    if _looks_like_task(text) or _looks_like_brain_lookup(text):
-        return False
-    
-    # Efficiency: Don't trigger Wikipedia for very short common terms
-    words = text.split()
-    if len(words) < 3:
-        # Check if it's one of the few high-intent search starters
-        if not text.startswith(("google ", "search ")):
-            return False
-
-    prefixes = (
-        "who ",
-        "what ",
-        "when ",
-        "where ",
-        "why ",
-        "how ",
-        "which ",
-        "is ",
-        "are ",
-        "do ",
-        "does ",
-        "did ",
-        "can ",
-        "could ",
-        "would ",
-        "will ",
-    )
-    return text.endswith("?") or text.startswith(prefixes)
 
 
 def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
@@ -881,199 +709,6 @@ def _artifact_summary(db: Session, query: str, limit: int = 3) -> str:
         else:
             lines.append(f"- {descriptor}")
     return "Matching artifacts:\n" + "\n".join(lines)
-
-
-def _http_request(url: str, *, timeout_seconds: int, headers: dict[str, str] | None = None) -> urllib.request.Request:
-    request_headers = {
-        "User-Agent": "Pexo/1.0 (+https://github.com/ParadoxGods/pexo-agent)",
-        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
-    }
-    if headers:
-        request_headers.update(headers)
-    return urllib.request.Request(url, headers=request_headers)
-
-
-def _strip_html_text(value: str) -> str:
-    text = re.sub(r"<.*?>", " ", value or "", flags=re.S)
-    text = html.unescape(text)
-    return " ".join(text.split()).strip()
-
-
-def _truncate_sentence(value: str, limit: int = 220) -> str:
-    text = " ".join((value or "").split()).strip()
-    if len(text) <= limit:
-        return text
-    clipped = text[:limit].rstrip()
-    if "." in clipped:
-        clipped = clipped.rsplit(".", 1)[0].rstrip()
-    return f"{clipped}."
-
-
-def _fact_query_terms(query: str) -> list[str]:
-    stopwords = {
-        "a",
-        "an",
-        "are",
-        "can",
-        "could",
-        "did",
-        "do",
-        "does",
-        "for",
-        "how",
-        "in",
-        "is",
-        "of",
-        "on",
-        "the",
-        "to",
-        "what",
-        "when",
-        "where",
-        "which",
-        "who",
-        "why",
-        "will",
-        "would",
-    }
-    return [
-        token
-        for token in re.findall(r"[a-z0-9]+", (query or "").lower())
-        if len(token) >= 4 and token not in stopwords
-    ]
-
-
-def _score_fact_result(query: str, *, title: str, snippet: str) -> int:
-    query_terms = _fact_query_terms(query)
-    normalized_title = (title or "").lower()
-    normalized_snippet = (snippet or "").lower()
-    combined = f"{normalized_title} {normalized_snippet}"
-    score = sum(3 for term in query_terms if term in combined)
-    if any(hint in normalized_snippet for hint in ("incumbent", "currently", "current", "as of", "assumed office")):
-        score += 8
-    if re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", snippet or ""):
-        score += 4
-    if any(
-        bad_hint in combined
-        for bad_hint in (
-            "actors who have played",
-            "fictitious",
-            "vice presidents",
-            "ran for president",
-        )
-    ):
-        score -= 10
-    if title.lower().startswith("list of") and "incumbent" not in normalized_snippet:
-        score -= 2
-    if "*" in (snippet or ""):
-        score -= 2
-    return score
-
-
-def _focus_fact_snippet(query: str, snippet: str) -> str:
-    text = " ".join((snippet or "").split()).strip()
-    if not text:
-        return text
-    sentences = [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", text)
-        if sentence.strip()
-    ]
-    preferred_hints = ("incumbent", "currently", "current", "assumed office", "is the")
-    for hint in preferred_hints:
-        for sentence in sentences:
-            if hint in sentence.lower():
-                incumbent_match = re.search(
-                    r"(The incumbent [^.?!]*? is [A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,4})",
-                    sentence,
-                )
-                if incumbent_match:
-                    return f"{incumbent_match.group(1).rstrip('.') }."
-                return sentence
-    query_terms = _fact_query_terms(query)
-    for sentence in sentences:
-        normalized = sentence.lower()
-        if any(term in normalized for term in query_terms):
-            return sentence
-    return sentences[0] if sentences else text
-
-
-def _wikipedia_search_fact(query: str, *, timeout_seconds: int) -> dict[str, str] | None:
-    params = urllib.parse.urlencode(
-        {
-            "action": "query",
-            "list": "search",
-            "srsearch": query,
-            "utf8": "1",
-            "format": "json",
-            "srlimit": "3",
-        }
-    )
-    request = _http_request(f"https://en.wikipedia.org/w/api.php?{params}", timeout_seconds=timeout_seconds)
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        payload = json.load(response)
-    results = ((payload or {}).get("query") or {}).get("search") or []
-    ranked: list[tuple[int, dict[str, str]]] = []
-    for entry in results[:5]:
-        title = str(entry.get("title") or "").strip()
-        snippet = _strip_html_text(str(entry.get("snippet") or ""))
-        if not snippet:
-            continue
-        focused = _focus_fact_snippet(query, snippet)
-        ranked.append(
-            (
-                _score_fact_result(query, title=title, snippet=focused),
-                {
-                    "answer": f"According to Wikipedia, {_truncate_sentence(focused)}",
-                    "source": "wikipedia_search",
-                    "title": title,
-                },
-            )
-        )
-    if not ranked:
-        return None
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    return ranked[0][1]
-
-
-def _duckduckgo_lite_fact(query: str, *, timeout_seconds: int) -> dict[str, str] | None:
-    params = urllib.parse.urlencode({"q": query})
-    request = _http_request(
-        f"https://lite.duckduckgo.com/lite/?{params}",
-        timeout_seconds=timeout_seconds,
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        html_text = response.read().decode("utf-8", "ignore")
-    matches = re.findall(r"<td class='result-snippet'>(.*?)</td>", html_text, flags=re.S | re.I)
-    for match in matches[:3]:
-        snippet = _strip_html_text(match)
-        if not snippet:
-            continue
-        return {
-            "answer": f"Search results say {_truncate_sentence(snippet)}",
-            "source": "duckduckgo_lite",
-            "title": "",
-        }
-    return None
-
-
-def _fast_web_fact_lookup(query: str, *, timeout_seconds: int = FAST_WEB_FACT_TIMEOUT_SECONDS) -> dict[str, str] | None:
-    normalized_query = " ".join((query or "").split()).strip()
-    if not normalized_query:
-        return None
-
-    def _loader() -> dict[str, str] | None:
-        for loader in (_wikipedia_search_fact, _duckduckgo_lite_fact):
-            try:
-                result = loader(normalized_query, timeout_seconds=timeout_seconds)
-            except Exception:
-                result = None
-            if result and result.get("answer"):
-                return result
-        return None
-
-    return cached_value("web_fact_search", normalized_query.lower(), FAST_WEB_FACT_CACHE_TTL_SECONDS, _loader)
 
 
 def _build_brain_lookup_context(db: Session, query: str) -> str:
@@ -2547,31 +2182,13 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in (LOCAL_FIRST_FACT_INTENTS | {"status"})
 
 
-def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None, *, has_active_task: bool = False) -> bool:
-    if has_active_task:
-        # Never trigger Wikipedia misfires during a strategic implementation session.
-        return False
-    normalized = _normalize_chat_text(user_message)
-    if not (_looks_like_general_knowledge_question(normalized) or any(_contains_hint(normalized, hint) for hint in SEARCH_HINTS)):
-        return False
-    if direct_fact_intent is None:
-        direct_fact_intent = _infer_direct_fact_intent(user_message)
-    if direct_fact_intent is not None:
-        return False
-    return _build_local_conversation_reply(user_message) is None
-
-
 def _conversation_timeout_seconds(user_message: str, timeout_seconds: int) -> int:
-    if _is_general_knowledge_turn(user_message):
-        return min(timeout_seconds, FACTUAL_CHAT_TIMEOUT_SECONDS)
     return min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
 
 
 def _conversation_timeout_for_attempt(user_message: str, timeout_seconds: int, attempt_index: int) -> int:
     if attempt_index <= 0:
         return _conversation_timeout_seconds(user_message, timeout_seconds)
-    if _is_general_knowledge_turn(user_message):
-        return min(timeout_seconds, SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS * 3)
     return min(timeout_seconds, SECONDARY_CHAT_TIMEOUT_SECONDS * 3)
 
 
