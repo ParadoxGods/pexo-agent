@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -206,6 +207,10 @@ TASK_HINTS = (
     "application",
     "tool",
     "program",
+    "powershell",
+    "ping",
+    "cmd",
+    "command",
 )
 BRAIN_LOOKUP_HINTS = (
     "memory",
@@ -1778,9 +1783,9 @@ def _task_worker_backend_candidates(
 
 def _task_worker_timeout_seconds(role: str | None, timeout_seconds: int) -> int:
     if role == "Supervisor":
-        return max(12, min(timeout_seconds, 18))
+        return max(30, min(timeout_seconds, 60))
     if role == "Code Organization Manager":
-        return max(15, min(timeout_seconds, 20))
+        return max(30, min(timeout_seconds, 45))
     return _task_timeout_for_backend(timeout_seconds)
 
 
@@ -1788,7 +1793,7 @@ def _task_worker_timeout_for_attempt(role: str | None, timeout_seconds: int, att
     base_timeout = _task_worker_timeout_seconds(role, timeout_seconds)
     if attempt_index == 0:
         return base_timeout
-    return min(base_timeout, SECONDARY_TASK_TIMEOUT_SECONDS)
+    return min(base_timeout * 2, SECONDARY_TASK_TIMEOUT_SECONDS * 3)
 
 
 def _build_task_session_blocked_reply(role: str | None, backend_name: str, error_text: str) -> str:
@@ -2469,8 +2474,8 @@ def _conversation_timeout_for_attempt(user_message: str, timeout_seconds: int, a
     if attempt_index <= 0:
         return _conversation_timeout_seconds(user_message, timeout_seconds)
     if _is_general_knowledge_turn(user_message):
-        return min(timeout_seconds, SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS)
-    return min(timeout_seconds, SECONDARY_CHAT_TIMEOUT_SECONDS)
+        return min(timeout_seconds, SECONDARY_FACTUAL_CHAT_TIMEOUT_SECONDS * 3)
+    return min(timeout_seconds, SECONDARY_CHAT_TIMEOUT_SECONDS * 3)
 
 
 def _lookup_timeout_for_attempt(timeout_seconds: int, attempt_index: int) -> int:
