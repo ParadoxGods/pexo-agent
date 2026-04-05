@@ -1107,10 +1107,38 @@ def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> i
         session_id = session["id"]
         current_backend = session["backend"]
         current_workspace = session["workspace_path"]
-        print("")
+        
         print(f"pexo> {reply['user_message']}")
+        
+        # Terminal Auto-Follow: Monitor background swarm activity
         if str((session.get("details") or {}).get("task_run_status") or "").strip().lower() == "running":
-            print("pexo> Background run is active. Use /status to check progress.")
+            print("pexo> Swarm active. Following progress... (Ctrl+C to stop following)")
+            last_msg = ""
+            try:
+                while True:
+                    time.sleep(2)
+                    db_follow = SessionLocal()
+                    try:
+                        p = get_chat_session_payload(db_follow, session_id)
+                        s = p["session"]
+                        details = s.get("details") or {}
+                        if str(details.get("task_run_status")).strip().lower() != "running":
+                            # Task finished!
+                            print("\npexo> Swarm task complete.")
+                            if p["messages"]:
+                                final_msg = p["messages"][-1]["content"]
+                                print(f"\n{final_msg}\n")
+                            break
+                        
+                        msg = str(details.get("task_run_progress_message") or "Working...").strip()
+                        if msg != last_msg:
+                            sys.stdout.write(f"\rpexo> [Swarm] {msg}                                ")
+                            sys.stdout.flush()
+                            last_msg = msg
+                    finally:
+                        db_follow.close()
+            except KeyboardInterrupt:
+                print("\npexo> Stopped following. Swarm continues in background. Use /status to check.")
         print("")
 
 

@@ -93,6 +93,10 @@ CODE_TASK_HINTS = (
     "database",
     "query",
     "test",
+    "automation",
+    "scraping",
+    "ping",
+    "server",
 )
 PLANNING_TASK_HINTS = (
     "plan",
@@ -117,7 +121,7 @@ LEARNED_PREFERENCE_TASK_CONTEXT = "user-preference"
 MAX_LEARNED_PREFERENCES = 8
 CHAT_BACKEND_STATS_KEY = "chat.backend_stats.v1"
 BACKEND_STATS_MIN_OBSERVATIONS = 2
-DIRECT_CHAT_TASK_MAX_STEPS = 6
+DIRECT_CHAT_TASK_MAX_STEPS = 12
 DIRECT_CHAT_TASK_TIMEOUT_SECONDS = 180
 SECONDARY_TASK_TIMEOUT_SECONDS = 90
 FAST_CHAT_MODEL_ENV_VARS = {
@@ -197,6 +201,11 @@ TASK_HINTS = (
     "repo",
     "repository",
     "codebase",
+    "script",
+    "app",
+    "application",
+    "tool",
+    "program",
 )
 BRAIN_LOOKUP_HINTS = (
     "memory",
@@ -1860,8 +1869,6 @@ def _advance_direct_chat_task(
             )
             last_worker_result = worker_result
             response_path = "task_session_progress"
-            if started_new_session and not _wants_immediate_task_execution(latest_user_message):
-                break
             continue
 
         if role == "Code Organization Manager":
@@ -3303,10 +3310,6 @@ def send_chat_message(
             if (
                 str(task_payload.get("status") or "").strip().lower() == "agent_action_required"
                 and _task_role_requires_backend(current_role)
-                and (
-                    _wants_immediate_task_execution(user_message)
-                    or _looks_like_task_follow_up(_normalize_chat_text(user_message))
-                )
             ):
                 _start_background_task_run(
                     db,
