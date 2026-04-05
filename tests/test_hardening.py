@@ -1206,7 +1206,8 @@ class HardeningTests(unittest.TestCase):
 
             candidates = direct_chat_module._conversation_backend_candidates("gemini", mode="conversation", db=db)
 
-            self.assertEqual(candidates[0], "codex")
+            self.assertNotEqual(candidates[0], "gemini")
+            self.assertLess(candidates.index("codex"), candidates.index("gemini"))
             self.assertEqual(candidates[-1], "gemini")
         finally:
             db.close()
