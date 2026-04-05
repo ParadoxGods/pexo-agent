@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 import time
 from importlib.util import find_spec
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -91,6 +93,162 @@ def maybe_issue_vector_promotion_offer(db: Session | None = None) -> dict | None
     return None
 
 
+PROFILE_PERFORMANCE_HINTS = {
+    "core": {
+        "impact_label": "Very low",
+        "idle_ram_mb": 42,
+        "idle_cpu_pct": "0.0-0.1%",
+        "startup_seconds": "0.2-0.6s",
+        "use_case": "Local API, memory, and profile state only.",
+    },
+    "mcp": {
+        "impact_label": "Low",
+        "idle_ram_mb": 56,
+        "idle_cpu_pct": "0.0-0.2%",
+        "startup_seconds": "0.3-0.8s",
+        "use_case": "Adds the MCP bridge so Codex, Gemini, and Claude can share one local state layer.",
+    },
+    "full": {
+        "impact_label": "Low to moderate",
+        "idle_ram_mb": 86,
+        "idle_cpu_pct": "0.1-0.5%",
+        "startup_seconds": "0.7-1.8s",
+        "use_case": "Adds the full control plane, browser UI, and heavier orchestration surfaces.",
+    },
+    "vector": {
+        "impact_label": "Moderate",
+        "idle_ram_mb": 126,
+        "idle_cpu_pct": "0.2-0.8%",
+        "startup_seconds": "1.0-2.5s",
+        "use_case": "Adds semantic vector memory on top of the full runtime.",
+    },
+}
+
+
+def _directory_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(path, onerror=lambda _err: None):
+            root_path = Path(root)
+            for file_name in files:
+                try:
+                    total += (root_path / file_name).stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _bytes_to_mb(size_bytes: int) -> float:
+    return round(size_bytes / (1024 * 1024), 1)
+
+
+def _discover_packaged_runtime_root() -> Path | None:
+    code_root = Path(str(CODE_ROOT)).resolve(strict=False)
+    for candidate in (code_root, *code_root.parents):
+        if candidate.name.lower() == "venv":
+            return candidate
+    return None
+
+
+def build_performance_estimate(
+    *,
+    active_profile: str,
+    installed_profiles: dict[str, bool],
+    install_mode: str,
+    memory_backend: str,
+) -> dict:
+    profile_key = active_profile if active_profile in PROFILE_PERFORMANCE_HINTS else "core"
+    state_root = Path(str(STATE_ROOT)).resolve(strict=False)
+
+    def loader():
+        hint = PROFILE_PERFORMANCE_HINTS[profile_key]
+        packaged_root = _discover_packaged_runtime_root() if install_mode == "packaged" else None
+        install_bytes = _directory_size_bytes(packaged_root) if packaged_root is not None else 0
+        state_bytes = _directory_size_bytes(state_root)
+        total_bytes = install_bytes + state_bytes
+
+        if install_mode == "packaged":
+            install_summary = (
+                f"Packaged install footprint is about {_bytes_to_mb(total_bytes)} MB on this machine, "
+                f"including {_bytes_to_mb(state_bytes)} MB of local state."
+            )
+        else:
+            install_summary = (
+                f"Checkout mode reuses your repo and Python environment. The Pexo-specific local state is about "
+                f"{_bytes_to_mb(state_bytes)} MB."
+            )
+
+        return {
+            "estimated": True,
+            "headline": f"{hint['impact_label']} overhead in the {profile_key} profile",
+            "summary": (
+                "Pexo is mostly a disk and memory cost, not a permanent background drain. "
+                "Nothing stays resident until you launch it."
+            ),
+            "before_install": {
+                "label": "Before Pexo",
+                "disk_mb": 0.0,
+                "idle_ram_mb": 0,
+                "idle_cpu_pct": "0%",
+                "background_processes": 0,
+                "summary": "No local Pexo state, no MCP bridge, and no local control-plane process.",
+            },
+            "after_install": {
+                "label": "Installed, not running",
+                "disk_mb": _bytes_to_mb(total_bytes),
+                "idle_ram_mb": 0,
+                "idle_cpu_pct": "0%",
+                "background_processes": 0,
+                "summary": install_summary,
+            },
+            "current_runtime": {
+                "label": f"Current runtime ({profile_key})",
+                "profile": profile_key,
+                "impact_label": hint["impact_label"],
+                "idle_ram_mb": hint["idle_ram_mb"],
+                "idle_cpu_pct": hint["idle_cpu_pct"],
+                "startup_seconds": hint["startup_seconds"],
+                "background_processes": 1,
+                "memory_backend": memory_backend,
+                "summary": hint["use_case"],
+            },
+            "profile_matrix": [
+                {
+                    "profile": name,
+                    "impact_label": entry["impact_label"],
+                    "idle_ram_mb": entry["idle_ram_mb"],
+                    "idle_cpu_pct": entry["idle_cpu_pct"],
+                    "startup_seconds": entry["startup_seconds"],
+                    "available": bool(installed_profiles.get(name)),
+                    "use_case": entry["use_case"],
+                }
+                for name, entry in PROFILE_PERFORMANCE_HINTS.items()
+            ],
+            "notes": [
+                "These numbers are estimates for local developer machines, not live benchmarks of this host.",
+                "The largest persistent cost is disk footprint. The largest active cost is one local Pexo process while the control plane is running.",
+                (
+                    "Keyword memory keeps the runtime lighter than the optional vector layer."
+                    if memory_backend != "semantic"
+                    else "Semantic vector memory adds the biggest memory and startup hit."
+                ),
+            ],
+        }
+
+    cache_key = (
+        profile_key,
+        install_mode,
+        memory_backend,
+        tuple(sorted(name for name, installed in installed_profiles.items() if installed)),
+        str(state_root),
+    )
+    return cached_value("runtime_performance", cache_key, 30.0, loader)
+
+
 def build_runtime_status(db: Session | None = None) -> dict:
     marker_key = get_runtime_marker_profile()
 
@@ -125,6 +283,12 @@ def build_runtime_status(db: Session | None = None) -> dict:
             ],
             "vector_promotion_offer_pending": vector_offer_pending,
             "vector_promotion_offer": None,
+            "performance": build_performance_estimate(
+                active_profile=active_profile,
+                installed_profiles=installed_profiles,
+                install_mode="checkout" if running_from_repo_checkout() else "packaged",
+                memory_backend="semantic" if installed_profiles["vector"] else "keyword",
+            ),
         }
 
     return cached_value("runtime_status", marker_key, 5.0, loader)

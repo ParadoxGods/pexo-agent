@@ -334,6 +334,9 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("Enable Vector", html)
         self.assertIn("Memory Console", html)
         self.assertIn("Recent Memory", html)
+        self.assertIn("Performance Hit", html)
+        self.assertIn("Estimated Performance Hit", html)
+        self.assertIn("renderPerformance()", html)
         self.assertIn("artifactList", html)
         self.assertIn("promote(", html)
         self.assertIn("/admin/snapshot", html)
@@ -2061,6 +2064,10 @@ class HardeningTests(unittest.TestCase):
             self.assertIn("safe_tool", status["genesis_policy"]["approved_tools"])
             self.assertFalse(status["vector_promotion_offer_pending"])
             self.assertIsNone(status["vector_promotion_offer"])
+            self.assertIn("performance", status)
+            self.assertEqual(status["performance"]["before_install"]["disk_mb"], 0.0)
+            self.assertIn("current_runtime", status["performance"])
+            self.assertTrue(status["performance"]["profile_matrix"])
         finally:
             memory_router.chromadb = original_chromadb
             memory_router.Settings = original_settings
