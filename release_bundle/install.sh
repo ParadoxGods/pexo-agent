@@ -169,7 +169,7 @@ if command -v pipx >/dev/null 2>&1; then
     COMMAND_PATH="pexo"
     MCP_COMMAND="$(command -v pexo-mcp || true)"
     if [ -z "$MCP_COMMAND" ]; then MCP_COMMAND="pexo-mcp"; fi
-    UNINSTALL_GUIDANCE="pipx uninstall pexo-agent && rm -rf \"$STATE_ROOT\""
+    UNINSTALL_GUIDANCE="pexo uninstall"
 else
     INSTALL_METHOD="release_bundle_managed_venv"
     VENV_PATH="$STATE_ROOT/venv"
@@ -190,7 +190,7 @@ else
     "$VENV_BIN/python" -m pip install --disable-pip-version-check --force-reinstall "$WHEEL_PATH"
     append_session_path "$VENV_BIN"
     append_shell_path "$VENV_BIN"
-    UNINSTALL_GUIDANCE="rm -rf \"$VENV_PATH\" \"$STATE_ROOT\""
+    UNINSTALL_GUIDANCE="pexo uninstall"
 fi
 
 write_install_metadata "$VERSION" "$INSTALL_METHOD" "$COMMAND_PATH" "$MCP_COMMAND" "$UNINSTALL_GUIDANCE" "$UPDATE_GUIDANCE" "$WHEEL_SHA256" "$DEPENDENCY_FINGERPRINT"
@@ -217,3 +217,7 @@ fi
 
 print_step 100 "Pexo install completed"
 emit_summary "$VERSION" "$INSTALL_METHOD" "$COMMAND_PATH" "$MCP_COMMAND"
+echo "To uninstall later:"
+echo "  pexo uninstall"
+echo "To keep local memory and artifacts while removing the install:"
+echo "  pexo uninstall --keep-state"

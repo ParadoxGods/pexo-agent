@@ -347,16 +347,7 @@ def _resolve_runtime_python_executable() -> str:
 
 
 def _package_uninstall_guidance() -> str:
-    metadata = _read_install_metadata()
-    if metadata:
-        guidance = metadata.get("guidance", {}).get("uninstall")
-        if guidance:
-            return str(guidance)
-    if shutil_which("uv"):
-        return "uv tool uninstall pexo-agent"
-    if shutil_which("pipx"):
-        return "pipx uninstall pexo-agent"
-    return "Uninstall the packaged tool with your Python tool manager"
+    return "pexo uninstall"
 
 
 def _print_start_banner() -> None:
@@ -541,6 +532,16 @@ def _update_stamp_is_fresh() -> bool:
 def _write_update_stamp() -> None:
     UPDATE_STAMP_PATH.parent.mkdir(parents=True, exist_ok=True)
     UPDATE_STAMP_PATH.write_text(str(int(time.time())), encoding="utf-8")
+
+
+def _extract_release_version_from_url(url: str | None) -> str | None:
+    raw_url = str(url or "").strip()
+    if not raw_url:
+        return None
+    match = re.search(r"/releases/tag/v([^/?#]+)$", raw_url)
+    if not match:
+        return None
+    return match.group(1).strip() or None
 
 
 def _git_checkout_branch() -> str | None:
@@ -809,6 +810,10 @@ def _maybe_restart_existing_server(host: str, port: int) -> str:
 
 
 def _maybe_stop_existing_server_for_update(host: str, port: int) -> str:
+    return _maybe_stop_existing_server_for_maintenance(host, port, action_label="the update", cancel_label="Update")
+
+
+def _maybe_stop_existing_server_for_maintenance(host: str, port: int, *, action_label: str, cancel_label: str) -> str:
     if not _local_pexo_http_available(host, port):
         return "not_running"
     if not _can_prompt_for_restart():
@@ -816,16 +821,154 @@ def _maybe_stop_existing_server_for_update(host: str, port: int) -> str:
     try:
         answer = input(
             f"Pexo is currently running at http://{host}:{port}. "
-            "Stop it now so the update can continue? [Y/n]: "
+            f"Stop it now so {action_label} can continue? [Y/n]: "
         ).strip().lower()
     except (EOFError, KeyboardInterrupt):
         print("")
         return "declined"
     if answer not in {"", "y", "yes"}:
-        print("Update cancelled. The running Pexo server was left in place.")
+        print(f"{cancel_label} cancelled. The running Pexo server was left in place.")
         return "declined"
     print("Stopping the running Pexo server...")
     return "stopped" if _stop_local_pexo_server(host, port) else "failed"
+
+
+def _build_packaged_uninstall_helper_script(*, keep_state: bool) -> str:
+    metadata = _read_install_metadata() or {}
+    install_method = str(metadata.get("method") or "")
+    state_root = str(STATE_ROOT)
+    metadata_path = str(INSTALL_METADATA_PATH)
+    update_stamp_path = str(UPDATE_STAMP_PATH)
+    runtime_marker_path = str(RUNTIME_MARKER_PATH)
+    command_path = str(metadata.get("command_path") or "")
+    uninstall_command = str(metadata.get("guidance", {}).get("uninstall") or "")
+    if uninstall_command == "pexo uninstall" or not uninstall_command:
+        lowered_method = install_method.lower()
+        if "pipx" in lowered_method:
+            uninstall_command = "pipx uninstall pexo-agent"
+        elif "uv" in lowered_method:
+            uninstall_command = "uv tool uninstall pexo-agent"
+
+    if os.name == "nt":
+        if install_method == "release_bundle_managed_venv" and command_path:
+            scripts_dir = str(Path(command_path).resolve(strict=False).parent)
+            ps_state_root = state_root.replace("'", "''")
+            ps_metadata_path = metadata_path.replace("'", "''")
+            ps_update_stamp = update_stamp_path.replace("'", "''")
+            ps_runtime_marker = runtime_marker_path.replace("'", "''")
+            ps_scripts_dir = scripts_dir.replace("'", "''")
+            remove_state_ps = "$true" if keep_state is False else "$false"
+            return f"""$ErrorActionPreference = "SilentlyContinue"
+Start-Sleep -Seconds 1
+$scriptsDir = '{ps_scripts_dir}'
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not [string]::IsNullOrWhiteSpace($currentPath)) {{
+    $parts = $currentPath.Split(";") | Where-Object {{ $_ -and $_ -ne $scriptsDir }}
+    [Environment]::SetEnvironmentVariable("Path", ($parts -join ";"), "User")
+}}
+Remove-Item -LiteralPath '{ps_metadata_path}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath '{ps_update_stamp}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath '{ps_runtime_marker}' -Force -ErrorAction SilentlyContinue
+if ({remove_state_ps}) {{
+    Remove-Item -LiteralPath '{ps_state_root}' -Recurse -Force -ErrorAction SilentlyContinue
+}} else {{
+    Remove-Item -LiteralPath (Join-Path '{ps_state_root}' 'venv') -Recurse -Force -ErrorAction SilentlyContinue
+}}
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+"""
+        ps_state_root = state_root.replace("'", "''")
+        ps_metadata_path = metadata_path.replace("'", "''")
+        ps_update_stamp = update_stamp_path.replace("'", "''")
+        ps_runtime_marker = runtime_marker_path.replace("'", "''")
+        ps_uninstall = uninstall_command.replace("'", "''")
+        remove_state_ps = "$true" if keep_state is False else "$false"
+        return f"""$ErrorActionPreference = "SilentlyContinue"
+Start-Sleep -Seconds 1
+$toolCommand = '{ps_uninstall}'
+if (-not [string]::IsNullOrWhiteSpace($toolCommand) -and $toolCommand -ne 'pexo uninstall') {{
+    & cmd.exe /c $toolCommand | Out-Null
+}}
+Remove-Item -LiteralPath '{ps_metadata_path}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath '{ps_update_stamp}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath '{ps_runtime_marker}' -Force -ErrorAction SilentlyContinue
+if ({remove_state_ps}) {{
+    Remove-Item -LiteralPath '{ps_state_root}' -Recurse -Force -ErrorAction SilentlyContinue
+}}
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+"""
+
+    shell_quote = lambda value: "'" + str(value).replace("'", "'\"'\"'") + "'"
+    if install_method == "release_bundle_managed_venv" and command_path:
+        bin_dir = str(Path(command_path).resolve(strict=False).parent)
+        remove_state_value = "1" if keep_state is False else "0"
+        return f"""#!/bin/sh
+set +e
+sleep 1
+PATH_ENTRY={shell_quote(bin_dir)}
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  [ -f "$rc" ] || continue
+  tmp="${{rc}}.pexo.$$"
+  grep -Fvx "export PATH=\\"\\$PATH:${{PATH_ENTRY}}\\"" "$rc" > "$tmp" 2>/dev/null && mv "$tmp" "$rc" || rm -f "$tmp"
+done
+rm -f {shell_quote(metadata_path)} {shell_quote(update_stamp_path)} {shell_quote(runtime_marker_path)}
+if [ "{remove_state_value}" = "1" ]; then
+  rm -rf {shell_quote(state_root)}
+else
+  rm -rf {shell_quote(str(Path(state_root) / "venv"))}
+fi
+rm -f "$0"
+"""
+    remove_state_value = "1" if keep_state is False else "0"
+    return f"""#!/bin/sh
+set +e
+sleep 1
+tool_uninstall_command={shell_quote(uninstall_command)}
+if [ -n "$tool_uninstall_command" ] && [ "$tool_uninstall_command" != "pexo uninstall" ]; then
+  sh -lc "$tool_uninstall_command" >/dev/null 2>&1
+fi
+rm -f {shell_quote(metadata_path)} {shell_quote(update_stamp_path)} {shell_quote(runtime_marker_path)}
+if [ "{remove_state_value}" = "1" ]; then
+  rm -rf {shell_quote(state_root)}
+fi
+rm -f "$0"
+"""
+
+
+def _prepare_packaged_uninstall_helper(*, keep_state: bool) -> Path:
+    temp_root = Path(tempfile.mkdtemp(prefix="pexo-uninstall-"))
+    suffix = ".ps1" if os.name == "nt" else ".sh"
+    helper_path = temp_root / f"pexo_uninstall_helper{suffix}"
+    helper_path.write_text(_build_packaged_uninstall_helper_script(keep_state=keep_state), encoding="utf-8")
+    if os.name != "nt":
+        helper_path.chmod(0o700)
+    return helper_path
+
+
+def _launch_packaged_uninstall_helper(helper_path: Path) -> int:
+    stdout = subprocess.DEVNULL
+    stderr = subprocess.DEVNULL
+    if os.name == "nt":
+        creationflags = 0
+        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper_path)],
+            stdout=stdout,
+            stderr=stderr,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=creationflags,
+        )
+    else:
+        subprocess.Popen(
+            ["sh", str(helper_path)],
+            stdout=stdout,
+            stderr=stderr,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    return 0
 
 
 def run_server(no_browser: bool = False) -> int:
@@ -1201,7 +1344,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect_parser.add_argument("--scope", default="user", choices=list(SUPPORTED_SCOPES))
     connect_parser.add_argument("--dry-run", action="store_true", help="Print the connection plan without changing client configuration.")
     connect_parser.add_argument("--json", action="store_true", help="Emit connection results as JSON.")
-    subparsers.add_parser("uninstall", help="Show uninstall guidance for the current delivery mode.")
+    uninstall_parser = subparsers.add_parser("uninstall", help="Uninstall Pexo from the current delivery mode.")
+    uninstall_parser.add_argument("--yes", action="store_true", help="Confirm uninstall without prompting.")
+    uninstall_parser.add_argument("--keep-state", action="store_true", help="Remove the packaged install but keep the local Pexo state directory.")
     warmup_parser = subparsers.add_parser("warmup", help="Prime local Pexo state after install or update.")
     warmup_parser.add_argument("--quiet", action="store_true", help="Suppress warmup progress output.")
     chat_parser = subparsers.add_parser("chat", help="Start Pexo direct chat in the terminal.")
@@ -1223,6 +1368,7 @@ def print_help() -> None:
     print("  pexo warmup          Primes local state after install or update")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
     print("  pexo connect all     Connects Codex, Claude, and Gemini to pexo-mcp when installed")
+    print("  pexo uninstall       Removes the current packaged Pexo install")
     print("  pexo --mcp           Starts Pexo as a native MCP server (stdio)")
     print("  pexo-mcp             Starts Pexo as a native MCP server (stdio)")
     print("  pexo --version       Displays the current version")
@@ -1234,7 +1380,57 @@ def print_uninstall_guidance() -> int:
         print("Checkout install detected. Use `pexo uninstall` from the launcher script or run the local uninstall script.")
         return 0
 
-    print(f"Package install detected. Run `{_package_uninstall_guidance()}` and delete {STATE_ROOT} if you also want to remove local state.")
+    print(
+        "Package install detected. Run `pexo uninstall` to remove the packaged install and local state, "
+        "or `pexo uninstall --keep-state` to keep the local Pexo state directory."
+    )
+    return 0
+
+
+def run_uninstall(*, confirm: bool = False, keep_state: bool = False) -> int:
+    if running_from_repo_checkout():
+        return print_uninstall_guidance()
+
+    if not confirm:
+        if not _can_prompt_for_restart():
+            print("Uninstall requires confirmation. Re-run with `pexo uninstall --yes`.", file=sys.stderr)
+            return 1
+        scope = f"remove the packaged install and local state at {STATE_ROOT}"
+        if keep_state:
+            scope = f"remove the packaged install and keep local state at {STATE_ROOT}"
+        try:
+            answer = input(f"Uninstall Pexo and {scope}? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return 1
+        if answer not in {"y", "yes"}:
+            print("Uninstall cancelled.")
+            return 0
+
+    server_state = _maybe_stop_existing_server_for_maintenance(
+        "127.0.0.1",
+        9999,
+        action_label="the uninstall",
+        cancel_label="Uninstall",
+    )
+    if server_state == "declined":
+        return 0
+    if server_state == "failed":
+        print("Unable to stop the running Pexo server. Close it and run `pexo uninstall` again.", file=sys.stderr)
+        return 1
+    if server_state == "unavailable":
+        print(
+            "A Pexo server is already running and must be stopped before this packaged uninstall can continue.",
+            file=sys.stderr,
+        )
+        return 1
+
+    helper_path = _prepare_packaged_uninstall_helper(keep_state=keep_state)
+    _launch_packaged_uninstall_helper(helper_path)
+    if keep_state:
+        print(f"Started packaged uninstall. Local state under {STATE_ROOT} will be kept.")
+    else:
+        print(f"Started packaged uninstall. Local state under {STATE_ROOT} will also be removed.")
     return 0
 
 
@@ -1302,6 +1498,7 @@ def build_doctor_report() -> dict:
     sqlite_report = _sqlite_diagnostics()
     editable_source_root = resolve_editable_source_root()
     editable_residue = _editable_install_artifacts_present()
+    install_metadata = _read_install_metadata()
     report = {
         "version": __version__,
         "install_mode": install_mode,
@@ -1343,7 +1540,7 @@ def build_doctor_report() -> dict:
         },
         "runtime": runtime_status,
         "database": sqlite_report,
-        "install_metadata": _read_install_metadata(),
+        "install_metadata": install_metadata,
         "guidance": {
             "update": (
                 "Checkout a branch, then run git pull --ff-only"
@@ -1357,7 +1554,7 @@ def build_doctor_report() -> dict:
             "mcp": (
                 str(CODE_ROOT / "pexo") + " --mcp"
                 if install_mode == "checkout"
-                else str((_read_install_metadata() or {}).get("mcp_command") or "pexo-mcp")
+                else str((install_metadata or {}).get("mcp_command") or "pexo-mcp")
             ),
             "connect": "pexo connect all --scope user",
             "full_runtime": "pexo promote full",
@@ -1388,6 +1585,31 @@ def build_doctor_report() -> dict:
         issues.append(
             "Packaged runtime still has editable-install residue in site-packages; run `pexo --update` once to normalize the install."
         )
+    if install_mode == "packaged" and install_metadata:
+        metadata_version = str(install_metadata.get("version") or "").strip()
+        metadata_release_version = _extract_release_version_from_url(install_metadata.get("release"))
+        if metadata_version and metadata_version != report["version"]:
+            issues.append(
+                f"Install metadata version ({metadata_version}) does not match the running Pexo version ({report['version']}). Reinstall or run `pexo --update` to normalize the public release metadata."
+            )
+        if metadata_version and metadata_release_version and metadata_release_version != metadata_version:
+            issues.append(
+                f"Install metadata release tag ({metadata_release_version}) does not match the installed packaged version ({metadata_version}). Reinstall from the current public release bundle to normalize the install metadata."
+            )
+        command_path = str(install_metadata.get("command_path") or "").strip()
+        if command_path and Path(command_path).suffix:
+            command_target = Path(command_path).expanduser().resolve(strict=False)
+            if not command_target.exists():
+                issues.append(
+                    f"Install metadata command path is missing: {command_target}. Reinstall from the current public release bundle."
+                )
+        mcp_command = str(install_metadata.get("mcp_command") or "").strip()
+        if mcp_command and Path(mcp_command).suffix:
+            mcp_target = Path(mcp_command).expanduser().resolve(strict=False)
+            if not mcp_target.exists():
+                issues.append(
+                    f"Install metadata MCP command path is missing: {mcp_target}. Reinstall from the current public release bundle."
+                )
 
     return report
 
@@ -1451,7 +1673,7 @@ def main(argv: list[str] | None = None) -> int:
     if raw_args and raw_args[0] == "--headless-setup":
         return dispatch_cli_subcommand(["headless-setup", *raw_args[1:]])
     if raw_args and raw_args[0] == "--uninstall":
-        return print_uninstall_guidance()
+        return run_uninstall()
     if raw_args and raw_args[0] == "--doctor":
         return run_doctor(as_json="--json" in raw_args[1:])
     if raw_args and raw_args[0] == "--connect":
@@ -1500,7 +1722,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "warmup":
         return run_warmup(quiet=args.quiet)
     if args.command == "uninstall":
-        return print_uninstall_guidance()
+        return run_uninstall(confirm=args.yes, keep_state=args.keep_state)
     if args.command == "chat":
         maybe_update(skip_update=skip_update)
         return run_chat_mode(

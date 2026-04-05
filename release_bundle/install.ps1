@@ -168,7 +168,7 @@ if (Test-CommandAvailable "pipx") {
     $commandPath = "pexo"
     $mcpCommand = [string]((Get-Command "pexo-mcp" -ErrorAction SilentlyContinue).Source)
     if ([string]::IsNullOrWhiteSpace($mcpCommand)) { $mcpCommand = "pexo-mcp" }
-    $uninstallGuidance = "pipx uninstall pexo-agent; Remove-Item -Recurse -Force `"$StateRoot`""
+    $uninstallGuidance = "pexo uninstall"
 }
 else {
     $installMethod = "release_bundle_managed_venv"
@@ -200,7 +200,7 @@ else {
     Add-ToUserPath -Entry $venvBin
     $commandPath = $venvPexo
     $mcpCommand = $venvMcp
-    $uninstallGuidance = "Remove-Item -Recurse -Force `"$venvPath`"; Remove-Item -Recurse -Force `"$StateRoot`""
+    $uninstallGuidance = "pexo uninstall"
 }
 
 Write-InstallMetadata -Version $version -Method $installMethod -CommandPath $commandPath -McpCommand $mcpCommand -UninstallCommand $uninstallGuidance -UpdateCommand $updateGuidance -WheelSha256 $wheelSha256 -DependencyFingerprint $dependencyFingerprint
@@ -222,3 +222,7 @@ if (-not $SkipDoctor) {
 
 Write-Step -Percent 100 -Status "Pexo install completed"
 Write-Summary -Version $version -Method $installMethod -CommandPath $commandPath -McpCommand $mcpCommand
+Write-Host "To uninstall later:"
+Write-Host "  pexo uninstall"
+Write-Host "To keep local memory and artifacts while removing the install:"
+Write-Host "  pexo uninstall --keep-state"

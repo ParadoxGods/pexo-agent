@@ -436,7 +436,7 @@ class HardeningTests(unittest.TestCase):
         bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
         bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
 
-        self.assertIn('[string]$Ref = "v1.0"', bootstrap_ps)
+        self.assertIn('[string]$Ref = "v1.1.0"', bootstrap_ps)
         self.assertIn('throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($ArgumentList -join \' \')"', bootstrap_ps)
         self.assertNotIn('throw "Command failed with exit code $LASTEXITCODE:', bootstrap_ps)
         self.assertIn('[string]$ConnectClients = "all"', bootstrap_ps)
@@ -446,7 +446,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"', bootstrap_ps)
         self.assertIn('Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients', bootstrap_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
-        self.assertIn('REF="v1.0"', bootstrap_sh)
+        self.assertIn('REF="v1.1.0"', bootstrap_sh)
         self.assertIn('CONNECT_CLIENTS="all"', bootstrap_sh)
         self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
@@ -556,7 +556,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", agents_doc)
         self.assertIn("pexo-install-windows.zip", agents_doc)
         self.assertIn("pexo-install-unix.tar.gz", agents_doc)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.0"', agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.0"', agents_doc)
         self.assertIn("pexo connect all --scope user", agents_doc)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
@@ -626,6 +626,8 @@ class HardeningTests(unittest.TestCase):
         self.assertIn(".pexo-deps-profile", install_sh)
         self.assertIn("pexo --update", install_ps)
         self.assertIn("pexo --update", install_sh)
+        self.assertIn("pexo uninstall", install_ps)
+        self.assertIn("pexo uninstall", install_sh)
         self.assertIn("wheel_sha256", install_ps)
         self.assertIn("dependency_fingerprint", install_ps)
         self.assertIn("wheel_sha256", install_sh)
@@ -651,6 +653,7 @@ class HardeningTests(unittest.TestCase):
     def test_packaged_doctor_guidance_uses_pexo_update(self, _mock_checkout):
         report = launcher_module.build_doctor_report()
         self.assertEqual(report["guidance"]["update"], "pexo --update")
+        self.assertEqual(report["guidance"]["uninstall"], "pexo uninstall")
 
     @patch("app.launcher.resolve_editable_source_root", return_value=Path("C:/CDXCLI/pexo"))
     @patch("app.launcher._editable_install_artifacts_present", return_value=True)
@@ -700,6 +703,51 @@ class HardeningTests(unittest.TestCase):
     def test_packaged_update_helper_removes_editable_install_artifacts(self):
         self.assertIn("__editable__.pexo_agent-", launcher_module.PACKAGED_UPDATE_HELPER)
         self.assertIn("__editable___pexo_agent_", launcher_module.PACKAGED_UPDATE_HELPER)
+
+    @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    def test_packaged_doctor_reports_release_metadata_mismatch(self, _mock_checkout, mock_read_metadata):
+        mock_read_metadata.return_value = {
+            "version": "1.1.0",
+            "release": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "command_path": "C:/Users/dustin/.pexo/venv/Scripts/pexo.exe",
+            "mcp_command": "C:/Users/dustin/.pexo/venv/Scripts/pexo-mcp.exe",
+        }
+
+        report = launcher_module.build_doctor_report()
+
+        self.assertIn("release tag", " ".join(report["issues"]).lower())
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._launch_packaged_uninstall_helper", return_value=0)
+    @patch("app.launcher._prepare_packaged_uninstall_helper")
+    @patch("app.launcher._maybe_stop_existing_server_for_maintenance", return_value="not_running")
+    def test_run_uninstall_executes_packaged_uninstall_helper(
+        self,
+        mock_stop_server,
+        mock_prepare,
+        mock_launch,
+        _mock_checkout,
+    ):
+        mock_prepare.return_value = Path("C:/temp/pexo_uninstall_helper.ps1")
+
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(launcher_module.run_uninstall(confirm=True, keep_state=True), 0)
+
+        mock_stop_server.assert_called_once()
+        mock_prepare.assert_called_once_with(keep_state=True)
+        mock_launch.assert_called_once_with(Path("C:/temp/pexo_uninstall_helper.ps1"))
+        self.assertIn("will be kept", stdout.getvalue())
+
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    @patch("app.launcher._can_prompt_for_restart", return_value=False)
+    def test_run_uninstall_requires_confirmation_in_noninteractive_mode(self, _mock_prompt, _mock_checkout):
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            self.assertEqual(launcher_module.run_uninstall(confirm=False, keep_state=False), 1)
+
+        self.assertIn("--yes", stderr.getvalue())
 
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
     @patch("app.launcher._maybe_stop_existing_server_for_update", return_value="stopped")

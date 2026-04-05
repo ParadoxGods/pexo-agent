@@ -576,7 +576,7 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
         }
         Add-ToSessionPath -Entry $uvBinDir
         $packagedModeLabel = "packaged GitHub tool via uv"
-        $uninstallCommand = "uv tool uninstall pexo-agent"
+        $uninstallCommand = "pexo uninstall"
     }
     else {
         Invoke-TrackedProcess -Percent 20 -StartMessage "Installing packaged Pexo tool from GitHub..." -HeartbeatMessage "Installing packaged Pexo tool... still working" -FilePath "pipx" -ArgumentList @("install", "--force", $packageSource)
@@ -587,7 +587,7 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
         }
         Add-ToSessionPath -Entry (Get-PipxBinDirectory)
         $packagedModeLabel = "packaged GitHub tool via pipx"
-        $uninstallCommand = "pipx uninstall pexo-agent"
+        $uninstallCommand = "pexo uninstall"
     }
 
     if (-not (Get-Command pexo -ErrorAction SilentlyContinue)) {
@@ -641,8 +641,8 @@ if (Should-UsePackagedInstall -UsingExistingCheckout:$UsingExistingCheckout) {
     Write-Host "  pexo connect all --scope user"
     Write-Host "To uninstall the packaged tool later:"
     Write-Host "  $uninstallCommand"
-    Write-Host "To remove local state as well:"
-    Write-Host "  Remove-Item -Recurse -Force `"$stateRoot`""
+    Write-Host "To remove the packaged tool but keep local state:"
+    Write-Host "  pexo uninstall --keep-state"
     if ($HeadlessSetup) {
         Write-Host "Headless profile setup completed during install."
         Write-Host "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."

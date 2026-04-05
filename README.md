@@ -178,16 +178,14 @@ Checkout mode keeps its mutable state under the repo-local `.pexo` directory.
 
 ## Uninstall
 
-Show uninstall guidance for the current install mode:
+Remove the current Pexo install and local state:
 
 ```powershell
 pexo uninstall
 ```
 
-Typical packaged uninstall:
+If you want to keep local memory, artifacts, and state:
 
 ```powershell
-uv tool uninstall pexo-agent
+pexo uninstall --keep-state
 ```
-
-If you also want to remove local state, delete the Pexo home directory afterward.

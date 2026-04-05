@@ -519,13 +519,13 @@ if should_use_packaged_install; then
         fi
         append_session_path "$UV_BIN_DIR"
         PACKAGED_MODE_LABEL="packaged GitHub tool via uv"
-        UNINSTALL_COMMAND="uv tool uninstall pexo-agent"
+        UNINSTALL_COMMAND="pexo uninstall"
     else
         run_tracked 20 "Installing packaged Pexo tool from GitHub..." "Installing packaged Pexo tool... still working" pipx install --force "$PACKAGE_SOURCE"
         pipx ensurepath >/dev/null 2>&1 || true
         append_session_path "$(pipx_bin_dir)"
         PACKAGED_MODE_LABEL="packaged GitHub tool via pipx"
-        UNINSTALL_COMMAND="pipx uninstall pexo-agent"
+        UNINSTALL_COMMAND="pexo uninstall"
     fi
 
     if ! command -v pexo >/dev/null 2>&1; then
@@ -588,8 +588,8 @@ if should_use_packaged_install; then
     echo "  pexo connect all --scope user"
     echo "To uninstall the packaged tool later:"
     echo "  $UNINSTALL_COMMAND"
-    echo "To remove local state as well:"
-    echo "  rm -rf \"$STATE_ROOT\""
+    echo "To remove the packaged tool but keep local state:"
+    echo "  pexo uninstall --keep-state"
     if [ "$HEADLESS_SETUP" -eq 1 ]; then
         echo "Headless profile setup completed during install."
         echo "Run 'pexo' later when the user wants the local dashboard for memory, agents, and configuration."
