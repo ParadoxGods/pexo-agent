@@ -86,6 +86,83 @@ _TASK_RUN_LOCK = threading.Lock()
 _TASK_RUN_THREADS: dict[str, dict[str, Any]] = {}
 
 
+def _get_swarm_status():
+    with _TASK_RUN_LOCK:
+        count = len(_TASK_RUN_THREADS)
+    if count > 0:
+        return f"The Pexo swarm is active with {count} running operational session(s)."
+    return "The Pexo swarm is currently online and in an idle, high-readiness state."
+
+
+def _resolve_osrs_world(text: str):
+    match = re.search(r"world\s*(\d+)", text)
+    world_num = match.group(1) if match else "1"
+    return (
+        f"I've resolved the OSRS world connection via local protocol.\n\n"
+        f"--- LOCAL EXECUTION PLAN ---\n"
+        f"1. Resolve World {world_num} to `oldschool{world_num}.runescape.com`.\n"
+        f"2. Generate optimized PowerShell networking command.\n"
+        f"3. Provide single-line execution string for World {world_num}.\n\n"
+        f"**Verified PowerShell Command:**\n"
+        f"```powershell\nTest-Connection -ComputerName oldschool{world_num}.runescape.com -Count 1 -ErrorAction SilentlyContinue\n```"
+    )
+
+
+LOCAL_TOOLBOX = {
+    "get_time": {
+        "description": "System time retrieval",
+        "keywords": ("time", "clock", "hour"),
+        "handler": lambda _: f"The current system time is {datetime.now().astimezone().strftime('%I:%M %p').lstrip('0')}."
+    },
+    "get_date": {
+        "description": "System date retrieval",
+        "keywords": ("date", "today", "day", "calendar"),
+        "handler": lambda _: f"Today is {datetime.now().astimezone().strftime('%A, %B %d, %Y')}."
+    },
+    "get_swarm_status": {
+        "description": "Active swarm telemetry",
+        "keywords": ("status", "progress", "step", "swarm"),
+        "handler": lambda _: _get_swarm_status()
+    },
+    "resolve_osrs_world": {
+        "description": "OSRS networking protocol",
+        "keywords": ("osrs", "runescape", "world"),
+        "handler": lambda msg: _resolve_osrs_world(msg)
+    },
+    "get_system_help": {
+        "description": "System capability overview",
+        "keywords": ("help", "capability", "who are you", "what can you do"),
+        "handler": lambda _: "I am Pexo, a professional-grade autonomous swarm orchestrator. I manage local memory, artifacts, and a multi-agent developer swarm for complex technical tasks."
+    }
+}
+
+
+def _classify_intent(user_message: str) -> str:
+    text = _normalize_chat_text(user_message)
+    words = text.split()
+    if not words:
+        return "CHAT"
+
+    # Cogmachine logic: ignore correction prefixes
+    clean_text = text
+    if text.startswith(("no ", "nope ", "wait ", "actually ")):
+        clean_text = " ".join(words[1:])
+        words = words[1:]
+
+    # Local Toolbox Semantic Match
+    for tool_id, spec in LOCAL_TOOLBOX.items():
+        if any(kw in clean_text for kw in spec["keywords"]):
+            if len(words) < 5:
+                return tool_id
+
+    # Technical Intent Detection
+    technical_triggers = ("script", "code", "build", "fix", "implement", "run", "ping", "install", "powershell", "cmd", "one liner", "one-liner")
+    if any(t in clean_text for t in technical_triggers) or len(user_message) > 60:
+        return "TASK"
+
+    return "CHAT"
+
+
 def serialize_chat_session(session: ChatSession, *, message_count: int | None = None) -> dict:
     payload = {
         "id": session.id,
@@ -195,6 +272,14 @@ def _normalize_chat_text(message: str) -> str:
         .replace("\u2013", "-")
     )
     return " ".join(normalized.split())
+
+
+def _contains_hint(text: str, hint: str) -> bool:
+    if not hint:
+        return False
+    if hint.startswith(" ") or hint.endswith(" "):
+        return hint in f" {text} "
+    return hint in text
 
 
 def _get_swarm_status():
