@@ -45,6 +45,8 @@ LEARNED_PREFERENCE_TASK_CONTEXT = "user-preference"
 MAX_LEARNED_PREFERENCES = 8
 CHAT_BACKEND_STATS_KEY = "chat.backend_stats.v1"
 BACKEND_STATS_MIN_OBSERVATIONS = 2
+BACKEND_RECENT_FAILURE_WINDOW_SECONDS = 15 * 60
+BACKEND_CIRCUIT_BREAKER_TIMEOUTS = 2
 DIRECT_CHAT_TASK_MAX_STEPS = 6
 DIRECT_CHAT_TASK_TIMEOUT_SECONDS = 25
 SECONDARY_TASK_TIMEOUT_SECONDS = 12
@@ -834,10 +836,14 @@ def _sanitize_backend_stats(raw_value: Any) -> dict[str, dict[str, dict[str, Any
                 "successes": int(stats.get("successes", 0) or 0),
                 "failures": int(stats.get("failures", 0) or 0),
                 "timeouts": int(stats.get("timeouts", 0) or 0),
+                "consecutive_failures": int(stats.get("consecutive_failures", 0) or 0),
+                "consecutive_timeouts": int(stats.get("consecutive_timeouts", 0) or 0),
                 "total_latency_ms": int(stats.get("total_latency_ms", 0) or 0),
                 "last_latency_ms": int(stats.get("last_latency_ms", 0) or 0) if stats.get("last_latency_ms") is not None else None,
                 "last_error": str(stats.get("last_error") or "").strip() or None,
                 "last_used_at": str(stats.get("last_used_at") or "").strip() or None,
+                "last_success_at": str(stats.get("last_success_at") or "").strip() or None,
+                "last_timeout_at": str(stats.get("last_timeout_at") or "").strip() or None,
             }
         if mode_bucket:
             sanitized[str(mode)] = mode_bucket
@@ -860,6 +866,7 @@ def _record_backend_attempt(
     latency_ms: int | None = None,
     error: str | None = None,
 ) -> SystemSetting:
+    now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
     setting = _get_backend_stats_setting(db)
     stats = _sanitize_backend_stats(setting.value if setting is not None else {})
     mode_bucket = stats.setdefault(mode, {})
@@ -870,25 +877,37 @@ def _record_backend_attempt(
             "successes": 0,
             "failures": 0,
             "timeouts": 0,
+            "consecutive_failures": 0,
+            "consecutive_timeouts": 0,
             "total_latency_ms": 0,
             "last_latency_ms": None,
             "last_error": None,
             "last_used_at": None,
+            "last_success_at": None,
+            "last_timeout_at": None,
         },
     )
     backend_bucket["attempts"] += 1
     if success:
         backend_bucket["successes"] += 1
+        backend_bucket["consecutive_failures"] = 0
+        backend_bucket["consecutive_timeouts"] = 0
+        backend_bucket["last_success_at"] = now_iso
     else:
         backend_bucket["failures"] += 1
+        backend_bucket["consecutive_failures"] += 1
     if error and "timed out" in error.lower():
         backend_bucket["timeouts"] += 1
+        backend_bucket["consecutive_timeouts"] += 1
+        backend_bucket["last_timeout_at"] = now_iso
+    elif not success:
+        backend_bucket["consecutive_timeouts"] = 0
     if latency_ms is not None:
         backend_bucket["last_latency_ms"] = int(latency_ms)
         if success:
             backend_bucket["total_latency_ms"] += int(latency_ms)
     backend_bucket["last_error"] = str(error).strip() if error else None
-    backend_bucket["last_used_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    backend_bucket["last_used_at"] = now_iso
 
     if setting is None:
         setting = SystemSetting(key=CHAT_BACKEND_STATS_KEY, value=stats)
@@ -896,6 +915,17 @@ def _record_backend_attempt(
     else:
         setting.value = stats
     return setting
+
+
+def _backend_recent_timeout_penalty(stats: dict[str, Any], *, now: datetime | None = None) -> bool:
+    last_timeout_at = _parse_iso_datetime(str(stats.get("last_timeout_at") or ""))
+    if last_timeout_at is None:
+        return False
+    current = now or datetime.now().astimezone()
+    return (
+        int(stats.get("consecutive_timeouts", 0) or 0) >= BACKEND_CIRCUIT_BREAKER_TIMEOUTS
+        and int((current - last_timeout_at).total_seconds()) <= BACKEND_RECENT_FAILURE_WINDOW_SECONDS
+    )
 
 
 def _adaptive_backend_order(
@@ -910,6 +940,7 @@ def _adaptive_backend_order(
     stats_by_mode = _sanitize_backend_stats(setting.value if setting is not None else {}).get(mode, {})
     if not stats_by_mode:
         return available_backends
+    current_time = datetime.now().astimezone()
 
     def sort_key(item: tuple[int, str]) -> tuple[Any, ...]:
         default_index, backend_name = item
@@ -917,6 +948,8 @@ def _adaptive_backend_order(
         attempts = int(stats.get("attempts", 0) or 0)
         successes = int(stats.get("successes", 0) or 0)
         timeouts = int(stats.get("timeouts", 0) or 0)
+        if _backend_recent_timeout_penalty(stats, now=current_time):
+            return (3, default_index)
         if attempts and successes == 0 and timeouts == attempts:
             return (2, default_index)
         if attempts < BACKEND_STATS_MIN_OBSERVATIONS:
@@ -2466,12 +2499,206 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in (LOCAL_FIRST_FACT_INTENTS | {"status"})
 
 
+def _http_json_get(url: str, *, timeout_seconds: int) -> Any:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "pexo-direct-chat/1.0",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def _fact_query_keywords(query: str) -> list[str]:
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "for",
+        "from",
+        "how",
+        "in",
+        "is",
+        "it",
+        "latest",
+        "of",
+        "on",
+        "the",
+        "to",
+        "what",
+        "when",
+        "where",
+        "who",
+        "why",
+    }
+    return [
+        token
+        for token in re.findall(r"[a-z0-9']+", _normalize_chat_text(query))
+        if len(token) >= 3 and token not in stop_words
+    ]
+
+
+def _strip_html_tags(text: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", text or ""))
+
+
+def _clean_fact_sentence(text: str, *, prefix: str) -> str | None:
+    compact = " ".join((text or "").split()).strip()
+    if not compact:
+        return None
+    first_sentence = re.split(r"(?<=[.!?])\s+", compact, maxsplit=1)[0].strip()
+    if not first_sentence:
+        first_sentence = compact
+    if len(first_sentence) > 260:
+        first_sentence = first_sentence[:257].rstrip() + "..."
+    if not first_sentence.endswith((".", "!", "?")):
+        first_sentence += "."
+    return f"{prefix}{first_sentence}"
+
+
+def _extract_relevant_fact_snippet(text: str, *, prefix: str) -> str | None:
+    compact = " ".join((text or "").split()).strip()
+    if not compact:
+        return None
+    for pattern in (
+        r"(The incumbent [^.?!]{0,240})",
+        r"(The current [^.?!]{0,240})",
+        r"([A-Z][^.?!]{0,240}\b assumed office[^.?!]{0,120})",
+        r"([A-Z][^.?!]{0,240}\b is [^.?!]{0,200})",
+    ):
+        match = re.search(pattern, compact)
+        if match:
+            candidate = match.group(1).strip().rstrip(".")
+            if candidate:
+                return _clean_fact_sentence(candidate, prefix=prefix)
+    return _clean_fact_sentence(compact, prefix=prefix)
+
+
+def _score_wikipedia_candidate(query: str, title: str, snippet: str) -> int:
+    keywords = _fact_query_keywords(query)
+    title_text = _normalize_chat_text(title)
+    snippet_text = _normalize_chat_text(_strip_html_tags(snippet))
+    haystack = f"{title_text} {snippet_text}"
+
+    score = 0
+    for keyword in keywords:
+        if keyword in title_text:
+            score += 4
+        elif keyword in haystack:
+            score += 2
+
+    if any(marker in snippet_text for marker in ("incumbent", "current", "currently", "assumed office", "serves as")):
+        score += 6
+    if query.strip().lower().startswith("who is") and " is " in f" {snippet_text} ":
+        score += 2
+
+    for penalty_term in (
+        "actors",
+        "played",
+        "fictional",
+        "vice presidents",
+        "owned slaves",
+        "time in office",
+    ):
+        if penalty_term in haystack and penalty_term not in _normalize_chat_text(query):
+            score -= 5
+
+    return score
+
+
+def _wikipedia_search_fact(query: str, timeout_seconds: int = 8) -> dict | None:
+    encoded_query = urllib.parse.quote(query.strip())
+    if not encoded_query:
+        return None
+    search_url = (
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch="
+        f"{encoded_query}&srlimit=5&utf8=1&format=json"
+    )
+    try:
+        search_payload = _http_json_get(search_url, timeout_seconds=timeout_seconds)
+        search_results = (((search_payload or {}).get("query") or {}).get("search") or [])
+        if not search_results:
+            return None
+        ranked_results = sorted(
+            search_results,
+            key=lambda item: _score_wikipedia_candidate(
+                query,
+                str(item.get("title") or ""),
+                str(item.get("snippet") or ""),
+            ),
+            reverse=True,
+        )
+        best_item = ranked_results[0]
+        title = str(best_item.get("title") or "").strip()
+        if not title:
+            return None
+        snippet_answer = _extract_relevant_fact_snippet(
+            _strip_html_tags(str(best_item.get("snippet") or "")),
+            prefix="According to Wikipedia, ",
+        )
+        if snippet_answer and any(
+            marker in _normalize_chat_text(snippet_answer)
+            for marker in ("incumbent", "current", "assumed office", "president is", "prime minister is", "capital is")
+        ):
+            return {
+                "answer": snippet_answer,
+                "source": "wikipedia_search",
+                "title": title,
+            }
+        summary_url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title, safe="")
+        summary_payload = _http_json_get(summary_url, timeout_seconds=timeout_seconds)
+        extract = str(summary_payload.get("extract") or "").strip()
+        answer = _clean_fact_sentence(extract, prefix="According to Wikipedia, ")
+        if not answer:
+            return None
+        return {
+            "answer": answer,
+            "source": "wikipedia_search",
+            "title": title,
+        }
+    except Exception:
+        return None
+
+
+def _duckduckgo_lite_fact(query: str, timeout_seconds: int = 8) -> dict | None:
+    encoded_query = urllib.parse.quote(query.strip())
+    if not encoded_query:
+        return None
+    url = f"https://api.duckduckgo.com/?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
+    try:
+        payload = _http_json_get(url, timeout_seconds=timeout_seconds)
+        answer_text = (
+            str(payload.get("Answer") or "").strip()
+            or str(payload.get("AbstractText") or "").strip()
+            or str(payload.get("Definition") or "").strip()
+        )
+        answer = _clean_fact_sentence(answer_text, prefix="According to search, ")
+        if not answer:
+            return None
+        return {
+            "answer": answer,
+            "source": "duckduckgo_lite",
+            "title": str(payload.get("Heading") or "").strip() or None,
+        }
+    except Exception:
+        return None
+
+
 def _fast_web_fact_lookup(query: str, timeout_seconds: int = 8) -> dict | None:
-    # Prefer Wikipedia for factual, DDG for broad
-    res = _wikipedia_search_fact(query, timeout_seconds=timeout_seconds)
-    if res and res.get("answer"):
-        return res
-    return _duckduckgo_lite_fact(query, timeout_seconds=timeout_seconds)
+    normalized_query = _normalize_chat_text(query)
+    if not normalized_query:
+        return None
+
+    def loader() -> dict | None:
+        res = _wikipedia_search_fact(query, timeout_seconds=timeout_seconds)
+        if res and res.get("answer"):
+            return res
+        return _duckduckgo_lite_fact(query, timeout_seconds=timeout_seconds)
+
+    return cached_value("direct_chat.fast_web_fact", normalized_query, FAST_WEB_FACT_CACHE_TTL_SECONDS, loader)
 
 
 def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None, *, has_active_task: bool = False) -> bool:
@@ -2885,16 +3112,40 @@ def _available_backends_for_mode(mode: str, db: Session | None = None, capabilit
             plan = build_client_connection_plan(candidate, scope="user")
             if plan["available"]:
                 available.append(candidate)
-    return _adaptive_backend_order(available, mode=_backend_stats_bucket(mode, capability), db=db)
+    ordered = _adaptive_backend_order(available, mode=_backend_stats_bucket(mode, capability), db=db)
+    if db is None or len(ordered) <= 1:
+        return ordered
+
+    setting = _get_backend_stats_setting(db)
+    stats_by_mode = _sanitize_backend_stats(setting.value if setting is not None else {}).get(
+        _backend_stats_bucket(mode, capability),
+        {},
+    )
+    healthy: list[str] = []
+    degraded: list[str] = []
+    now = datetime.now().astimezone()
+    for backend_name in ordered:
+        stats = stats_by_mode.get(backend_name, {})
+        if _backend_recent_timeout_penalty(stats, now=now):
+            degraded.append(backend_name)
+        else:
+            healthy.append(backend_name)
+    if not degraded:
+        return ordered
+    if not healthy:
+        return ordered
+    return [*healthy, *degraded]
 
 
 def _conversation_backend_candidates(primary_backend: str, *, mode: str, db: Session | None = None, capability: str | None = None) -> list[str]:
-    candidates = [primary_backend]
     if mode not in {"conversation", "brain_lookup"}:
-        return candidates
+        return [primary_backend] if primary_backend else []
+    candidates: list[str] = []
     for candidate in _available_backends_for_mode(mode, db=db, capability=capability):
-        if candidate not in candidates:
+        if candidate and candidate not in candidates:
             candidates.append(candidate)
+    if primary_backend and primary_backend not in candidates:
+        candidates.append(primary_backend)
     return candidates
 
 

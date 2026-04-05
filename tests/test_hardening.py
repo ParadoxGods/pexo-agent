@@ -82,7 +82,16 @@ from app.mcp_server import (
     pexo_update_tool,
 )
 from app.models import AgentProfile, AgentState, ChatMessage, ChatSession, Memory, Profile
-from app.paths import ARTIFACTS_DIR, CHROMA_DB_DIR, CODE_ROOT, PEXO_DB_PATH, PROJECT_ROOT, looks_like_repo_checkout, resolve_state_root
+from app.paths import (
+    ARTIFACTS_DIR,
+    CHROMA_DB_DIR,
+    CODE_ROOT,
+    PEXO_DB_PATH,
+    PROJECT_ROOT,
+    looks_like_repo_checkout,
+    resolve_managed_runtime_state_root,
+    resolve_state_root,
+)
 from app.routers.admin import build_telemetry_payload, get_admin_snapshot
 from app.routers.artifacts import (
     ArtifactPathRequest,
@@ -639,6 +648,17 @@ class HardeningTests(unittest.TestCase):
         report = launcher_module.build_doctor_report()
         self.assertEqual(report["guidance"]["update"], "pexo --update")
 
+    @patch("app.launcher.resolve_editable_source_root", return_value=Path("C:/CDXCLI/pexo"))
+    @patch("app.launcher._editable_install_artifacts_present", return_value=True)
+    @patch("app.launcher.running_from_repo_checkout", return_value=False)
+    def test_packaged_doctor_reports_editable_checkout_residue(self, _mock_checkout, _mock_editable_residue, _mock_editable_root):
+        report = launcher_module.build_doctor_report()
+
+        self.assertEqual(report["install_mode"], "packaged")
+        self.assertTrue(report["install_source"]["editable"])
+        self.assertTrue(report["install_source"]["editable_residue"])
+        self.assertIn("editable checkout", " ".join(report["issues"]).lower())
+
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
     @patch("app.launcher._exec_update_helper", return_value=0)
     @patch("app.launcher._prepare_packaged_update_helper")
@@ -670,6 +690,10 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(launcher_module.run_update(), 0)
         mock_prepare.assert_called_once_with(mock_build_plan.return_value)
         mock_exec.assert_called_once()
+
+    def test_packaged_update_helper_removes_editable_install_artifacts(self):
+        self.assertIn("__editable__.pexo_agent-", launcher_module.PACKAGED_UPDATE_HELPER)
+        self.assertIn("__editable___pexo_agent_", launcher_module.PACKAGED_UPDATE_HELPER)
 
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
     @patch("app.launcher._maybe_stop_existing_server_for_update", return_value="stopped")
@@ -750,12 +774,14 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Restart it", stdout.getvalue())
 
     @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher._editable_install_artifacts_present", return_value=False)
     @patch("app.launcher._fetch_release_manifest")
     @patch("app.launcher._fetch_latest_release")
     def test_build_packaged_update_plan_uses_wheel_only_refresh_when_dependencies_match(
         self,
         mock_fetch_release,
         mock_fetch_manifest,
+        _mock_editable_residue,
         mock_read_metadata,
     ):
         mock_fetch_release.return_value = {
@@ -783,12 +809,14 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(plan["wheel_sha256"], "new-wheel")
 
     @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher._editable_install_artifacts_present", return_value=False)
     @patch("app.launcher._fetch_release_manifest")
     @patch("app.launcher._fetch_latest_release")
     def test_build_packaged_update_plan_skips_when_matching_wheel_is_installed(
         self,
         mock_fetch_release,
         mock_fetch_manifest,
+        _mock_editable_residue,
         mock_read_metadata,
     ):
         mock_fetch_release.return_value = {
@@ -813,6 +841,41 @@ class HardeningTests(unittest.TestCase):
 
         self.assertEqual(plan["operation"], "skip")
         self.assertEqual(plan["pip_args"], [])
+
+    @patch("app.launcher._read_install_metadata")
+    @patch("app.launcher._editable_install_artifacts_present", return_value=True)
+    @patch("app.launcher._fetch_release_manifest")
+    @patch("app.launcher._fetch_latest_release")
+    def test_build_packaged_update_plan_normalizes_editable_residue_even_when_wheel_matches(
+        self,
+        mock_fetch_release,
+        mock_fetch_manifest,
+        _mock_editable_residue,
+        mock_read_metadata,
+    ):
+        mock_fetch_release.return_value = {
+            "tag_name": "v1.0",
+            "html_url": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
+            "assets": [
+                {"name": "pexo_agent-1.0-py3-none-any.whl", "browser_download_url": "https://example.invalid/pexo_agent-1.0-py3-none-any.whl"},
+                {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.invalid/SHA256SUMS.txt"},
+                {"name": "pexo-install-manifest.json", "browser_download_url": "https://example.invalid/pexo-install-manifest.json"},
+            ],
+        }
+        mock_fetch_manifest.return_value = {
+            "wheel": {"sha256": "same-wheel"},
+            "dependency_fingerprint": "same-deps",
+        }
+        mock_read_metadata.return_value = {
+            "wheel_sha256": "same-wheel",
+            "dependency_fingerprint": "same-deps",
+        }
+
+        plan = launcher_module._build_packaged_update_plan()
+
+        self.assertEqual(plan["operation"], "wheel-only")
+        self.assertEqual(plan["install_label"], "Normalizing packaged runtime...")
+        self.assertTrue(plan["editable_residue"])
 
     def test_resolve_runtime_python_executable_prefers_venv_python_for_console_entrypoints(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1112,6 +1175,66 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    @patch("app.direct_chat.build_client_connection_plan")
+    def test_conversation_backend_candidates_push_recently_timed_out_backend_to_the_end(self, mock_plan):
+        def fake_plan(client, scope="user"):
+            return {
+                "available": client in {"codex", "gemini", "claude"},
+                "invoker": client,
+            }
+
+        mock_plan.side_effect = fake_plan
+        init_db()
+        db = SessionLocal()
+        try:
+            direct_chat_module._record_backend_attempt(
+                db,
+                mode="conversation",
+                backend_name="gemini",
+                success=False,
+                error="Gemini direct chat timed out after 6 seconds.",
+            )
+            direct_chat_module._record_backend_attempt(
+                db,
+                mode="conversation",
+                backend_name="gemini",
+                success=False,
+                error="Gemini direct chat timed out after 6 seconds.",
+            )
+            direct_chat_module._record_backend_attempt(db, mode="conversation", backend_name="codex", success=True, latency_ms=500)
+            db.commit()
+
+            candidates = direct_chat_module._conversation_backend_candidates("gemini", mode="conversation", db=db)
+
+            self.assertEqual(candidates[0], "codex")
+            self.assertEqual(candidates[-1], "gemini")
+        finally:
+            db.close()
+
+    def test_wikipedia_candidate_scoring_prefers_current_officeholder_over_irrelevant_actor_list(self):
+        actor_score = direct_chat_module._score_wikipedia_candidate(
+            "who is the president",
+            "List of actors who have played the president of the United States",
+            "This is a list of actors who have played the role of a real or fictitious president of the United States.",
+        )
+        incumbent_score = direct_chat_module._score_wikipedia_candidate(
+            "who is the president",
+            "List of presidents of the United States",
+            "The incumbent president is Donald Trump, who assumed office in 2025.",
+        )
+
+        self.assertGreater(incumbent_score, actor_score)
+
+    def test_relevant_fact_snippet_prefers_incumbent_clause_over_leading_noise(self):
+        snippet = (
+            "Forces. The first president, George Washington, won a unanimous vote of the Electoral College. "
+            "The incumbent president is Donald Trump, who assumed office in 2025."
+        )
+
+        answer = direct_chat_module._extract_relevant_fact_snippet(snippet, prefix="According to Wikipedia, ")
+
+        self.assertIn("incumbent president is Donald Trump", answer)
+
     @patch("app.launcher._port_is_in_use", return_value=False)
     @patch("app.launcher.build_runtime_status", return_value={"installed_profiles": {"full": True}})
     @patch("uvicorn.run")
@@ -1336,6 +1459,27 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(
                 os.path.normcase(os.path.realpath(str(resolved))),
                 os.path.normcase(os.path.realpath(str(override))),
+            )
+
+    def test_paths_prefer_managed_state_root_when_invoked_via_packaged_pexo_command(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            managed_root = Path(tmpdir) / ".pexo"
+            managed_root.mkdir()
+            (managed_root / ".pexo-install.json").write_text("{}", encoding="utf-8")
+            invoker = managed_root / "venv" / "Scripts" / "pexo.exe"
+            invoker.parent.mkdir(parents=True)
+            invoker.write_text("", encoding="utf-8")
+
+            detected_root = resolve_managed_runtime_state_root(invoker)
+            resolved_root = resolve_state_root(code_root=CODE_ROOT, env_override=None, runtime_invoker=invoker)
+
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(detected_root))),
+                os.path.normcase(os.path.realpath(str(managed_root))),
+            )
+            self.assertEqual(
+                os.path.normcase(os.path.realpath(str(resolved_root))),
+                os.path.normcase(os.path.realpath(str(managed_root))),
             )
 
     def test_gitattributes_enforces_shell_script_line_endings(self):

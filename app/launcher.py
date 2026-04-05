@@ -10,6 +10,7 @@ import sqlite3
 import socket
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import threading
 import time
@@ -30,6 +31,7 @@ from .paths import (
     PROJECT_ROOT,
     RUNTIME_MARKER_PATH,
     UPDATE_STAMP_PATH,
+    resolve_editable_source_root,
     running_from_repo_checkout,
 )
 from .runtime import build_runtime_status, promote_runtime
@@ -136,6 +138,9 @@ def _read_requires_dist(wheel_path: Path) -> list[str]:
 
 
 def _remove_existing_package_files(site_packages_path: Path) -> None:
+    for pattern in ("__editable__.pexo_agent-*.pth", "__editable___pexo_agent_*_finder.py"):
+        for editable_artifact in site_packages_path.glob(pattern):
+            editable_artifact.unlink(missing_ok=True)
     for dist_info_dir in site_packages_path.glob("pexo_agent-*.dist-info"):
         record_path = dist_info_dir / "RECORD"
         if record_path.exists():
@@ -294,6 +299,18 @@ def _package_update_guidance() -> str:
     return PACKAGE_UPDATE_COMMAND
 
 
+def _site_packages_path() -> Path:
+    return Path(sysconfig.get_paths()["purelib"]).resolve()
+
+
+def _editable_install_artifacts_present(site_packages_path: Path | None = None) -> bool:
+    purelib = site_packages_path or _site_packages_path()
+    for pattern in ("__editable__.pexo_agent-*.pth", "__editable___pexo_agent_*_finder.py"):
+        if next(purelib.glob(pattern), None) is not None:
+            return True
+    return False
+
+
 def _resolve_runtime_python_executable() -> str:
     executable = Path(sys.executable).resolve(strict=False)
     if executable.name.lower().startswith("python"):
@@ -444,11 +461,16 @@ def _build_packaged_update_plan() -> dict:
     current_dependency_fingerprint = str(current_metadata.get("dependency_fingerprint") or "")
     target_wheel_sha = str(((manifest or {}).get("wheel") or {}).get("sha256") or "").lower()
     target_dependency_fingerprint = str((manifest or {}).get("dependency_fingerprint") or "")
+    editable_residue = _editable_install_artifacts_present()
 
     operation = "full"
     install_label = "Installing update..."
     pip_args = ["install", "--disable-pip-version-check", "--force-reinstall"]
-    if current_wheel_sha and target_wheel_sha and current_wheel_sha == target_wheel_sha:
+    if editable_residue:
+        operation = "wheel-only"
+        install_label = "Normalizing packaged runtime..."
+        pip_args = ["install", "--disable-pip-version-check", "--force-reinstall", "--no-deps"]
+    elif current_wheel_sha and target_wheel_sha and current_wheel_sha == target_wheel_sha:
         operation = "skip"
         install_label = "Pexo is already up to date."
         pip_args = []
@@ -472,6 +494,7 @@ def _build_packaged_update_plan() -> dict:
         "pip_args": pip_args,
         "wheel_sha256": target_wheel_sha,
         "dependency_fingerprint": target_dependency_fingerprint,
+        "editable_residue": editable_residue,
     }
 
 
@@ -1276,11 +1299,18 @@ def build_doctor_report() -> dict:
     install_mode = "checkout" if running_from_repo_checkout() else "packaged"
     runtime_status = build_runtime_status()
     sqlite_report = _sqlite_diagnostics()
+    editable_source_root = resolve_editable_source_root()
+    editable_residue = _editable_install_artifacts_present()
     report = {
         "version": __version__,
         "install_mode": install_mode,
         "code_root": str(CODE_ROOT),
         "state_root": str(PROJECT_ROOT),
+        "install_source": {
+            "editable": editable_source_root is not None,
+            "editable_root": str(editable_source_root) if editable_source_root is not None else None,
+            "editable_residue": editable_residue,
+        },
         "paths": {
             "database": str(PEXO_DB_PATH),
             "vector_store": str(CHROMA_DB_DIR),
@@ -1351,6 +1381,14 @@ def build_doctor_report() -> dict:
         issues.append("Git is not available; checkout update commands will fail.")
     if install_mode == "checkout" and _checkout_is_detached():
         issues.append("Checkout is on detached git HEAD; automatic update checks are skipped.")
+    if install_mode == "packaged" and editable_source_root is not None:
+        issues.append(
+            "Packaged runtime is still importing Pexo from an editable checkout; run `pexo --update` once to normalize the install."
+        )
+    if install_mode == "packaged" and editable_residue:
+        issues.append(
+            "Packaged runtime still has editable-install residue in site-packages; run `pexo --update` once to normalize the install."
+        )
 
     return report
 
