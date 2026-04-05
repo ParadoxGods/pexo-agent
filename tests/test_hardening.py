@@ -436,7 +436,7 @@ class HardeningTests(unittest.TestCase):
         bootstrap_ps = Path("bootstrap.ps1").read_text(encoding="utf-8")
         bootstrap_sh = Path("bootstrap.sh").read_text(encoding="utf-8")
 
-        self.assertIn('[string]$Ref = "v1.1.0"', bootstrap_ps)
+        self.assertIn('[string]$Ref = "v1.1.1"', bootstrap_ps)
         self.assertIn('throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($ArgumentList -join \' \')"', bootstrap_ps)
         self.assertNotIn('throw "Command failed with exit code $LASTEXITCODE:', bootstrap_ps)
         self.assertIn('[string]$ConnectClients = "all"', bootstrap_ps)
@@ -446,7 +446,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('Invoke-DoctorCommand -Percent 92 -CommandPath "pexo"', bootstrap_ps)
         self.assertIn('Invoke-ConnectCommand -Percent 97 -CommandPath "pexo" -ClientTarget $ConnectClients', bootstrap_ps)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON=", bootstrap_ps)
-        self.assertIn('REF="v1.1.0"', bootstrap_sh)
+        self.assertIn('REF="v1.1.1"', bootstrap_sh)
         self.assertIn('CONNECT_CLIENTS="all"', bootstrap_sh)
         self.assertIn('uv tool install --reinstall "$PACKAGE_SOURCE"', bootstrap_sh)
         self.assertIn('pipx install --force "$PACKAGE_SOURCE"', bootstrap_sh)
@@ -556,7 +556,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("gh release download", agents_doc)
         self.assertIn("pexo-install-windows.zip", agents_doc)
         self.assertIn("pexo-install-unix.tar.gz", agents_doc)
-        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.0"', agents_doc)
+        self.assertIn('pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.1"', agents_doc)
         self.assertIn("pexo connect all --scope user", agents_doc)
         self.assertIn("PEXO_INSTALL_SUMMARY_JSON", agents_doc)
         self.assertIn("Existing Git checkouts are protected by default", agents_doc)
@@ -708,7 +708,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.launcher.running_from_repo_checkout", return_value=False)
     def test_packaged_doctor_reports_release_metadata_mismatch(self, _mock_checkout, mock_read_metadata):
         mock_read_metadata.return_value = {
-            "version": "1.1.0",
+            "version": "1.1.1",
             "release": "https://github.com/ParadoxGods/pexo-agent/releases/tag/v1.0",
             "command_path": "C:/Users/dustin/.pexo/venv/Scripts/pexo.exe",
             "mcp_command": "C:/Users/dustin/.pexo/venv/Scripts/pexo-mcp.exe",

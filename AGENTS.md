@@ -36,7 +36,7 @@ tar -xzf pexo-install-unix.tar.gz
 Use this only if the release bundle path is unavailable.
 
 ```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.0"
+pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.1"
 pexo headless-setup --preset efficient_operator
 pexo connect all --scope user
 pexo doctor

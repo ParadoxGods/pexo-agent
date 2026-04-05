@@ -859,7 +859,7 @@ def _build_packaged_uninstall_helper_script(*, keep_state: bool) -> str:
             ps_scripts_dir = scripts_dir.replace("'", "''")
             remove_state_ps = "$true" if keep_state is False else "$false"
             return f"""$ErrorActionPreference = "SilentlyContinue"
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 $scriptsDir = '{ps_scripts_dir}'
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not [string]::IsNullOrWhiteSpace($currentPath)) {{
@@ -883,7 +883,7 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
         ps_uninstall = uninstall_command.replace("'", "''")
         remove_state_ps = "$true" if keep_state is False else "$false"
         return f"""$ErrorActionPreference = "SilentlyContinue"
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 $toolCommand = '{ps_uninstall}'
 if (-not [string]::IsNullOrWhiteSpace($toolCommand) -and $toolCommand -ne 'pexo uninstall') {{
     & cmd.exe /c $toolCommand | Out-Null
@@ -903,7 +903,7 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
         remove_state_value = "1" if keep_state is False else "0"
         return f"""#!/bin/sh
 set +e
-sleep 1
+sleep 2
 PATH_ENTRY={shell_quote(bin_dir)}
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   [ -f "$rc" ] || continue
@@ -921,7 +921,7 @@ rm -f "$0"
     remove_state_value = "1" if keep_state is False else "0"
     return f"""#!/bin/sh
 set +e
-sleep 1
+sleep 2
 tool_uninstall_command={shell_quote(uninstall_command)}
 if [ -n "$tool_uninstall_command" ] && [ "$tool_uninstall_command" != "pexo uninstall" ]; then
   sh -lc "$tool_uninstall_command" >/dev/null 2>&1
@@ -948,16 +948,12 @@ def _launch_packaged_uninstall_helper(helper_path: Path) -> int:
     stdout = subprocess.DEVNULL
     stderr = subprocess.DEVNULL
     if os.name == "nt":
-        creationflags = 0
-        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         subprocess.Popen(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper_path)],
+            ["cmd.exe", "/c", "start", "", "/min", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper_path)],
             stdout=stdout,
             stderr=stderr,
             stdin=subprocess.DEVNULL,
             close_fds=True,
-            creationflags=creationflags,
         )
     else:
         subprocess.Popen(
