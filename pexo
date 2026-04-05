@@ -279,6 +279,8 @@ if [ "${1:-}" = "--help" ]; then
     echo "                 Connects supported AI clients to Pexo MCP"
     echo "  pexo --chat | pexo chat [--backend auto|codex|claude|gemini] [--workspace PATH]"
     echo "                 Starts a direct terminal chat with Pexo"
+    echo "  pexo warmup"
+    echo "                 Primes local state after install or update"
     echo "  pexo --no-browser"
     echo "                 Starts the API without opening the dashboard automatically"
     echo "  pexo --offline | pexo --skip-update"
@@ -319,6 +321,15 @@ if [ "${1:-}" = "--chat" ] || [ "${1:-}" = "chat" ]; then
     fi
     ensure_venv
     "$(venv_python)" -m app.launcher chat "$@"
+    exit $?
+fi
+
+if [ "${1:-}" = "--warmup" ] || [ "${1:-}" = "warmup" ]; then
+    if [ "${1:-}" = "--warmup" ]; then
+        shift
+    fi
+    ensure_runtime_profile core
+    "$(venv_python)" -m app.launcher warmup "$@"
     exit $?
 fi
 

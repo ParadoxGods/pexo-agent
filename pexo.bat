@@ -32,6 +32,8 @@ if "%~1"=="--connect" goto connect
 if /I "%~1"=="connect" goto connect
 if "%~1"=="--chat" goto chat
 if /I "%~1"=="chat" goto chat
+if "%~1"=="--warmup" goto warmup
+if /I "%~1"=="warmup" goto warmup
 if "%~1"=="--update" goto update
 if /I "%~1"=="update" goto update
 if "%~1"=="--promote" goto promote
@@ -247,6 +249,8 @@ echo   pexo --connect ^| pexo connect [all^|codex^|claude^|gemini] [--scope user
 echo                  Connects supported AI clients to Pexo MCP
 echo   pexo --chat ^| pexo chat [--backend auto^|codex^|claude^|gemini] [--workspace PATH]
 echo                  Starts a direct terminal chat with Pexo
+echo   pexo warmup
+echo                  Primes local state after install or update
 echo   pexo --no-browser
 echo                  Starts the API without opening the dashboard automatically
 echo   pexo --offline ^| pexo --skip-update
@@ -277,6 +281,13 @@ if "%~1"=="--chat" shift
 call :ensure_venv
 if errorlevel 1 exit /b %ERRORLEVEL%
 venv\Scripts\python.exe -m app.launcher chat %*
+exit /b %ERRORLEVEL%
+
+:warmup
+if "%~1"=="--warmup" shift
+call :ensure_runtime_profile core
+if errorlevel 1 exit /b %ERRORLEVEL%
+venv\Scripts\python.exe -m app.launcher warmup %*
 exit /b %ERRORLEVEL%
 
 :promote

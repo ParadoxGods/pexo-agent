@@ -9,6 +9,7 @@ on:
 
 jobs:
   install-runtime-smoke:
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
