@@ -590,7 +590,8 @@ def autonomous_memory_cogmachine_loop() -> None:
             db = SessionLocal()
             try:
                 # Proactive sweep of ALL context-less or global memories
-                dedup_count = deduplicate_memories(db)
+                metrics = deduplicate_memories(db)
+                dedup_count = metrics.get("merges", 0)
                 if dedup_count > 0:
                     logger.info(f"Memory Cogmachine cleaned up {dedup_count} redundant memory clusters.")
                 

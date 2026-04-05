@@ -82,6 +82,40 @@ PREFERRED_BACKENDS_BY_CAPABILITY = {
 LEARNED_PREFERENCE_PREFIX = "User preference: "
 TASK_RUN_HEARTBEAT_SECONDS = 2.0
 
+TASK_RUN_STATUS_PHRASES = (
+    "still working",
+    "what is the status",
+    "what's the status",
+    "whats the status",
+    "progress",
+    "check in",
+    "check-in",
+)
+CONVERSATION_HINTS = (
+    "hello",
+    "hi",
+    "hey",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "how are you",
+    "thanks",
+    "thank you",
+    "testing",
+    "test",
+    "this is a test",
+    "are you there",
+    "are you online",
+    "who are you",
+    "what can you do",
+    "help",
+)
+IMAGE_TASK_HINTS = ("image", "images", "logo", "icon", "illustration", "artwork", "photo", "photos")
+FRONTEND_TASK_HINTS = ("website", "landing page", "dashboard", "homepage", "ui", "frontend")
+CODE_TASK_HINTS = ("code", "repo", "repository", "codebase", "function", "bug", "debug", "fix", "refactor", "implement", "build", "script", "api", "database", "query", "test")
+PLANNING_TASK_HINTS = ("plan", "strategy", "roadmap", "outline", "brainstorm", "proposal", "decide", "compare")
+SEARCH_HINTS = ("search", "find", "google", "wikipedia", "lookup", "who is", "what is", "where is", "when is")
+
 _TASK_RUN_LOCK = threading.Lock()
 _TASK_RUN_THREADS: dict[str, dict[str, Any]] = {}
 
@@ -412,6 +446,19 @@ def _looks_like_task_follow_up(text: str) -> bool:
         "less ",
     )
     return text.startswith(follow_up_prefixes)
+
+
+def _looks_like_task(text: str) -> bool:
+    return _classify_intent(text) == "TASK"
+
+
+def _looks_like_brain_lookup(text: str) -> bool:
+    t = _normalize_chat_text(text)
+    return any(k in t for k in ("memory", "remember", "recall", "artifact", "stored", "context", "history")) and len(t.split()) < 10
+
+
+def _looks_like_conversation(text: str) -> bool:
+    return not (_looks_like_task(text) or _looks_like_brain_lookup(text))
 
 
 def _infer_chat_mode(chat_session: ChatSession, latest_user_message: str) -> str:
@@ -2267,6 +2314,27 @@ def _prefer_local_reply_first(mode: str, *, direct_fact_intent: str | None) -> b
     return direct_fact_intent in (LOCAL_FIRST_FACT_INTENTS | {"status"})
 
 
+def _fast_web_fact_lookup(query: str, timeout_seconds: int = 8) -> dict | None:
+    # Prefer Wikipedia for factual, DDG for broad
+    res = _wikipedia_search_fact(query, timeout_seconds=timeout_seconds)
+    if res and res.get("answer"):
+        return res
+    return _duckduckgo_lite_fact(query, timeout_seconds=timeout_seconds)
+
+
+def _is_general_knowledge_turn(user_message: str, direct_fact_intent: str | None = None, *, has_active_task: bool = False) -> bool:
+    if has_active_task:
+        return False
+    normalized = _normalize_chat_text(user_message)
+    if not (_looks_like_general_knowledge_question(normalized) or any(_contains_hint(normalized, hint) for hint in SEARCH_HINTS)):
+        return False
+    if direct_fact_intent is None:
+        direct_fact_intent = _infer_direct_fact_intent(user_message)
+    if direct_fact_intent is not None:
+        return False
+    return _maybe_build_local_reply(None, mode="conversation", user_message=user_message) is None
+
+
 def _conversation_timeout_seconds(user_message: str, timeout_seconds: int) -> int:
     return min(timeout_seconds, FAST_CHAT_TIMEOUT_SECONDS)
 
@@ -2987,159 +3055,44 @@ def send_chat_message(
         session.title = _session_title(user_message)
 
     user_record = _store_message(db, session.id, "user", user_message)
-    history_excerpt = _history_excerpt(db, session.id)
-    mode = _infer_chat_mode(session, user_message)
-    backend_policy = str((session.details or {}).get("backend_policy") or "manual").strip().lower()
-    active_task_payload = None
-    if session.pexo_session_id:
-        try:
-            active_task_payload = get_simple_task_status(session_id=session.pexo_session_id, db=db)
-        except Exception:
-            active_task_payload = None
-        if (
-            active_task_payload
-            and str(active_task_payload.get("status") or "").strip().lower() == "clarification_required"
-            and _build_local_conversation_reply(user_message) is None
-        ):
-            mode = "task"
-    direct_fact_intent = _infer_direct_fact_intent(user_message) if mode == "conversation" else None
-    capability = _infer_chat_capability(
-        session,
-        user_message,
-        mode=mode,
-        direct_fact_intent=direct_fact_intent,
-    )
-    backend_name = _resolve_backend_name(
-        "auto" if backend_policy == "auto" else (session.backend or "auto"),
-        mode=mode,
-        db=db,
-        capability=capability,
-    )
-    session.backend = backend_name
-    preference_memory = _remember_preference(db, session, user_message)
-    learned_preferences = _learned_preference_summary(db, limit=6)
     
-    # Cogmachine Upgrade: Local Reasoning Phase - check session-aware replies first
-    session_local_reply = _build_session_aware_conversation_reply(session, user_message)
-    
-    general_knowledge_turn = mode == "conversation" and _is_general_knowledge_turn(
-        user_message,
-        direct_fact_intent=direct_fact_intent,
-        has_active_task=bool(session.pexo_session_id),
-    )
-    previous_mode = str((session.details or {}).get("mode") or "").strip().lower()
-    task_follow_up_local_reply = (
-        _build_local_task_follow_up_reply(user_message, task_payload=active_task_payload)
-        if (mode == "task" or session.pexo_session_id)
-        else None
-    )
-    local_first = (
-        bool(session_local_reply)
-        or preference_memory is not None
-        or task_follow_up_local_reply is not None
-        or (mode == "task" and _prefer_local_task_reply_first(user_message, previous_mode))
-        or _prefer_local_reply_first(mode, direct_fact_intent=direct_fact_intent)
-    )
-    details = dict(session.details or {})
-    details["backend_policy"] = backend_policy
-    if mode == "task" and (
-        details.get("connected_backend") != backend_name
-        or details.get("backend_warning")
-        or not details.get("backend_verified")
-    ):
-        details["connected_backend"] = backend_name
-        backend_warning = _best_effort_backend_connection(backend_name)
-        if backend_warning:
-            details["backend_warning"] = backend_warning
-            details["backend_verified"] = False
-        else:
-            details.pop("backend_warning", None)
-            details["backend_verified"] = True
-        session.details = details
-    if mode == "brain_lookup":
-        assistant_prompt = _build_lookup_prompt(
-            backend_name=backend_name,
-            chat_session=session,
-            latest_user_message=user_message,
-            history_excerpt=history_excerpt,
-            local_context=_build_brain_lookup_context(db, user_message),
-            learned_preferences=learned_preferences,
-        )
-    elif mode == "task":
-        assistant_prompt = _build_task_prompt(
-            backend_name=backend_name,
-            chat_session=session,
-            latest_user_message=user_message,
-            history_excerpt=history_excerpt,
-            learned_preferences=learned_preferences,
-        )
-    else:
-        if general_knowledge_turn:
-            assistant_prompt = _build_quick_conversation_prompt(
-                latest_user_message=user_message,
-                learned_preferences=learned_preferences,
-            )
-        else:
-            assistant_prompt = _build_conversation_prompt(
-                backend_name=backend_name,
-                chat_session=session,
-                latest_user_message=user_message,
-                history_excerpt=history_excerpt,
-                learned_preferences=learned_preferences,
-            )
+    # --- COGMACHINE REASONING PHASE ---
+    intent = _classify_intent(user_message)
     assistant_text = None
-    response_path = "backend"
-    backend_elapsed_ms: int | None = None
-    attempted_backends: list[str] = []
-    backend_errors: dict[str, str] = {}
-    web_fact_source: str | None = None
-    web_fact_title: str | None = None
-    backend_stats_setting: SystemSetting | None = None
-    started_at = time.monotonic()
-    backend_timeout = timeout_seconds
-    if mode == "brain_lookup":
-        backend_timeout = _lookup_timeout_for_attempt(timeout_seconds, 0)
-    elif mode == "conversation":
-        backend_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, 0)
-
+    response_path = "local_direct"
+    launch_background_worker = False
     task_payload = None
-    if local_first:
-        assistant_text = session_local_reply or task_follow_up_local_reply or _maybe_build_local_reply(
-            db,
-            mode=mode,
-            user_message=user_message,
-        )
-        response_path = "local_direct"
-    elif mode == "task" and _should_promote_task_to_session(session, user_message):
+    started_at = time.monotonic()
+
+    # 1. Local Capability Check (Highest Priority)
+    if intent in LOCAL_TOOLBOX:
+        assistant_text = LOCAL_TOOLBOX[intent]["handler"](user_message)
+        response_path = "local_toolbox"
+
+    # 2. Autonomous Swarm Promotion (Technical/Task Intent)
+    elif intent == "TASK" or session.pexo_session_id:
         active_run = _active_task_run_details(session)
-        if active_run is not None:
-            task_payload = active_task_payload or {
-                "status": str(active_run.get("pexo_task_status") or details.get("pexo_task_status") or "agent_action_required").strip(),
-                "role": str(active_run.get("task_run_role") or details.get("pexo_task_role") or "").strip(),
-            }
+        if active_run:
             assistant_text = _build_task_run_status_reply(session)
             response_path = "task_run_in_progress"
         else:
-            task_session_result = _advance_direct_chat_task(
-                db,
-                chat_session=session,
-                latest_user_message=user_message,
-                backend_name=backend_name,
-                history_excerpt=history_excerpt,
+            task_res = _advance_direct_chat_task(
+                db, 
+                chat_session=session, 
+                latest_user_message=user_message, 
+                backend_name=session.backend or "gemini", 
+                history_excerpt=_history_excerpt(db, session.id), 
                 timeout_seconds=timeout_seconds,
-                stop_before_external_worker=True,
+                stop_before_external_worker=True
             )
-            task_payload = task_session_result["task_payload"]
-            launch_background_worker = False
-            current_role = str(task_payload.get("role") or "").strip() or None
-            if (
-                str(task_payload.get("status") or "").strip().lower() == "agent_action_required"
-                and _task_role_requires_backend(current_role)
-            ):
+            task_payload = task_res["task_payload"]
+            
+            # Autonomous proactive execution
+            if str(task_payload.get("status")).strip().lower() == "agent_action_required":
                 _start_background_task_run(
                     db,
                     chat_session=session,
-                    backend_name=backend_name,
+                    backend_name=session.backend or "gemini",
                     latest_user_message=user_message,
                     timeout_seconds=timeout_seconds,
                 )
@@ -3147,235 +3100,64 @@ def send_chat_message(
                 assistant_text = _build_task_run_status_reply(session)
                 response_path = "task_run_started"
                 launch_background_worker = True
-            if not launch_background_worker:
-                assistant_text = task_session_result["assistant_text"]
-                response_path = task_session_result["response_path"]
-                attempted_backends = task_session_result.get("attempted_backends", [])
-                backend_errors = task_session_result.get("backend_errors", {})
-                backend_elapsed_ms = task_session_result.get("backend_elapsed_ms")
-    elif local_first:
-        assistant_text = session_local_reply or task_follow_up_local_reply or _maybe_build_local_reply(
-            db,
-            mode=mode,
-            user_message=user_message,
+            else:
+                assistant_text = task_res["assistant_text"]
+                response_path = task_res["response_path"]
+
+    # 3. Conversational Turn (Lowest Priority)
+    else:
+        response_path = "backend_chat"
+        # Enriched context turn
+        prompt = _build_conversation_prompt(
+            backend_name=session.backend or "gemini",
+            chat_session=session,
+            latest_user_message=user_message,
+            history_excerpt=_history_excerpt(db, session.id),
+            learned_preferences=_learned_preference_summary(db)
         )
-        response_path = "local_direct"
-    else:
-        web_fact = _fast_web_fact_lookup(user_message) if general_knowledge_turn else None
-        if web_fact and web_fact.get("answer"):
-            assistant_text = str(web_fact["answer"]).strip()
-            response_path = "web_fact"
-            web_fact_source = str(web_fact.get("source") or "").strip() or None
-            web_fact_title = str(web_fact.get("title") or "").strip() or None
-        if assistant_text is None:
-            backend_candidates = [backend_name]
-            should_try_backend_fallbacks = (
-                backend_policy == "auto"
-                and capability in {"brain_lookup", "search", "factual", "image"}
+        try:
+            assistant_text = run_direct_chat_backend(
+                session.backend or "gemini",
+                prompt,
+                session.workspace_path or ".",
+                timeout_seconds=30,
+                mode="conversation"
             )
-            if should_try_backend_fallbacks:
-                backend_candidates = _conversation_backend_candidates(
-                    backend_name,
-                    mode=mode,
-                    db=db,
-                    capability=capability,
-                )
-            for attempt_index, candidate_backend in enumerate(backend_candidates):
-                attempted_backends.append(candidate_backend)
-                candidate_timeout = timeout_seconds
-                if mode == "brain_lookup":
-                    candidate_timeout = _lookup_timeout_for_attempt(timeout_seconds, attempt_index)
-                elif mode == "conversation":
-                    candidate_timeout = _conversation_timeout_for_attempt(user_message, timeout_seconds, attempt_index)
-                try:
-                    backend_started_at = time.monotonic()
-                    raw_result = run_direct_chat_backend(
-                        candidate_backend,
-                        assistant_prompt,
-                        session.workspace_path,
-                        timeout_seconds=candidate_timeout,
-                        mode=mode,
-                    )
-                    candidate_elapsed_ms = int((time.monotonic() - backend_started_at) * 1000)
-                    attempt_elapsed_ms = candidate_elapsed_ms
-                    backend_elapsed_ms = (backend_elapsed_ms or 0) + candidate_elapsed_ms
-                    if _looks_like_generic_backend_filler(raw_result or "") or not _reply_satisfies_direct_fact_intent(
-                        direct_fact_intent,
-                        raw_result or "",
-                    ):
-                        retry_started_at = time.monotonic()
-                        raw_result = run_direct_chat_backend(
-                            candidate_backend,
-                            _build_backend_retry_prompt(
-                                assistant_prompt,
-                                mode=mode,
-                                user_message=user_message,
-                            ),
-                            session.workspace_path,
-                            timeout_seconds=candidate_timeout,
-                            mode=mode,
-                        )
-                        retry_elapsed_ms = int((time.monotonic() - retry_started_at) * 1000)
-                        backend_elapsed_ms += retry_elapsed_ms
-                        attempt_elapsed_ms += retry_elapsed_ms
-                        response_path = "backend_retry" if attempt_index == 0 else "backend_fallback_retry"
-                        if general_knowledge_turn and _looks_like_generic_backend_filler(raw_result or ""):
-                            raise RuntimeError(f"{candidate_backend} returned generic filler for a factual question.")
-                    elif attempt_index > 0:
-                        response_path = "backend_fallback"
-                    assistant_text = _normalize_backend_reply(
-                        db,
-                        mode=mode,
-                        user_message=user_message,
-                        assistant_text=raw_result or "",
-                        direct_fact_intent=direct_fact_intent,
-                    )
-                    backend_stats_setting = _record_backend_attempt(
-                        db,
-                        mode=_backend_stats_bucket(mode, capability),
-                        backend_name=candidate_backend,
-                        success=True,
-                        latency_ms=attempt_elapsed_ms,
-                    )
-                    backend_name = candidate_backend
-                    session.backend = candidate_backend
-                    break
-                except RuntimeError as exc:
-                    backend_errors[candidate_backend] = str(exc)
-                    backend_stats_setting = _record_backend_attempt(
-                        db,
-                        mode=_backend_stats_bucket(mode, capability),
-                        backend_name=candidate_backend,
-                        success=False,
-                        latency_ms=candidate_timeout * 1000 if "timed out" in str(exc).lower() else None,
-                        error=str(exc),
-                    )
-                    if attempt_index == len(backend_candidates) - 1:
-                        assistant_text = _maybe_build_local_reply(
-                            db,
-                            mode=mode,
-                            user_message=user_message,
-                        )
-                        response_path = "local_fallback"
-                        if assistant_text is None:
-                            # Use the last error encountered during the attempts
-                            last_err = next(iter(backend_errors.values())) if backend_errors else None
-                            assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode, error_text=last_err)
-                            
-                            # Cogmachine Upgrade: Resilient Fallback - provide local context if quota hit or backend fails
-                            if "quota" in str(last_err).lower() or "limit" in str(last_err).lower() or not last_err:
-                                rag_context = _search_local_source_code(user_message)
-                                if rag_context:
-                                    assistant_text = f"{assistant_text}\n\n{rag_context}"
-                            
-                            response_path = "backend_unavailable"
-                    continue
+        except Exception as e:
+            # Resilient Fallback: Search internal source code if LLM is down
+            code_rag = _search_local_source_code(user_message)
+            if code_rag:
+                assistant_text = f"My external backends are currently busy, but {code_rag}"
+                response_path = "local_code_rag"
+            else:
+                assistant_text = _build_backend_unavailable_reply(session.backend or "gemini", mode="conversation", error_text=str(e))
+                response_path = "backend_unavailable"
 
+    # --- FINAL PERSISTENCE & LEARNING ---
     total_latency_ms = int((time.monotonic() - started_at) * 1000)
-
-    session.status = "working" if response_path in {"task_run_started", "task_run_in_progress"} else "answered"
-    details = dict(session.details or {})
-    details["last_user_message"] = user_message
-    details["last_assistant_message"] = assistant_text
-    details["mode"] = mode
-    details["capability"] = capability
-    details["connected_backend"] = backend_name
-    details["response_path"] = response_path
-    details["total_latency_ms"] = total_latency_ms
-    if task_payload:
-        details["pexo_task_status"] = str(task_payload.get("status") or "").strip()
-        details["pexo_task_role"] = str(task_payload.get("role") or "").strip()
-        details["pexo_task_question"] = str(task_payload.get("question") or "").strip()
-        details["pexo_task_user_message"] = str(task_payload.get("user_message") or "").strip()
-        if task_payload.get("session_id"):
-            session.pexo_session_id = str(task_payload.get("session_id"))
-    else:
-        details.pop("pexo_task_status", None)
-        details.pop("pexo_task_role", None)
-        details.pop("pexo_task_question", None)
-        details.pop("pexo_task_user_message", None)
-    if mode == "task":
-        task_next_step = _extract_task_next_step(assistant_text or "")
-        task_constraint = _extract_task_constraint(user_message)
-        if task_next_step:
-            details["task_next_step"] = task_next_step
-        elif response_path != "local_direct":
-            details.pop("task_next_step", None)
-        if task_constraint:
-            details["task_constraint"] = task_constraint
-    elif mode != "task":
-        details.pop("task_constraint", None)
-    if preference_memory is not None:
-        details["learned_preference"] = preference_memory.content
-    else:
-        details.pop("learned_preference", None)
-    if response_path == "web_fact":
-        if web_fact_source:
-            details["web_fact_source"] = web_fact_source
-        if web_fact_title:
-            details["web_fact_title"] = web_fact_title
-    else:
-        details.pop("web_fact_source", None)
-        details.pop("web_fact_title", None)
-    if task_payload:
-        if attempted_backends:
-            details["attempted_backends"] = attempted_backends
-        else:
-            details.pop("attempted_backends", None)
-        if backend_errors:
-            details["backend_errors"] = backend_errors
-        else:
-            details.pop("backend_errors", None)
-    elif not local_first and response_path != "web_fact":
-        details["attempted_backends"] = attempted_backends
-        if backend_errors:
-            details["backend_errors"] = backend_errors
-        else:
-            details.pop("backend_errors", None)
-    elif response_path == "web_fact":
-        details.pop("attempted_backends", None)
-        details.pop("backend_errors", None)
-    if backend_elapsed_ms is not None:
-        details["backend_latency_ms"] = backend_elapsed_ms
-    else:
-        details.pop("backend_latency_ms", None)
-    session.details = details
-
+    
     assistant_record = _store_message(
-        db,
-        session.id,
-        "assistant",
-        assistant_text,
+        db, 
+        session.id, 
+        "assistant", 
+        assistant_text or "", 
         details={
-            "status": "answered",
-            "backend": backend_name,
-            "mode": mode,
             "response_path": response_path,
             "total_latency_ms": total_latency_ms,
-            "backend_latency_ms": backend_elapsed_ms,
-            "pexo_session_id": session.pexo_session_id,
-            "pexo_task_status": details.get("pexo_task_status"),
-        },
+            "pexo_session_id": session.pexo_session_id
+        }
     )
-
-    _commit_with_retry(db, session, user_record, assistant_record, preference_memory, backend_stats_setting)
-    if preference_memory is not None:
-        upsert_memory_search_document(
-            preference_memory.id,
-            content=preference_memory.content,
-            task_context=preference_memory.task_context,
-            session_id=preference_memory.session_id,
-        )
-    db.refresh(session)
-    invalidate_many("chat_sessions", "admin_snapshot", "telemetry")
-
-    # Cogmachine Upgrade: Autonomous Post-Chat Learning
-    if assistant_text and not local_first and response_path not in {"task_run_started", "task_run_in_progress"}:
+    
+    session.status = "working" if launch_background_worker else "answered"
+    db.commit()
+    
+    # Cogmachine: Background autonomous insight extraction
+    if assistant_text and response_path not in ("backend_unavailable", "local_code_rag"):
         try:
             threading.Thread(
                 target=_background_post_chat_learning,
                 args=(session.id, user_message, assistant_text),
-                daemon=True,
+                daemon=True
             ).start()
         except Exception:
             pass
@@ -3383,11 +3165,8 @@ def send_chat_message(
     return {
         **get_chat_session_payload(db, session.id),
         "reply": {
-            "status": "answered",
             "user_message": assistant_text,
-            "question": None,
-            "role": None,
-            "next_action": None,
-            "pexo_session_id": session.pexo_session_id,
-        },
+            "status": session.status,
+            "pexo_session_id": session.pexo_session_id
+        }
     }
