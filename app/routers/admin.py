@@ -9,6 +9,7 @@ from ..client_connect import connect_clients
 from ..database import get_db
 from ..models import AgentProfile, AgentState, Artifact, ChatMessage, ChatSession, DynamicTool, Memory, Profile
 from ..runtime import build_runtime_status
+from ..version import __version__
 from .artifacts import serialize_artifact
 from .memory import serialize_memory
 from .profile import derive_profile_answers
@@ -304,6 +305,7 @@ def get_admin_snapshot(memory_limit: int = 12, db: Session = Depends(get_db)):
         recent_artifacts = db.query(Artifact).order_by(artifact_recency.desc(), Artifact.id.desc()).limit(safe_limit).all()
 
         return {
+            "version": __version__,
             "configured": profile is not None,
             "profile": serialize_profile(profile),
             "profile_answers": derive_profile_answers(profile),

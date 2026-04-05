@@ -1931,6 +1931,7 @@ class HardeningTests(unittest.TestCase):
                         db,
                     )
                     snapshot = get_admin_snapshot(memory_limit=5, db=db)
+                    self.assertIn("version", snapshot)
                     self.assertIn("runtime", snapshot)
                     self.assertIn("clients", snapshot)
                     self.assertEqual(snapshot["stats"]["artifact_count"], 1)
