@@ -309,6 +309,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("saveProfile()", html)
         self.assertIn("runMemoryMaintenance()", html)
         self.assertNotIn("Direct Chat", html)
+        self.assertNotIn("Enable Vector", html)
         self.assertIn("Memory Console", html)
         self.assertIn("Recent Memory", html)
         self.assertIn("artifactList", html)
@@ -3319,6 +3320,18 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(auto_memory_only_exchange["next_action"], "reply_to_user")
         self.assertEqual(auto_memory_only_exchange["writes"]["memory"]["content"], "AUTO_MEMORY_ONLY_EXCHANGE_TEST.")
 
+        session_scoped_memory_exchange = pexo(
+            message="Store this exact memory in Pexo: SESSION_SCOPED_MEMORY_TEST.",
+            task_context="brain-test",
+            session_id="fresh-memory-session",
+        )
+        self.assertEqual(session_scoped_memory_exchange["status"], "context_ready")
+        self.assertEqual(session_scoped_memory_exchange["session_id"], "fresh-memory-session")
+        self.assertEqual(
+            session_scoped_memory_exchange["writes"]["memory"]["content"],
+            "SESSION_SCOPED_MEMORY_TEST.",
+        )
+
         memory_lookup_exchange = pexo(
             message='Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."',
             task_context="brain-test",
@@ -3332,6 +3345,7 @@ class HardeningTests(unittest.TestCase):
             memory_lookup_exchange["memory"]["results"][0]["content"],
             "AUTO_MEMORY_ONLY_EXCHANGE_TEST.",
         )
+        self.assertEqual(memory_lookup_exchange["artifacts"]["results"], [])
 
         compact_memory_lookup = pexo_find_memory('Find the memory that says "AUTO_MEMORY_ONLY_EXCHANGE_TEST."')
         self.assertEqual(compact_memory_lookup["status"], "success")
@@ -3364,9 +3378,16 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(bootstrap["mode"], "brain")
         self.assertIn("operating_contract", bootstrap)
         self.assertIn("pexo", " ".join(bootstrap["operating_contract"]))
-        self.assertEqual(bootstrap["task"]["status"], "clarification_required")
+        self.assertIsNone(bootstrap["task"])
         self.assertGreaterEqual(len(bootstrap["memory"]["results"]), 1)
         self.assertGreaterEqual(len(bootstrap["artifacts"]["results"]), 1)
+
+        task_bootstrap = pexo_bootstrap_brain(
+            prompt="Review this repo and store the top issues in memory.",
+            query="repo",
+        )
+        self.assertIsNotNone(task_bootstrap["task"])
+        self.assertIn(task_bootstrap["task"]["status"], {"clarification_required", "agent_action_required", "complete"})
 
         prompts = mcp.list_prompts()
         if asyncio.iscoroutine(prompts):

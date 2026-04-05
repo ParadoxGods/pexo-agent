@@ -179,7 +179,7 @@ def _brain_usage_rules() -> list[str]:
         "Prefer 'user_message' for anything shown to the user. Keep internal routing or agent instructions hidden unless the user asks for them.",
         "Store stable decisions and accepted preferences in Pexo so future clients can continue without the user repeating context.",
         "Always check 'user_message' for the response to show to the user.",
-        "Use 'pexo_recall_context' to leverage Pexo's local semantic memory and artifacts before asking the user for information.",
+        "Use 'pexo_recall_context' to leverage Pexo's local memory index and artifacts before asking the user for information.",
     ]
 
 
@@ -297,6 +297,23 @@ def _build_exchange_task_view(task_payload: dict | None, notice: str | None = No
     return response
 
 
+def _infer_lookup_targets(query: str) -> tuple[bool, bool]:
+    normalized = _normalize_exchange_message(query)
+    if not normalized:
+        return True, True
+
+    memory_markers = ("memory", "memories", "note", "notes", "preference", "preferences", "session", "sessions")
+    artifact_markers = ("artifact", "artifacts", "file", "files", "readme", "path", "paths", "document", "documents")
+
+    wants_memory = any(marker in normalized for marker in memory_markers)
+    wants_artifacts = any(marker in normalized for marker in artifact_markers)
+    if wants_memory and not wants_artifacts:
+        return True, False
+    if wants_artifacts and not wants_memory:
+        return False, True
+    return True, True
+
+
 def _build_compact_lookup_payload(
     db,
     *,
@@ -305,20 +322,29 @@ def _build_compact_lookup_payload(
     artifact_results: int,
     auto_promote_vector: bool = False,
 ) -> dict:
-    memory_payload = search_memory(
-        MemorySearchRequest(
-            query=query,
-            n_results=max(1, min(memory_results, 10)),
-            auto_promote_vector=auto_promote_vector,
-        ),
-        db,
+    include_memory, include_artifacts = _infer_lookup_targets(query)
+    memory_payload = (
+        search_memory(
+            MemorySearchRequest(
+                query=query,
+                n_results=max(1, min(memory_results, 10)),
+                auto_promote_vector=auto_promote_vector,
+            ),
+            db,
+        )
+        if include_memory
+        else {"results": []}
     )
-    artifact_payload = list_artifacts(
-        limit=max(1, min(artifact_results, 10)),
-        query=query,
-        session_id=None,
-        task_context=None,
-        db=db,
+    artifact_payload = (
+        list_artifacts(
+            limit=max(1, min(artifact_results, 10)),
+            query=query,
+            session_id=None,
+            task_context=None,
+            db=db,
+        )
+        if include_artifacts
+        else {"artifacts": []}
     )
     return {
         "memory": {
@@ -430,8 +456,24 @@ def _exchange_operation(
 
     task_payload = None
     notice = None
-    if session_id:
-        current_status = get_simple_task_status(session_id=session_id, db=db)
+    has_task_intent = (
+        message is not None
+        and effective_query is None
+        and not _looks_like_storage_only_message(
+            message,
+            remember=effective_remember,
+            attach_path=attach_path,
+            attach_text=attach_text,
+            query=effective_query,
+        )
+    )
+    if session_id and (has_task_intent or agent_result is not None):
+        try:
+            current_status = get_simple_task_status(session_id=session_id, db=db)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            current_status = None
         if message is not None and agent_result is not None:
             notice = "Pexo ignored the user message because agent_result was provided for this session."
             task_payload = continue_simple_task(
@@ -439,7 +481,12 @@ def _exchange_operation(
                 db,
             )
         elif message is not None:
-            if current_status.get("status") == "clarification_required":
+            if current_status is None:
+                task_payload = start_simple_task(
+                    PromptRequest(user_id=user_id, prompt=message, session_id=session_id),
+                    db,
+                )
+            elif current_status.get("status") == "clarification_required":
                 task_payload = continue_simple_task(
                     SimpleContinueRequest(session_id=session_id, clarification_answer=message),
                     db,
@@ -448,6 +495,8 @@ def _exchange_operation(
                 task_payload = current_status
                 notice = "Pexo did not use the message because this session is not waiting for user clarification."
         elif agent_result is not None:
+            if current_status is None:
+                raise ValueError("agent_result requires an existing session waiting for agent work.")
             if current_status.get("status") == "agent_action_required":
                 task_payload = continue_simple_task(
                     SimpleContinueRequest(session_id=session_id, result_data=agent_result),
@@ -456,15 +505,7 @@ def _exchange_operation(
             else:
                 task_payload = current_status
                 notice = "Pexo did not use agent_result because this session is not waiting for agent work."
-        else:
-            task_payload = current_status
-    elif message is not None and effective_query is None and not _looks_like_storage_only_message(
-        message,
-        remember=effective_remember,
-        attach_path=attach_path,
-        attach_text=attach_text,
-        query=effective_query,
-    ):
+    elif has_task_intent:
         task_payload = start_simple_task(
             PromptRequest(user_id=user_id, prompt=message, session_id=None),
             db,
@@ -557,7 +598,7 @@ def _brain_bootstrap_payload(
     )
     task_payload = (
         start_simple_task(PromptRequest(user_id=user_id, prompt=prompt, session_id=session_id), db)
-        if prompt
+        if _should_bootstrap_start_task(prompt)
         else None
     )
 
@@ -626,7 +667,9 @@ def _extract_inline_memory_message(text: str | None) -> str | None:
     )
     if colon_match:
         candidate = colon_match.group("content").strip().strip("\"'")
-        if len(candidate.split()) >= 3:
+        candidate = re.sub(r"""(?is)^in\s+pexo\s*:?\s*""", "", candidate).strip()
+        is_exact_store = re.search(r"""(?is)\bexact\s+(?:memory|note|context)\b""", raw) is not None
+        if is_exact_store or len(candidate.split()) >= 3:
             return candidate
     return None
 
@@ -695,6 +738,47 @@ def _looks_like_storage_only_message(
     if "store this" in normalized or "attach this" in normalized:
         return True
     return False
+
+
+def _should_bootstrap_start_task(prompt: str | None) -> bool:
+    normalized = _normalize_exchange_message(prompt)
+    if not normalized:
+        return False
+
+    non_task_prefixes = (
+        "summarize ",
+        "tell me ",
+        "show me ",
+        "what is ",
+        "what's ",
+        "list ",
+        "read ",
+        "find ",
+        "search ",
+        "look up ",
+        "recall ",
+    )
+    if any(normalized.startswith(prefix) for prefix in non_task_prefixes):
+        return False
+    if _looks_like_lookup_only_message(prompt):
+        return False
+    if _looks_like_storage_only_message(prompt):
+        return False
+
+    task_verbs = (
+        "build ",
+        "fix ",
+        "implement ",
+        "review ",
+        "design ",
+        "create ",
+        "write ",
+        "generate ",
+        "refactor ",
+        "debug ",
+        "plan ",
+    )
+    return any(normalized.startswith(verb) for verb in task_verbs)
 
 
 @mcp.resource(
