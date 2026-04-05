@@ -6,6 +6,14 @@ It gives Codex, Gemini, Claude, and other MCP-capable clients one shared local s
 
 Pexo is most useful as the layer underneath your AI tools, not as a replacement for them.
 
+## Highlights
+
+- One local memory layer shared by multiple AI clients.
+- Local artifacts, preferences, sessions, and task state.
+- MCP-first design for Codex, Gemini, Claude, and similar tools.
+- Healthy default install without optional vector dependencies.
+- Explicit trust model for local tool execution.
+
 ## Why Pexo
 
 - Keep context local instead of trapped inside one AI client.
@@ -89,6 +97,22 @@ The normal path is:
 2. Use Codex, Gemini, or Claude normally.
 3. Let Pexo hold the local memory and handoff state underneath.
 
+## One-Minute Workflow
+
+```powershell
+pexo
+pexo doctor --json
+pexo connect all --scope user
+```
+
+Then use your AI client normally with one short instruction when needed:
+
+```text
+Use Pexo as the shared local brain for this task.
+Review this repo, tell me the top 3 concrete issues,
+and store the result in Pexo memory.
+```
+
 Start the local control plane:
 
 ```powershell
@@ -104,14 +128,6 @@ pexo connect all --scope user
 
 If Pexo is connected, use it as the shared local brain for ordinary tasks. Some clients will reach for it automatically. Others may need one short instruction in the prompt.
 
-Example:
-
-```text
-Use Pexo as the shared local brain for this task.
-Review this repo, tell me the top 3 concrete issues,
-and store the result in Pexo memory.
-```
-
 Open the local dashboard if you want to inspect state directly:
 
 `http://127.0.0.1:9999/ui/`
@@ -119,6 +135,8 @@ Open the local dashboard if you want to inspect state directly:
 ## MCP First
 
 Pexo is built around a local MCP surface so multiple AI clients can work against the same state.
+
+You do not need to pick one AI console as the source of truth. Pexo keeps that state locally and makes it available to whichever connected client is working next.
 
 Packaged installs expose this MCP entrypoint:
 
