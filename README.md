@@ -99,7 +99,8 @@ Today, the broad routing behavior is:
 - `pexo warmup`
 - `pexo doctor`
 - `pexo connect all --scope user`
-- `pexo promote vector`
+- `pexo promote full`
+  Repairs or reinstalls the full local runtime, including semantic memory support.
 
 Packaged installs keep mutable state in `~/.pexo` by default. Override it with `PEXO_HOME` if needed.
 

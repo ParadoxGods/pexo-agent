@@ -208,6 +208,7 @@ Write-InstallMetadata -Version $version -Method $installMethod -CommandPath $com
 $setupArgs = @("headless-setup", "--preset", $Preset, "--name", $ProfileName)
 if (-not [string]::IsNullOrWhiteSpace($BackupPath)) { $setupArgs += @("--backup-path", $BackupPath) }
 Invoke-Checked -Percent 72 -Status "Running headless setup" -FilePath $commandPath -ArgumentList $setupArgs
+Invoke-Checked -Percent 78 -Status "Installing full local runtime" -FilePath $commandPath -ArgumentList @("promote", "full")
 
 if ($ConnectClients -ne "none") {
     Invoke-Checked -Percent 84 -Status "Connecting supported AI clients" -FilePath $commandPath -ArgumentList @("connect", $ConnectClients, "--scope", "user")

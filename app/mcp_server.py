@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException
@@ -246,6 +247,8 @@ def _compact_memory_result(payload: dict) -> dict:
         "content": _truncate(payload.get("content"), limit=240),
         "is_archived": bool(payload.get("is_archived")),
         "is_pinned": bool(payload.get("is_pinned")),
+        "created_at": payload.get("created_at"),
+        "updated_at": payload.get("updated_at"),
     }
 
 
@@ -337,10 +340,6 @@ def _exchange_operation(
         )
         memory_id = stored_memory.get("memory_id")
         writes["memory"] = _compact_memory_result(get_memory(memory_id, db)) if memory_id else None
-        if stored_memory.get("runtime") is not None:
-            writes["memory_runtime"] = stored_memory.get("runtime")
-        if stored_memory.get("promotion_offer") is not None:
-            writes["memory_promotion_offer"] = stored_memory.get("promotion_offer")
 
     artifacts_written = []
     if attach_path:
@@ -488,10 +487,10 @@ def _brain_bootstrap_payload(
         "operating_contract": _brain_usage_rules(),
         "profile": _summarize_profile(profile_payload, profile_answers),
         "runtime": {
-            "active_profile": runtime.get("runtime", {}).get("active_profile"),
-            "recommended_promotions": runtime.get("runtime", {}).get("recommended_promotions", []),
-            "vector_embeddings_available": runtime.get("runtime", {}).get("vector_embeddings_available"),
-            "install_mode": runtime.get("runtime", {}).get("install_mode"),
+            "active_profile": runtime.get("active_profile"),
+            "memory_backend": runtime.get("memory_backend"),
+            "semantic_memory_ready": runtime.get("semantic_memory_ready"),
+            "install_mode": runtime.get("install_mode"),
         },
         "clients": _summarize_clients(client_surface),
         "agents": _summarize_agents(agents),
@@ -508,6 +507,20 @@ def _brain_bootstrap_payload(
         },
         "task": task_payload,
     }
+
+
+def _coerce_task_result_payload(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if not stripped:
+        return value
+    if not (stripped.startswith("{") or stripped.startswith("[")):
+        return value
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return value
 
 
 @mcp.resource(
@@ -683,8 +696,6 @@ def pexo_recall_context(
             "query": query,
             "memory": {
                 "results": [_compact_memory_result(item) for item in memory_payload.get("results", [])],
-                "runtime": memory_payload.get("runtime"),
-                "promotion_offer": memory_payload.get("promotion_offer"),
             },
             "artifacts": {
                 "results": [_compact_artifact_result(item) for item in artifact_payload.get("artifacts", [])],
@@ -718,11 +729,8 @@ def pexo_remember_context(
         memory_payload = get_memory(memory_id, db) if memory_id else None
         return {
             "status": "success",
-            "detail": stored.get("status"),
             "user_message": "Pexo stored the context for future tasks.",
             "memory": _compact_memory_result(memory_payload) if memory_payload else None,
-            "runtime": stored.get("runtime"),
-            "promotion_offer": stored.get("promotion_offer"),
         }
 
     return _with_db(operation)
@@ -750,7 +758,6 @@ def pexo_attach_context(
         artifact_payload = stored.get("artifact")
         return {
             "status": "success",
-            "detail": stored.get("status"),
             "user_message": "Pexo attached the file to local context.",
             "artifact": _compact_artifact_result(artifact_payload) if artifact_payload else None,
         }
@@ -784,7 +791,6 @@ def pexo_attach_text_context(
         artifact_payload = stored.get("artifact")
         return {
             "status": "success",
-            "detail": stored.get("status"),
             "user_message": "Pexo saved the text artifact for future retrieval.",
             "artifact": _compact_artifact_result(artifact_payload) if artifact_payload else None,
         }
@@ -1003,7 +1009,14 @@ def pexo_store_memory(
 @mcp.tool()
 def pexo_list_recent_memories(limit: int = 12, include_archived: bool = True) -> dict:
     """Lists recent memories, ordered by last update/creation time."""
-    return _with_db(lambda db: list_recent_memories(limit=limit, include_archived=include_archived, db=db))
+    return _with_db(
+        lambda db: {
+            "memories": [
+                _compact_memory_result(memory)
+                for memory in list_recent_memories(limit=limit, include_archived=include_archived, db=db).get("memories", [])
+            ]
+        }
+    )
 
 
 @mcp.tool()
@@ -1168,18 +1181,38 @@ def pexo_continue_task(
     session_id: str,
     clarification_answer: str | None = None,
     result_data: Any | None = None,
+    message: str | None = None,
 ) -> dict:
-    """Continues the preferred simplified task flow. Show `user_message` to the user; use `instruction` or `agent_instruction` internally when Pexo requests agent work."""
-    return _with_db(
-        lambda db: continue_simple_task(
+    """Continues the preferred simplified task flow. If you are unsure whether Pexo wants clarification or an agent result, send plain `message` and Pexo will route it based on the current session state."""
+
+    def operation(db):
+        if message is not None:
+            if clarification_answer is not None or result_data is not None:
+                raise ValueError("Provide either message or explicit continuation fields, not both.")
+            status_payload = get_simple_task_status(session_id=session_id, db=db)
+            status = status_payload.get("status")
+            if status == "clarification_required":
+                resolved_clarification = message
+                resolved_result = None
+            elif status == "agent_action_required":
+                resolved_clarification = None
+                resolved_result = _coerce_task_result_payload(message)
+            else:
+                return status_payload
+        else:
+            resolved_clarification = clarification_answer
+            resolved_result = _coerce_task_result_payload(result_data)
+
+        return continue_simple_task(
             SimpleContinueRequest(
                 session_id=session_id,
-                clarification_answer=clarification_answer,
-                result_data=result_data,
+                clarification_answer=resolved_clarification,
+                result_data=resolved_result,
             ),
             db,
         )
-    )
+
+    return _with_db(operation)
 
 
 @mcp.tool()

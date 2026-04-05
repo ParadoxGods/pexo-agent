@@ -13,7 +13,7 @@ from ..cache import invalidate_surface_caches
 from ..database import get_db, SessionLocal
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
-from ..runtime import build_runtime_status, build_vector_promotion_offer, maybe_issue_vector_promotion_offer, promote_runtime
+from ..runtime import build_runtime_status, build_vector_promotion_offer, promote_runtime
 from ..search_index import delete_memory_search_document, search_memory_ids, upsert_memory_search_document
 
 try:
@@ -190,20 +190,19 @@ def _resolve_vector_runtime(
     *,
     auto_promote_vector: bool = False,
 ) -> tuple[dict | None, dict | None]:
-    promotion_offer = None
     promotion_result = None
 
     if memory_embeddings_enabled():
-        return promotion_offer, promotion_result
+        return None, promotion_result
 
-    promotion_offer = maybe_issue_vector_promotion_offer(db) or build_vector_promotion_offer()
     if auto_promote_vector:
         promotion_result = promote_runtime("vector")
         if promotion_result["status"] == "success":
             refresh_memory_runtime()
-            promotion_offer = None
+            return None, promotion_result
+        return build_vector_promotion_offer(), promotion_result
 
-    return promotion_offer, promotion_result
+    return None, promotion_result
 
 
 def _search_memories_without_embeddings(request: "MemorySearchRequest", db: Session) -> dict:

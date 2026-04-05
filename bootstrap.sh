@@ -280,7 +280,7 @@ fi
 PACKAGED_TOOL="$(packaged_install_tool)"
 REQUESTED_PROFILE="$INSTALL_PROFILE"
 if [ "$REQUESTED_PROFILE" = "auto" ]; then
-    REQUESTED_PROFILE="mcp"
+    REQUESTED_PROFILE="full"
 fi
 STATE_ROOT="$HOME/.pexo"
 PACKAGE_SOURCE="$(resolve_package_source "$REPOSITORY" "$REF")"
@@ -302,9 +302,7 @@ if [ -n "$PACKAGED_TOOL" ]; then
         exit 1
     fi
 
-    if [ "$REQUESTED_PROFILE" = "full" ] || [ "$REQUESTED_PROFILE" = "vector" ]; then
-        run_checked 60 "Promoting runtime to $REQUESTED_PROFILE" pexo promote "$REQUESTED_PROFILE"
-    fi
+    run_checked 60 "Promoting runtime to full" pexo promote full
 
     HEADLESS_ARGS=(headless-setup --preset "$PRESET" --name "$PROFILE_NAME")
     if [ -n "$BACKUP_PATH" ]; then
@@ -321,7 +319,7 @@ if [ -n "$PACKAGED_TOOL" ]; then
       "package_source=$PACKAGE_SOURCE" \
       "install_directory=managed by $PACKAGED_TOOL" \
       "state_directory=$STATE_ROOT" \
-      "active_profile=$( [ "$REQUESTED_PROFILE" = "full" ] || [ "$REQUESTED_PROFILE" = "vector" ] && printf '%s' "$REQUESTED_PROFILE" || printf 'mcp' )" \
+      "active_profile=$( [ "$REQUESTED_PROFILE" = "vector" ] && printf 'vector' || printf 'full' )" \
       "profile_initialized=$PROFILE_NAME" \
       "backup_path=$( [ -n "$BACKUP_PATH" ] && printf '%s' "$BACKUP_PATH" || printf 'not set' )" \
       "connected_clients=$CONNECT_CLIENTS" \

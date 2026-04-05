@@ -482,6 +482,9 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('pexo = "app.launcher:main"', pyproject)
         self.assertIn('pexo-mcp = "app.launcher:mcp_main"', pyproject)
         self.assertIn('"mcp==1.27.0"', pyproject)
+        self.assertNotIn('"uvicorn==0.32.0"', pyproject.split("dependencies = [", 1)[1].split("]", 1)[0])
+        self.assertNotIn('"langgraph==0.2.0"', pyproject.split("dependencies = [", 1)[1].split("]", 1)[0])
+        self.assertNotIn('"chromadb==0.4.24"', pyproject.split("dependencies = [", 1)[1].split("]", 1)[0])
         self.assertIn("[project.optional-dependencies]", pyproject)
         self.assertIn('full = ["uvicorn==0.32.0", "langgraph==0.2.0"]', pyproject)
         self.assertIn('vector = ["uvicorn==0.32.0", "langgraph==0.2.0", "chromadb==0.4.24"]', pyproject)
@@ -631,7 +634,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("uninstall", report["guidance"])
         self.assertIn("mcp", report["guidance"])
         self.assertIn("connect", report["guidance"])
-        self.assertIn("vector", report["guidance"])
+        self.assertIn("full_runtime", report["guidance"])
         self.assertIn("python", report["commands"])
         self.assertIn("codex", report["commands"])
         self.assertIn("claude", report["commands"])
@@ -1721,7 +1724,7 @@ class HardeningTests(unittest.TestCase):
             self.assertTrue(results["results"])
             self.assertEqual(results["results"][0]["metadata"]["search_mode"], "keyword_fallback")
             self.assertIn("runtime", results)
-            self.assertIsNotNone(results.get("promotion_offer"))
+            self.assertIsNone(results.get("promotion_offer"))
         finally:
             memory_router.chromadb = original_chromadb
             memory_router.Settings = original_settings
@@ -1821,8 +1824,10 @@ class HardeningTests(unittest.TestCase):
         try:
             status = build_runtime_status(db)
             self.assertFalse(status["vector_embeddings_available"])
-            self.assertTrue(status["vector_promotion_offer_pending"])
-            self.assertEqual(status["vector_promotion_offer"]["profile"], "vector")
+            self.assertFalse(status["semantic_memory_ready"])
+            self.assertEqual(status["memory_backend"], "keyword")
+            self.assertFalse(status["vector_promotion_offer_pending"])
+            self.assertIsNone(status["vector_promotion_offer"])
         finally:
             memory_router.chromadb = original_chromadb
             memory_router.Settings = original_settings
@@ -1856,13 +1861,13 @@ class HardeningTests(unittest.TestCase):
         init_db()
         mock_promote_runtime.return_value = {
             "status": "success",
-            "profile": "vector",
+            "profile": "full",
             "command": ["python", "-m", "pip"],
             "duration_ms": 1,
             "stdout": "ok",
             "stderr": "",
             "returncode": 0,
-            "runtime": {"active_profile": "vector"},
+            "runtime": {"active_profile": "full"},
         }
 
         status = pexo_get_runtime_status()
@@ -1870,7 +1875,7 @@ class HardeningTests(unittest.TestCase):
 
         promotion = pexo_promote_runtime("vector")
         self.assertEqual(promotion["status"], "success")
-        self.assertEqual(promotion["profile"], "vector")
+        self.assertEqual(promotion["profile"], "full")
 
     def test_artifact_text_and_path_registration_round_trip(self):
         init_db()
@@ -3085,6 +3090,21 @@ class HardeningTests(unittest.TestCase):
             result_data=[{"id": "task-1", "description": "Write the plan", "assigned_agent": "Developer"}],
         )
         self.assertIn(simple_submit["status"], {"agent_action_required", "complete"})
+
+        message_start = pexo_start_task("Help me with this.")
+        self.assertEqual(message_start["status"], "clarification_required")
+
+        message_continue = pexo_continue_task(
+            message_start["session_id"],
+            message="Keep it concise and local-first.",
+        )
+        self.assertEqual(message_continue["status"], "agent_action_required")
+
+        message_submit = pexo_continue_task(
+            message_start["session_id"],
+            message='[{"id": "task-1", "description": "Write the plan", "assigned_agent": "Developer"}]',
+        )
+        self.assertIn(message_submit["status"], {"agent_action_required", "complete"})
 
         deleted = pexo_delete_memory(memory_id)
         self.assertEqual(deleted["status"], "success")

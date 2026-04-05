@@ -280,7 +280,7 @@ if ($UseCurrentCheckout -or -not [string]::IsNullOrWhiteSpace($RepoPath)) {
 }
 
 $packagedTool = Get-PackagedInstallTool
-$requestedProfile = if ($InstallProfile -eq "auto") { "mcp" } else { $InstallProfile }
+$requestedProfile = if ($InstallProfile -eq "auto") { "full" } else { $InstallProfile }
 $stateRoot = Join-Path $env:USERPROFILE ".pexo"
 $packageSource = Resolve-PackageSource -Repository $Repository -Ref $Ref
 
@@ -301,9 +301,7 @@ if (-not [string]::IsNullOrWhiteSpace($packagedTool)) {
         throw "Packaged install completed, but the 'pexo' command is not visible in this shell."
     }
 
-    if ($requestedProfile -eq "full" -or $requestedProfile -eq "vector") {
-        Invoke-External -Percent 60 -Message "Promoting runtime to $requestedProfile" -FilePath "pexo" -ArgumentList @("promote", $requestedProfile)
-    }
+    Invoke-External -Percent 60 -Message "Promoting runtime to full" -FilePath "pexo" -ArgumentList @("promote", "full")
 
     $headlessArgs = @("headless-setup", "--preset", $Preset, "--name", $ProfileName)
     if (-not [string]::IsNullOrWhiteSpace($BackupPath)) {
@@ -320,7 +318,7 @@ if (-not [string]::IsNullOrWhiteSpace($packagedTool)) {
         package_source = $packageSource
         install_directory = "managed by $packagedTool"
         state_directory = $stateRoot
-        active_profile = if ($requestedProfile -eq "full" -or $requestedProfile -eq "vector") { $requestedProfile } else { "mcp" }
+        active_profile = if ($requestedProfile -eq "vector") { "vector" } else { "full" }
         profile_initialized = $ProfileName
         backup_path = if ([string]::IsNullOrWhiteSpace($BackupPath)) { "not set" } else { $BackupPath }
         connected_clients = $ConnectClients

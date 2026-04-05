@@ -371,7 +371,7 @@ function Assert-Preflight {
     }
 
     if (-not (Test-CommandAvailable "cl.exe")) {
-        Write-Host "[NOTE] Microsoft C++ Build Tools were not detected. Install them only if you later enable the optional vector-memory runtime and pip needs to build native wheels."
+        Write-Host "[NOTE] Microsoft C++ Build Tools were not detected. Pexo usually installs without them, but keep native build tools available if Python packages need local wheels on this machine."
     }
 }
 
@@ -392,7 +392,7 @@ function Get-RequestedDependencyProfile {
         return $InstallProfile
     }
 
-    return "core"
+    return "full"
 }
 
 function Get-RequirementsFile {
@@ -824,10 +824,8 @@ if (-not $HeadlessSetup) {
     Write-Host "After reopening a shell, the same setup command also works as:"
     Write-Host "  pexo --headless-setup --preset $Preset"
 }
-Write-Host "If you want the full browser UI and LangGraph runtime installed ahead of first launch:"
+Write-Host "If you want to repair or re-install the full local runtime explicitly:"
 Write-Host "  & `"$launcherPath`" --promote full"
-Write-Host "If you want native Chroma vector embeddings installed as well:"
-Write-Host "  & `"$launcherPath`" --promote vector"
 Write-Host "Ready-to-paste Windows MCP config:"
 Write-Host (Format-WindowsMcpSnippet -LauncherPath $launcherPath)
 Write-Host "To connect supported AI clients automatically:"

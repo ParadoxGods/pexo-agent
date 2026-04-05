@@ -199,6 +199,8 @@ print_step 72 "Running headless setup"
 SETUP_ARGS=(headless-setup --preset "$PRESET" --name "$PROFILE_NAME")
 if [ -n "$BACKUP_PATH" ]; then SETUP_ARGS+=(--backup-path "$BACKUP_PATH"); fi
 "$COMMAND_PATH" "${SETUP_ARGS[@]}"
+print_step 78 "Installing full local runtime"
+"$COMMAND_PATH" promote full
 
 if [ "$CONNECT_CLIENTS" != "none" ]; then
     print_step 84 "Connecting supported AI clients"

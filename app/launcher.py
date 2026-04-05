@@ -1180,7 +1180,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="full",
         metavar="PROFILE",
-        help="Install or upgrade the runtime dependency profile (core, mcp, full, vector).",
+        help="Install or upgrade the runtime dependency profile (core, mcp, full, vector). 'vector' is optional advanced semantic-memory support.",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("mcp", help="Start Pexo in native MCP stdio mode.")
@@ -1360,7 +1360,7 @@ def build_doctor_report() -> dict:
                 else str((_read_install_metadata() or {}).get("mcp_command") or "pexo-mcp")
             ),
             "connect": "pexo connect all --scope user",
-            "vector": "pexo promote vector",
+            "full_runtime": "pexo promote full",
         },
         "issues": [],
     }
@@ -1374,8 +1374,6 @@ def build_doctor_report() -> dict:
         issues.append("SQLite state database exists but could not be opened.")
     elif not sqlite_report["profile_configured"]:
         issues.append("Default profile has not been initialized yet.")
-    if not runtime_status["installed_profiles"].get("vector", False):
-        issues.append("Vector runtime is not installed; SQLite keyword fallback is active.")
     if install_mode == "packaged" and not report["commands"]["pexo"]:
         issues.append("The packaged pexo command is not visible in PATH for this shell.")
     if install_mode == "checkout" and not report["commands"]["git"]:
@@ -1406,6 +1404,7 @@ def run_doctor(as_json: bool = False) -> int:
     print(f"Code root: {report['code_root']}")
     print(f"State root: {report['state_root']}")
     print(f"Runtime profile: {report['runtime']['active_profile']}")
+    print(f"Memory backend: {report['runtime'].get('memory_backend', 'unknown')}")
     print(f"Profile configured: {'yes' if report['database']['profile_configured'] else 'no'}")
     print(f"Database: {report['paths']['database']} ({'present' if report['database']['db_exists'] else 'missing'})")
     print(f"Vector store: {report['paths']['vector_store']} ({'present' if report['path_health']['vector_store_exists'] else 'missing'})")
@@ -1424,7 +1423,8 @@ def run_doctor(as_json: bool = False) -> int:
     print(f"Uninstall command: {report['guidance']['uninstall']}")
     print(f"MCP command: {report['guidance']['mcp']}")
     print(f"Fleet connect command: {report['guidance']['connect']}")
-    print(f"Vector promote command: {report['guidance']['vector']}")
+    print("Semantic memory: optional advanced add-on")
+    print(f"Full runtime command: {report['guidance']['full_runtime']}")
     if report["issues"]:
         print("Issues:")
         for issue in report["issues"]:

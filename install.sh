@@ -187,7 +187,7 @@ PY
     rm -f "$probe_file"
 
     if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
-        echo "[NOTE] Native build tools were not detected. Install them only if you later enable the optional vector-memory runtime and pip needs to build native wheels."
+        echo "[NOTE] Native build tools were not detected. Pexo usually installs without them, but keep native build tools available if Python packages need local wheels on this machine."
     fi
 }
 
@@ -308,7 +308,7 @@ requested_profile() {
         return
     fi
 
-    echo "core"
+    echo "full"
 }
 
 requirements_file_for_profile() {
@@ -758,10 +758,8 @@ else
     echo "  pexo --headless-setup --preset $PRESET"
     echo "Run 'pexo' later only when the user wants the local dashboard at http://127.0.0.1:9999."
 fi
-echo "If you want the full browser UI and LangGraph runtime installed ahead of first launch:"
+echo "If you want to repair or re-install the full local runtime explicitly:"
 echo "  \"$PEXO_DIR/pexo\" --promote full"
-echo "If you want native Chroma vector embeddings installed as well:"
-echo "  \"$PEXO_DIR/pexo\" --promote vector"
 echo "Ready-to-paste MCP config:"
 print_mcp_snippet "$PEXO_DIR/pexo"
 echo "To connect supported AI clients automatically:"
