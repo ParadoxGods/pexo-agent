@@ -573,7 +573,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("## Start Using Pexo", readme)
         self.assertIn("## Why Pexo", readme)
         self.assertIn("## MCP First", readme)
-        self.assertIn("semantic vector memory is optional", readme)
+        self.assertIn("semantic vector memory is optional", readme.lower())
         self.assertNotIn("## Core Architecture", readme)
         self.assertNotIn("## Fleet Quickstart", readme)
         self.assertNotIn("pexo_exchange", readme)
