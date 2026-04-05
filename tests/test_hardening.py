@@ -1731,6 +1731,51 @@ class HardeningTests(unittest.TestCase):
             memory_router._memory_collection = original_collection
             db.close()
 
+    def test_memory_search_prefers_exact_quoted_match_when_query_contains_identifier(self):
+        init_db()
+        db = SessionLocal()
+        original_chromadb = memory_router.chromadb
+        original_settings = memory_router.Settings
+        original_collection = memory_router._memory_collection
+        memory_router.chromadb = None
+        memory_router.Settings = None
+        memory_router._memory_collection = None
+        try:
+            store_memory(
+                MemoryStoreRequest(
+                    session_id="session-exact",
+                    content="PEXO_SELFTEST_3: one-tool Gemini write path works.",
+                    task_context="testing",
+                ),
+                db,
+            )
+            store_memory(
+                MemoryStoreRequest(
+                    session_id="session-exact",
+                    content="PEXO_SELFTEST_2: one-tool path works.",
+                    task_context="testing",
+                ),
+                db,
+            )
+            results = search_memory(
+                MemorySearchRequest(
+                    query='Find the memory that says "PEXO_SELFTEST_3: one-tool Gemini write path works."',
+                    n_results=3,
+                ),
+                db,
+            )
+            self.assertTrue(results["results"])
+            self.assertEqual(
+                results["results"][0]["content"],
+                "PEXO_SELFTEST_3: one-tool Gemini write path works.",
+            )
+            self.assertEqual(results["results"][0]["metadata"]["retrieval_backend"], "exact_match")
+        finally:
+            memory_router.chromadb = original_chromadb
+            memory_router.Settings = original_settings
+            memory_router._memory_collection = original_collection
+            db.close()
+
     def test_fallback_graph_can_route_without_langgraph_installed(self):
         init_db()
         fallback_app = FallbackPexoApp()
@@ -3171,6 +3216,17 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("writes", exchange)
         self.assertEqual(exchange["writes"]["memory"]["task_context"], "brain-test")
         self.assertEqual(len(exchange["writes"]["artifacts"]), 1)
+
+        memory_only_exchange = pexo(
+            message="Store this exact note in Pexo: MEMORY_ONLY_EXCHANGE_TEST.",
+            remember="MEMORY_ONLY_EXCHANGE_TEST.",
+            task_context="brain-test",
+        )
+        self.assertEqual(memory_only_exchange["mode"], "exchange")
+        self.assertEqual(memory_only_exchange["status"], "context_ready")
+        self.assertEqual(memory_only_exchange["next_action"], "reply_to_user")
+        self.assertIn("writes", memory_only_exchange)
+        self.assertEqual(memory_only_exchange["writes"]["memory"]["content"], "MEMORY_ONLY_EXCHANGE_TEST.")
 
         exchange_continue = pexo_exchange(
             session_id=exchange["session_id"],

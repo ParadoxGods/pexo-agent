@@ -405,7 +405,13 @@ def _exchange_operation(
                 notice = "Pexo did not use agent_result because this session is not waiting for agent work."
         else:
             task_payload = current_status
-    elif message is not None:
+    elif message is not None and not _looks_like_storage_only_message(
+        message,
+        remember=remember,
+        attach_path=attach_path,
+        attach_text=attach_text,
+        query=query,
+    ):
         task_payload = start_simple_task(
             PromptRequest(user_id=user_id, prompt=message, session_id=None),
             db,
@@ -521,6 +527,37 @@ def _coerce_task_result_payload(value: Any) -> Any:
         return json.loads(stripped)
     except json.JSONDecodeError:
         return value
+
+
+def _normalize_exchange_message(text: str | None) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
+def _looks_like_storage_only_message(
+    message: str | None,
+    *,
+    remember: str | None = None,
+    attach_path: str | None = None,
+    attach_text: str | None = None,
+    query: str | None = None,
+) -> bool:
+    normalized = _normalize_exchange_message(message)
+    if not normalized:
+        return False
+    if query is not None:
+        return True
+    if remember is None and attach_path is None and attach_text is None:
+        return False
+
+    storage_prefixes = ("store ", "remember ", "save ", "attach ", "add ")
+    storage_markers = ("memory", "context", "artifact", "file", "note", "text", "readme", "path")
+    if any(normalized.startswith(prefix) for prefix in storage_prefixes) and any(marker in normalized for marker in storage_markers):
+        return True
+    if "exact memory" in normalized or "exact note" in normalized:
+        return True
+    if "store this" in normalized or "attach this" in normalized:
+        return True
+    return False
 
 
 @mcp.resource(

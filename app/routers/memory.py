@@ -1,4 +1,5 @@
 import importlib
+import re
 import threading
 import time
 from datetime import datetime
@@ -205,7 +206,86 @@ def _resolve_vector_runtime(
     return None, promotion_result
 
 
+def _extract_memory_query_probes(query: str) -> list[str]:
+    raw = (query or "").strip()
+    if not raw:
+        return []
+
+    probes: list[str] = []
+
+    def add_probe(value: str) -> None:
+        cleaned = " ".join((value or "").strip().split()).strip(" .,:;!?")
+        if len(cleaned) < 4:
+            return
+        if cleaned.casefold() in {item.casefold() for item in probes}:
+            return
+        probes.append(cleaned)
+
+    add_probe(raw)
+    for match in re.findall(r'"([^"]+)"', raw):
+        add_probe(match)
+    for match in re.findall(r"'([^']+)'", raw):
+        add_probe(match)
+    for match in re.findall(r"\b[A-Z0-9_]{6,}(?:: [^\"'\n]+)?", raw):
+        add_probe(match)
+    return probes
+
+
+def _search_exact_memory_matches(request: "MemorySearchRequest", db: Session) -> dict | None:
+    probes = _extract_memory_query_probes(request.query)
+    if not probes:
+        return None
+
+    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+    scored_matches: list[tuple[int, datetime | None, Memory]] = []
+    seen_ids: set[int] = set()
+
+    for probe in probes[:6]:
+        pattern = f"%{probe.lower()}%"
+        candidates = (
+            db.query(Memory)
+            .filter(Memory.is_archived.is_(False))
+            .filter(func.lower(Memory.content).like(pattern))
+            .order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc())
+            .limit(max(5, min(request.n_results * 4, 40)))
+            .all()
+        )
+        for memory in candidates:
+            if memory.id in seen_ids:
+                continue
+            seen_ids.add(memory.id)
+            content = (memory.content or "").strip()
+            content_folded = content.casefold()
+            probe_folded = probe.casefold()
+            score = 30 if content_folded == probe_folded else 20
+            if probe_folded in content_folded:
+                score += 5
+            if memory.is_pinned:
+                score += 1
+            scored_matches.append((score, memory.updated_at or memory.created_at, memory))
+
+    if not scored_matches:
+        return None
+
+    scored_matches.sort(key=lambda item: (item[0], item[1] or datetime.min, item[2].id), reverse=True)
+    top_memories = [memory for _, _, memory in scored_matches[: request.n_results]]
+    metadata_by_id = {
+        memory.id: {
+            "session_id": memory.session_id,
+            "task_context": memory.task_context,
+            "search_mode": "keyword_fallback",
+            "retrieval_backend": "exact_match",
+        }
+        for memory in top_memories
+    }
+    return _format_memory_search_results(top_memories, metadata_by_id=metadata_by_id)
+
+
 def _search_memories_without_embeddings(request: "MemorySearchRequest", db: Session) -> dict:
+    exact_matches = _search_exact_memory_matches(request, db)
+    if exact_matches and exact_matches.get("results"):
+        return exact_matches
+
     fts_memory_ids = search_memory_ids(request.query, request.n_results)
     if fts_memory_ids:
         matched_records = db.query(Memory).filter(Memory.id.in_(fts_memory_ids)).all()
