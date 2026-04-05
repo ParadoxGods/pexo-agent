@@ -1,0 +1,519 @@
+{
+  "generated_at_utc": "2026-04-05T22:25:48.781442+00:00",
+  "seed": 20260405,
+  "host": {
+    "timestamp_utc": "2026-04-05T22:25:48.531269+00:00",
+    "machine": "CDX-DUSTIN",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cores": 32,
+    "total_ram_gb": 47.72,
+    "pexo_version": "1.1.1"
+  },
+  "runtime": {
+    "memory_backend": "keyword",
+    "install_mode": "checkout",
+    "active_profile": "full"
+  },
+  "state_root": "C:\\CDXCLI\\pexo\\sandbox\\benchmark_context_compaction_fresh\\pexo_state",
+  "cases": [
+    {
+      "slug": "needle_file_lookup",
+      "title": "Needle in a haystack file lookup",
+      "prompt": "Search the artifacts for the exact PEXO_SECRET_TOKEN_998877 and return the file it is in.",
+      "query": "PEXO_SECRET_TOKEN_998877",
+      "expected_answer": "dataset_07.txt",
+      "baseline_answer": "dataset_07.txt",
+      "pexo_answer": "dataset_07.txt",
+      "correct": true,
+      "dataset_bytes": 1585080,
+      "traditional_tokens": 396270,
+      "baseline": {
+        "wall_seconds": 0.003051400010008365,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 106.29
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.20485410001128912,
+        "cpu_seconds": 0.203125,
+        "peak_rss_mb": 109.51
+      },
+      "pexo_query": {
+        "wall_seconds": 0.030413999978918582,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 109.82
+      },
+      "pexo_tokens": 2789,
+      "compaction_ratio": 142.08,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2763
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 4
+        }
+      ]
+    },
+    {
+      "slug": "retry_limit_lookup",
+      "title": "Config value lookup",
+      "prompt": "Search the artifacts for BENCH_RETRY_LIMIT_004 and return the configured value only.",
+      "query": "BENCH_RETRY_LIMIT_004",
+      "expected_answer": "7",
+      "baseline_answer": "7",
+      "pexo_answer": "7",
+      "correct": true,
+      "dataset_bytes": 1295089,
+      "traditional_tokens": 323772,
+      "baseline": {
+        "wall_seconds": 0.0017461999668739736,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 110.11
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.1444476000033319,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 110.95
+      },
+      "pexo_query": {
+        "wall_seconds": 0.02687760000117123,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 109.3
+      },
+      "pexo_tokens": 2783,
+      "compaction_ratio": 116.34,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2760
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 1
+        }
+      ]
+    },
+    {
+      "slug": "endpoint_owner_lookup",
+      "title": "Endpoint owner lookup",
+      "prompt": "Search the artifacts for BENCH_ENDPOINT_005 and return the owner value only.",
+      "query": "BENCH_ENDPOINT_005",
+      "expected_answer": "api-platform",
+      "baseline_answer": "api-platform",
+      "pexo_answer": "api-platform",
+      "correct": true,
+      "dataset_bytes": 1544090,
+      "traditional_tokens": 386022,
+      "baseline": {
+        "wall_seconds": 0.0021653000148944557,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 110.35
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.17074419994605705,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 111.86
+      },
+      "pexo_query": {
+        "wall_seconds": 0.027084200002718717,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 110.14
+      },
+      "pexo_tokens": 2782,
+      "compaction_ratio": 138.76,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2757
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 3
+        }
+      ]
+    },
+    {
+      "slug": "migration_file_lookup",
+      "title": "Migration file lookup",
+      "prompt": "Search the artifacts for BENCH_MIGRATION_006 and return the file it is in.",
+      "query": "BENCH_MIGRATION_006",
+      "expected_answer": "dataset_06.txt",
+      "baseline_answer": "dataset_06.txt",
+      "pexo_answer": "dataset_06.txt",
+      "correct": true,
+      "dataset_bytes": 1412060,
+      "traditional_tokens": 353015,
+      "baseline": {
+        "wall_seconds": 0.0015992000116966665,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 110.75
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.14396760001545772,
+        "cpu_seconds": 0.109375,
+        "peak_rss_mb": 111.97
+      },
+      "pexo_query": {
+        "wall_seconds": 0.030240599997341633,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 110.29
+      },
+      "pexo_tokens": 2782,
+      "compaction_ratio": 126.89,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2756
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 4
+        }
+      ]
+    },
+    {
+      "slug": "service_port_lookup",
+      "title": "Service port lookup",
+      "prompt": "Search the artifacts for BENCH_SERVICE_007 and return the port number only.",
+      "query": "BENCH_SERVICE_007",
+      "expected_answer": "4719",
+      "baseline_answer": "4719",
+      "pexo_answer": "4719",
+      "correct": true,
+      "dataset_bytes": 1669176,
+      "traditional_tokens": 417294,
+      "baseline": {
+        "wall_seconds": 0.0020385999814607203,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 111.43
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.17052260000491515,
+        "cpu_seconds": 0.140625,
+        "peak_rss_mb": 112.57
+      },
+      "pexo_query": {
+        "wall_seconds": 0.02894439996453002,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 110.48
+      },
+      "pexo_tokens": 2779,
+      "compaction_ratio": 150.16,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2756
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 1
+        }
+      ]
+    },
+    {
+      "slug": "feature_flag_lookup",
+      "title": "Feature flag state lookup",
+      "prompt": "Search the artifacts for BENCH_FLAG_008 and return the flag value only.",
+      "query": "BENCH_FLAG_008",
+      "expected_answer": "true",
+      "baseline_answer": "true",
+      "pexo_answer": "true",
+      "correct": true,
+      "dataset_bytes": 1566908,
+      "traditional_tokens": 391727,
+      "baseline": {
+        "wall_seconds": 0.002679100027307868,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 111.23
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.16946599999209866,
+        "cpu_seconds": 0.125,
+        "peak_rss_mb": 111.63
+      },
+      "pexo_query": {
+        "wall_seconds": 0.03231689997483045,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 110.63
+      },
+      "pexo_tokens": 2777,
+      "compaction_ratio": 141.06,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2754
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 1
+        }
+      ]
+    },
+    {
+      "slug": "cron_schedule_lookup",
+      "title": "Cron schedule lookup",
+      "prompt": "Search the artifacts for BENCH_CRON_009 and return the schedule value only.",
+      "query": "BENCH_CRON_009",
+      "expected_answer": "0 */6 * * *",
+      "baseline_answer": "0 */6 * * *",
+      "pexo_answer": "0 */6 * * *",
+      "correct": true,
+      "dataset_bytes": 1478484,
+      "traditional_tokens": 369621,
+      "baseline": {
+        "wall_seconds": 0.0016456999583169818,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 111.05
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.15292319998843595,
+        "cpu_seconds": 0.140625,
+        "peak_rss_mb": 111.88
+      },
+      "pexo_query": {
+        "wall_seconds": 0.031615199986845255,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 110.69
+      },
+      "pexo_tokens": 2781,
+      "compaction_ratio": 132.91,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2756
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 3
+        }
+      ]
+    },
+    {
+      "slug": "owner_email_lookup",
+      "title": "Owner email lookup",
+      "prompt": "Search the artifacts for BENCH_OWNER_010 and return the email value only.",
+      "query": "BENCH_OWNER_010",
+      "expected_answer": "ops-bench@example.local",
+      "baseline_answer": "ops-bench@example.local",
+      "pexo_answer": "ops-bench@example.local",
+      "correct": true,
+      "dataset_bytes": 1498062,
+      "traditional_tokens": 374515,
+      "baseline": {
+        "wall_seconds": 0.002142600016668439,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 110.9
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.16597360000014305,
+        "cpu_seconds": 0.15625,
+        "peak_rss_mb": 111.53
+      },
+      "pexo_query": {
+        "wall_seconds": 0.031131799973081797,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 110.87
+      },
+      "pexo_tokens": 2783,
+      "compaction_ratio": 134.57,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2755
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 6
+        }
+      ]
+    },
+    {
+      "slug": "sql_query_file_lookup",
+      "title": "SQL query file lookup",
+      "prompt": "Search the artifacts for BENCH_QUERY_011 and return the file it is in.",
+      "query": "BENCH_QUERY_011",
+      "expected_answer": "dataset_01.txt",
+      "baseline_answer": "dataset_01.txt",
+      "pexo_answer": "dataset_01.txt",
+      "correct": true,
+      "dataset_bytes": 1914306,
+      "traditional_tokens": 478576,
+      "baseline": {
+        "wall_seconds": 0.0020374999730847776,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 112.27
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.1847515999688767,
+        "cpu_seconds": 0.15625,
+        "peak_rss_mb": 112.8
+      },
+      "pexo_query": {
+        "wall_seconds": 0.03607440000632778,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 109.93
+      },
+      "pexo_tokens": 2780,
+      "compaction_ratio": 172.15,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2754
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 4
+        }
+      ]
+    },
+    {
+      "slug": "chain_pair_lookup",
+      "title": "Multi-file chain lookup",
+      "prompt": "Search the artifacts for BENCH_CHAIN_012 and return the config value and query value separated by ` | `.",
+      "query": "BENCH_CHAIN_012",
+      "expected_answer": "warehouse_primary | select_events_since_cursor",
+      "baseline_answer": "warehouse_primary | select_events_since_cursor",
+      "pexo_answer": "warehouse_primary | select_events_since_cursor",
+      "correct": true,
+      "dataset_bytes": 1790360,
+      "traditional_tokens": 447590,
+      "baseline": {
+        "wall_seconds": 0.002481300034560263,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 111.41
+      },
+      "pexo_ingest": {
+        "wall_seconds": 0.17072519997600466,
+        "cpu_seconds": 0.125,
+        "peak_rss_mb": 112.4
+      },
+      "pexo_query": {
+        "wall_seconds": 0.03687670000363141,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 111.14
+      },
+      "pexo_tokens": 2804,
+      "compaction_ratio": 159.63,
+      "session_activity": [
+        {
+          "agent_name": "orchestrator",
+          "status": "running",
+          "context_size_tokens": 2770
+        },
+        {
+          "agent_name": "orchestrator",
+          "status": "graph_started",
+          "context_size_tokens": 22
+        },
+        {
+          "agent_name": "Supervisor",
+          "status": "completed",
+          "context_size_tokens": 12
+        }
+      ]
+    }
+  ],
+  "suite_performance": {
+    "baseline": {
+      "wall_seconds": 0.022,
+      "cpu_seconds": 0.047,
+      "peak_rss_mb": 112.27
+    },
+    "pexo_ingest": {
+      "wall_seconds": 1.678,
+      "cpu_seconds": 1.281,
+      "peak_rss_mb": 112.8
+    },
+    "pexo_query": {
+      "wall_seconds": 0.312,
+      "cpu_seconds": 0.297,
+      "peak_rss_mb": 111.14
+    },
+    "pexo": {
+      "wall_seconds": 1.99,
+      "cpu_seconds": 1.578,
+      "peak_rss_mb": 112.8
+    },
+    "delta": {
+      "wall_seconds": 1.968,
+      "cpu_seconds": 1.531,
+      "peak_rss_mb": 0.53
+    },
+    "pexo_state_mb": 49.09
+  },
+  "summary": {
+    "case_count": 10,
+    "total_dataset_bytes": 15753615,
+    "avg_traditional_tokens": 393840.2,
+    "avg_pexo_tokens": 2784.0,
+    "avg_compaction_ratio": 141.45,
+    "median_compaction_ratio": 141.06,
+    "all_correct": true
+  }
+}
