@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pexo Cheat Sheet</title>
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --surface: #ffffff;
+      --surface-strong: #eef4ff;
+      --text: #142033;
+      --muted: #56657d;
+      --line: #d6deea;
+      --accent: #0f6fff;
+      --accent-soft: #dbe9ff;
+      --good: #0f8f63;
+      --shadow: 0 18px 50px rgba(15, 34, 57, 0.08);
+      --radius: 18px;
+      --content: 1120px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(15, 111, 255, 0.10), transparent 34%),
+        linear-gradient(180deg, #f9fbff 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .page {
+      width: min(calc(100% - 40px), var(--content));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 18px;
+      padding: 28px;
+      background: linear-gradient(145deg, #0f1d32 0%, #19355f 100%);
+      color: #f6f9ff;
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -8% -38% auto;
+      width: 360px;
+      height: 360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(99, 177, 255, 0.28), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #9fc2ff;
+      margin: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 54px);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 760px;
+      font-size: 17px;
+      line-height: 1.6;
+      color: #d9e6ff;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .hero-card {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 14px 16px;
+      backdrop-filter: blur(6px);
+    }
+
+    .hero-card strong {
+      display: block;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9fc2ff;
+      margin-bottom: 8px;
+    }
+
+    .hero-card span {
+      display: block;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #f7fbff;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.3fr 0.9fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .panel > p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .steps {
+      display: grid;
+      gap: 14px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 16px;
+      background: #fbfdff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+    }
+
+    .number {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 17px;
+    }
+
+    .step h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .step p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px 15px;
+      border-radius: 14px;
+      background: #0d1727;
+      color: #eef6ff;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+      border: 1px solid #25344d;
+    }
+
+    code {
+      font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .mini-card {
+      padding: 16px;
+      border-radius: 16px;
+      background: var(--surface-strong);
+      border: 1px solid #d7e5ff;
+    }
+
+    .mini-card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .mini-card p,
+    .mini-card ul {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    ul {
+      padding-left: 18px;
+    }
+
+    li + li {
+      margin-top: 7px;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .badge {
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .good {
+      background: #dff7ee;
+      color: var(--good);
+    }
+
+    .quick-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .quick-item {
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .quick-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+
+    .quick-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .footer {
+      margin-top: 18px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 960px) {
+      .layout,
+      .hero-grid,
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page {
+        width: min(calc(100% - 28px), var(--content));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Pexo Cheat Sheet</p>
+      <h1>Install it once. Use it as the local brain for your AI stack.</h1>
+      <p>Pexo is a local-first buffer between you and Codex, Gemini, Claude, or other MCP-capable clients. It keeps memory, artifacts, preferences, sessions, and task state in one place on your machine.</p>
+      <div class="hero-grid">
+        <div class="hero-card">
+          <strong>Install</strong>
+          <span>Use the release bundle. It sets up Pexo, connects supported AI clients, runs diagnostics, and warms the runtime.</span>
+        </div>
+        <div class="hero-card">
+          <strong>Use</strong>
+          <span>Start <code>pexo</code>, then let your AI client use Pexo as the shared local brain through MCP.</span>
+        </div>
+        <div class="hero-card">
+          <strong>Maintain</strong>
+          <span>Use <code>pexo --update</code>, <code>pexo doctor</code>, and <code>pexo connect all --scope user</code>.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="stack">
+        <section class="panel">
+          <h2>Install Pexo</h2>
+          <p>The normal install path is the GitHub release bundle. It is the simplest and most stable option.</p>
+          <div class="steps">
+            <article class="step">
+              <div class="number">1</div>
+              <div>
+                <h3>Download and run the bundle</h3>
+                <p>Windows:</p>
+                <pre><code>gh release download -R ParadoxGods/pexo-agent -p pexo-install-windows.zip --clobber
+tar -xf .\pexo-install-windows.zip
+.\install.cmd</code></pre>
+                <p style="margin-top:10px">macOS/Linux:</p>
+                <pre><code>gh release download -R ParadoxGods/pexo-agent -p pexo-install-unix.tar.gz --clobber
+tar -xzf pexo-install-unix.tar.gz
+./install.sh</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="number">2</div>
+              <div>
+                <h3>Verify the install</h3>
+                <p>These commands should work immediately after setup.</p>
+                <pre><code>pexo --version
+pexo doctor --json
+pexo connect all --scope user</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="number">3</div>
+              <div>
+                <h3>Start Pexo</h3>
+                <p>This opens the local control plane. From there, your connected AI clients can share one local memory and context layer.</p>
+                <pre><code>pexo</code></pre>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Begin Using Pexo</h2>
+          <p>The best way to use Pexo is not to chat with it directly. Use Codex, Gemini, or Claude normally and let them read and write through Pexo.</p>
+          <div class="mini-grid">
+            <div class="mini-card">
+              <h3>Normal flow</h3>
+              <ul>
+                <li>Start <code>pexo</code>.</li>
+                <li>Open your AI client.</li>
+                <li>Give it a normal task.</li>
+                <li>Let Pexo hold the memory, context, artifacts, and session state underneath.</li>
+              </ul>
+            </div>
+            <div class="mini-card">
+              <h3>Example prompt</h3>
+              <pre><code>Use Pexo as the shared local brain for this task.
+Review this repo, tell me the top 3 concrete issues,
+and store the result in Pexo memory.</code></pre>
+            </div>
+          </div>
+          <div class="badge-row">
+            <span class="badge">Shared memory</span>
+            <span class="badge">Shared artifacts</span>
+            <span class="badge">Shared preferences</span>
+            <span class="badge">Cross-client handoff</span>
+            <span class="badge good">Local-first</span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Maintain Pexo</h2>
+          <p>These are the only commands most users need for upkeep.</p>
+          <div class="steps">
+            <article class="step">
+              <div class="number">A</div>
+              <div>
+                <h3>Update Pexo</h3>
+                <p>Pull the latest managed release into your local install.</p>
+                <pre><code>pexo --update</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="number">B</div>
+              <div>
+                <h3>Run diagnostics</h3>
+                <p>Check install health, runtime state, connected clients, and local paths.</p>
+                <pre><code>pexo doctor
+pexo doctor --json</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="number">C</div>
+              <div>
+                <h3>Repair AI client connections</h3>
+                <p>Reconnect Codex, Gemini, and Claude to the packaged MCP entrypoint if needed.</p>
+                <pre><code>pexo connect all --scope user</code></pre>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <h2>Why Use Pexo</h2>
+          <div class="quick-list">
+            <div class="quick-item">
+              <strong>One local brain for multiple AI clients</strong>
+              <p>Codex, Gemini, and Claude can share the same memory, artifacts, context, preferences, and task sessions.</p>
+            </div>
+            <div class="quick-item">
+              <strong>Less repetition</strong>
+              <p>You do not need to restate repo context, design preferences, or prior decisions every time you switch clients.</p>
+            </div>
+            <div class="quick-item">
+              <strong>Local control</strong>
+              <p>Pexo keeps state on your machine and gives you one place to inspect what the AI stack knows.</p>
+            </div>
+            <div class="quick-item">
+              <strong>Better handoffs</strong>
+              <p>One model can store context, another can continue the same work, and Pexo keeps the thread intact.</p>
+            </div>
+            <div class="quick-item">
+              <strong>Repairable and observable</strong>
+              <p>You can update it, diagnose it, reconnect clients, and inspect state without rebuilding your entire workflow.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Core Commands</h2>
+          <pre><code>pexo
+pexo --chat
+pexo --no-browser
+pexo --mcp
+pexo-mcp
+pexo --update
+pexo doctor
+pexo connect all --scope user
+pexo promote full</code></pre>
+        </section>
+
+        <section class="panel">
+          <h2>What Pexo Is</h2>
+          <p>Pexo is not meant to replace Codex, Gemini, or Claude. It is the stateful middle layer between you and them.</p>
+          <div class="mini-card">
+            <h3>Think of it like this</h3>
+            <p>User -> Pexo -> AI clients</p>
+            <p style="margin-top:8px">Pexo handles memory, artifacts, preferences, sessions, and local control. The model still does the reasoning and generation.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Best Habit</h2>
+          <p>Use normal task prompts in your AI client and let Pexo stay underneath the workflow.</p>
+          <pre><code>Use Pexo as the shared local brain for this task.
+Design a landing page for this project,
+store key decisions in Pexo,
+and attach important files as context.</code></pre>
+        </section>
+      </div>
+    </section>
+
+    <p class="footer">Open this page at <code>/ui/cheatsheet.html</code>.</p>
+  </main>
+</body>
+</html>
