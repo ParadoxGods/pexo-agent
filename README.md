@@ -38,40 +38,49 @@ If you are serious about local control, repeatable AI workflows, and not restati
 
 ---
 
-## The O(1) Context Advantage (Benchmarks)
+## Context Compaction (Benchmarks)
 
-To prove Pexo's context efficiency, an independent AI agent (Gemini CLI) executed 8 distinct real-world tasks on the host machine. 
+Pexo is built to reduce how much raw project material has to enter the active model context.
 
-For each task, we compared:
-1. **The Traditional Approach (O(N)):** Reading the raw repository files directly into the LLM's context window.
-2. **The Pexo Approach (O(1)):** Registering the repository into Pexo's background artifact vault and asking Pexo to autonomously map dependencies and extract the answers using its local vector/semantic search.
+That does **not** mean the whole system is literally `O(1)` in the strict algorithmic sense. Indexing, retrieval, and orchestration still have real cost. The more honest claim is this:
 
-### Benchmark Results
+- the **primary chat context** can stay bounded even when the local project state grows
+- artifacts and memory can be kept local instead of pasted back into every turn
+- the model only needs the relevant slice of state for the current step, not the entire working set
 
-| Workload Type | Traditional Tokens (O(N)) | Pexo Tokens (O(1)) | Compaction Ratio |
-| :--- | :--- | :--- | :--- |
-| **Data Extraction** *(Needle in a Haystack)* | ~76,000 tokens | ~56 tokens | **~99.9%** |
-| **Codebase Refactoring** *(API Auditing)* | ~39,228 tokens | ~50 tokens | **~99.8%** |
-| **Configuration Audit** *(Security Check)* | ~44,745 tokens | ~45 tokens | **~99.9%** |
-| **Documentation Q&A** *(Rule Extraction)* | ~46,465 tokens | ~47 tokens | **~99.9%** |
-| **Log Analysis** *(Root Cause Debugging)* | ~87,239 tokens | ~56 tokens | **~99.9%** |
-| **Test Debugging** *(Failure Isolation)* | ~38,497 tokens | ~69 tokens | **~99.8%** |
-| **Large-Scale Search** *(Codex CLI 2MB Independent Test)* | ~448,514 tokens | ~3,782 tokens | **~99.1%** |
-| **Multi-Hop Architecture Audit** *(5.5MB Chaos Stress Test)* | ~1,383,460 tokens | ~3,004 tokens | **~99.7%** |
-| **Gemini CLI vs Pexo Agent Head-to-Head** *(1.4MB Multi-Hop Test)* | ~354,387 tokens | ~140 tokens | **~99.9%** |
-| **AVERAGE ACROSS WORKLOADS** | **~279,837 tokens** | **~805 tokens** | **~99.7% Reduction** |
+### What We Measure
 
-### The Ultimate Validation: Gemini CLI Natively vs. Pexo
-To provide absolute transparency, Gemini CLI ran a head-to-head live benchmark against its own native tools on a 1.4MB multi-hop scenario (finding 3 DB environment variables, a retry limit, and matching them to an exact failing SQL query in padded logs).
+When benchmarking Pexo, the comparison is:
 
-- **Without Pexo (Native Gemini CLI):** Gemini CLI successfully avoided reading all ~354k tokens by aggressively using grep_search and ripgrep—but it required **15 independent LLM tool calls (turns)** to navigate the noise, taking over 60 seconds of back-and-forth round trips to the API. 
-- **With Pexo:** Pexo registered the 1.4MB environment and answered the exact same prompt using only **~140 context tokens** of orchestration overhead inside the main chat, completely decoupling the heavy reasoning from the main session timeline.
+1. **Naive path:** estimate the token cost of reading all relevant files directly into the active chat context.
+2. **Pexo path:** register the same material as local artifacts, ask Pexo to retrieve the answer, and sum the session telemetry field `context_size_tokens`.
 
-### Why This Matters
+Traditional token counts are estimated with the common rough rule of `bytes / 4`.
 
-1. **Eliminating Latency (TTFT):** Forcing an LLM to evaluate 270,000+ tokens of raw text adds massive evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads this to local background storage, making the session lightning fast.
-2. **Cost & Reliability:** Bypassing massive context windows drastically reduces token costs and eliminates "attention decay", preventing the LLM from hallucinating or missing critical context due to saturation.
-3. **True Scalability:** With Pexo, you can scale your workload to thousands of files, and the LLM context consumed in your primary chat window remains static.
+### Representative Local Benchmark
+
+One reproducible local benchmark used a padded dataset of 10 text files with one buried exact token:
+
+- total dataset size: `1,794,055` bytes
+- naive read-everything estimate: `448,514` tokens
+- Pexo orchestration context: `3,782` tokens
+- effective reduction in active-chat context: `118.6x`
+
+| Scenario | Estimated Context Cost |
+| :--- | :--- |
+| Read the entire dataset into the active model context | `~448,514` tokens |
+| Register artifacts locally and query through Pexo | `3,782` tokens |
+
+### What These Numbers Mean
+
+- They describe **active-chat context pressure**, not total wall-clock performance.
+- They are **workload-specific measurements**, not universal guarantees.
+- They show the value of **local context compaction**, not magic zero-cost retrieval.
+- Exact results depend on the client, retrieval mode, artifact shape, and whether optional semantic memory is installed.
+
+The important point is practical:
+
+> As the local knowledge base grows, Pexo helps keep the working chat small enough for the model to stay focused.
 
 ---
 
