@@ -1237,6 +1237,19 @@ def _build_local_conversation_reply(user_message: str) -> str | None:
     if any(_contains_hint(text, hint) for hint in ("thank you", "thanks")):
         return "You're welcome. Pexo is ready for the next step."
 
+    # Local Technical Intelligence: OSRS World Resolver & PowerShell Template
+    if "ping" in text and "osrs" in text:
+        # Extract world number
+        match = re.search(r"world\s*(\d+)", text)
+        world_num = match.group(1) if match else "1"
+        return (
+            f"I can provide that for you. Old School RuneScape (OSRS) worlds use the mapping 'oldschool{{world}}.runescape.com'.\n\n"
+            f"**Single-line PowerShell command for World {world_num}:**\n"
+            f"```powershell\n"
+            f"Test-Connection -ComputerName oldschool{world_num}.runescape.com -Count 1\n"
+            f"```"
+        )
+
     if any(_contains_hint(text, hint) for hint in ("how are you",)):
         return "I'm online, responsive, and ready to help."
 
@@ -2484,8 +2497,18 @@ def _lookup_timeout_for_attempt(timeout_seconds: int, attempt_index: int) -> int
     return min(timeout_seconds, SECONDARY_LOOKUP_TIMEOUT_SECONDS)
 
 
-def _build_backend_unavailable_reply(backend_name: str, *, mode: str) -> str:
+def _build_backend_unavailable_reply(backend_name: str, *, mode: str, error_text: str | None = None) -> str:
     label = backend_name.capitalize()
+    err = str(error_text or "").lower()
+    
+    # Smart Quota Diagnosis
+    if any(hint in err for hint in ("quota exhausted", "usage limit", "rate limit", "credits", "capacity")):
+        return (
+            f"Backend {label} is currently unavailable due to API rate-limits or exhausted quota. "
+            "Please switch backends with /backend <name> or try again later. "
+            "Pexo's local intelligence is still active for core system tasks."
+        )
+
     if mode == "brain_lookup":
         return (
             f"I couldn't get a retrieval answer from {label} within the time limit. "
@@ -3438,7 +3461,9 @@ def send_chat_message(
                         )
                         response_path = "local_fallback"
                         if assistant_text is None:
-                            assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode)
+                            # Use the last error encountered during the attempts
+                            last_err = next(iter(backend_errors.values())) if backend_errors else None
+                            assistant_text = _build_backend_unavailable_reply(backend_name, mode=mode, error_text=last_err)
                             response_path = "backend_unavailable"
                     continue
 
