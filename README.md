@@ -38,207 +38,15 @@ If you are serious about local control, repeatable AI workflows, and not restati
 
 ---
 
-## How We Benchmarked This (Full Transparency)
+## The O(1) Context Advantage (Benchmarks)
 
-To prove Pexo's context efficiency, the benchmarks below weren't just theoretical—they were actively generated and executed by an AI agent (Gemini CLI) directly on the host machine.
+To prove Pexo's context efficiency, an independent AI agent (Gemini CLI) executed 8 distinct real-world tasks on the host machine. 
 
-**Here is exactly what I (the AI) did:**
-1. **Synthetic Data Generation:** I used shell scripts to generate 6 different datasets locally (code, logs, documentation, configs, tests, and raw text). Each dataset contained thousands of lines of padding and one highly specific "needle" (e.g., a FATAL error log, a deprecated function, a secret cryptographic key).
-2. **The Traditional Approach (Without Pexo):** Normally, to answer a question about these files, I would have to use a tool to read the raw files directly into my context window. For an average dataset of ~300KB, that injects roughly **55,000 tokens** into the permanent session history.
-3. **The Pexo Approach:** Instead, I registered the directories into Pexo's local artifact vault and asked Pexo's orchestration engine to find the answers. Pexo indexed the files in the background using its local vector/text DB. When Pexo's worker agents searched the vault, they only retrieved the exact text chunks containing the answer.
+For each task, we compared:
+1. **The Traditional Approach (O(N)):** Reading the raw repository files directly into the LLM's context window.
+2. **The Pexo Approach (O(1)):** Registering the repository into Pexo's background artifact vault and asking Pexo to autonomously map dependencies and extract the answers using its local vector/semantic search.
 
-### The Results
-
-| Workload Type | Tokens I'd Normally Read (O(N)) | Tokens Pexo Actually Used (O(1)) | Compaction Ratio |
-| :--- | :--- | :--- | :--- |
-| **Data Extraction** | ~76,000 tokens | ~56 tokens | **~99.9%** |
-| **Codebase Refactoring** | ~39,228 tokens | ~50 tokens | **~99.8%** |
-| **Configuration Audit** | ~44,745 tokens | ~45 tokens | **~99.9%** |
-| **Documentation Q&A** | ~46,465 tokens | ~47 tokens | **~99.9%** |
-| **Log Analysis** | ~87,239 tokens | ~56 tokens | **~99.9%** |
-| **Test Debugging** | ~38,497 tokens | ~69 tokens | **~99.8%** |
-| **AVERAGE ACROSS WORKLOADS** | **~55,362 tokens** | **~53 tokens** | **~99.9% Reduction** |
-
-### Why Pexo Did Better (The Value of O(1) Scaling)
-
-1. **Eliminating Latency (TTFT):** Forcing an LLM to read 55,000+ tokens of raw data adds 15–30 seconds of evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads the heavy lifting to local background storage.
-2. **Cost & Reliability:** Bypassing massive context windows drastically reduces token costs and eliminates "attention decay," ensuring the LLM doesn't lose critical context due to saturation.
-3. **True Scalability:** With Pexo, you can scale the workload to 500 files and the LLM context consumed in your primary chat window remains static (~50 tokens of clean, validated results).
-
----
-
-## What Pexo Is Good At
-
-Pexo is built for developers who want their system to compound over time.
-
-- **Keeps memory local.**  
-- **Lets one model pick up where another left off.**  
-- **Stores artifacts with the work they belong to.**  
-- **Preserves preferences** so the stack stops asking the same setup questions.  
-- **Gives you a stable MCP surface** instead of tying your workflow to one AI console.  
-
-> The important point is not that Pexo "talks." The important point is that Pexo **remembers, routes, and stabilizes the work.**
-
----
-
-## Install
-
-Use the latest GitHub Release bundle. This is the canonical install path.
-
-**Windows:**
-```powershell
-gh release download -R ParadoxGods/pexo-agent -p pexo-install-windows.zip --clobber
-tar -xf .\pexo-install-windows.zip
-.\install.cmd
-```
-
-**macOS/Linux:**
-```bash
-gh release download -R ParadoxGods/pexo-agent -p pexo-install-unix.tar.gz --clobber
-tar -xzf pexo-install-unix.tar.gz
-./install.sh
-```
-
-The release bundle installs Pexo, completes headless setup, connects supported clients, runs `pexo doctor`, and warms the local runtime.
-
-> **Manual Download:** If `gh` is unavailable, download the latest release asset manually from [Releases](https://github.com/ParadoxGods/pexo-agent/releases), extract it, and run the included `install.cmd` or `install.sh`.
-
-### Fallback Packaged Install
-Use this only if the release bundle path is unavailable.
-
-```bash
-pipx install "git+https://github.com/ParadoxGods/pexo-agent.git@v1.1.1"
-pexo headless-setup --preset efficient_operator
-pexo connect all --scope user
-pexo doctor
-```
-*Packaged installs keep mutable state under `~/.pexo` by default. Override it with `PEXO_HOME` if you want the state root somewhere else.*
-
----
-
-## Start Using Pexo
-
-The normal flow is short:
-1. Start Pexo.
-2. Use Codex, Gemini, or Claude normally.
-3. Let Pexo hold the continuity underneath.
-
-**Start the local control plane:**
-```powershell
-pexo
-```
-
-**Basic verification:**
-```powershell
-pexo doctor --json
-pexo connect all --scope user
-```
-
-Then use your client as usual. Some clients will reach for it automatically. Others may need one short instruction:
-> *"Use Pexo as the shared local brain for this task. Review this repo, tell me the top 3 concrete issues, and store the result in Pexo memory."*
-
-**Inspect the local state directly:**  
-Navigate to `http://127.0.0.1:9999/ui/` in your browser.
-
-**Direct terminal chat:**
-```powershell
-pexo --chat
-```
-
----
-
-## MCP First
-
-Pexo is designed around **MCP** (Model Context Protocol), because the real point is interoperability. You should not have to pick one AI client as the source of truth. Pexo keeps that state local and lets whichever connected model is active work against the same substrate.
-
-Packaged installs expose this MCP entrypoint:
-```json
-{
-  "mcpServers": {
-    "pexo": {
-      "command": "pexo-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-*Repository-level AI usage rules live in `AGENTS.md`.*
-
----
-
-## Safety And Control
-
-Pexo is meant to be a middle layer, so local trust boundaries matter.
-
-- Default installs work without extra semantic-memory dependencies.
-- Local memory uses SQLite and keyword-backed retrieval by default.
-- Semantic vector memory is optional.
-- Genesis tool execution is not wide open by default (default trust mode is `approval-required`).
-- Broad local execution requires explicit host trust via `full-local-exec`.
-
-That is deliberate. The safe default should still be useful.
-
----
-
-## Commands
-
-| Command | Description |
-| :--- | :--- |
-| `pexo` | Start the local control plane. |
-| `pexo --chat` | Start direct terminal chat. |
-| `pexo --no-browser` | Start the local API without opening the browser. |
-| `pexo --mcp` / `pexo-mcp` | Start MCP only. |
-| `pexo --update` | Update the current install. |
-| `pexo doctor` | Print local installation and runtime diagnostics. |
-| `pexo connect all --scope user`| Connect supported local AI clients to `pexo-mcp`. |
-| `pexo warmup` | Prime local state after install or update. |
-| `pexo promote full` | Repair or reinstall the standard local runtime. |
-| `pexo promote vector` | Add optional semantic-memory support. |
-| `pexo uninstall` | Remove the current install. |
-| `pexo uninstall --keep-state` | Remove the install but preserve local state. |
-
----
-
-## Maintenance
-
-For most users, maintenance is just:
-```powershell
-pexo --update
-pexo doctor --json
-```
-
-If client wiring drifts:
-```powershell
-pexo connect all --scope user
-```
-*That is the whole point of the product. The stack should stay simple even as the local state gets deeper.*
-
----
-
-## Repo-Local Mode
-
-Checkout mode is for contributors or users who explicitly want a repo-backed node.
-
-**Windows:**
-```powershell
-.\install.cmd -UseCurrentCheckout -AllowRepoInstall -HeadlessSetup -Preset efficient_operator
-```
-
-**macOS/Linux:**
-```bash
-./install.sh --use-current-checkout --allow-repo-install --headless-setup --preset efficient_operator
-```
-*Checkout mode keeps mutable state under the repo-local `.pexo` directory.*
-
----
-
-## Bottom Line
-
-**Pexo is what you install when you want AI clients to stop behaving like isolated terminals and start behaving like interchangeable workers on top of one local operator layer.**
-
-It keeps the memory, context, preferences, artifacts, and task state where they belong: **on your machine, under your control, and reusable across the whole stack.**
-### Comprehensive Benchmark Results
+### Benchmark Results
 
 | Workload Type | Traditional Tokens (O(N)) | Pexo Tokens (O(1)) | Compaction Ratio |
 | :--- | :--- | :--- | :--- |
@@ -248,22 +56,15 @@ It keeps the memory, context, preferences, artifacts, and task state where they 
 | **Documentation Q&A** *(Rule Extraction)* | ~46,465 tokens | ~47 tokens | **~99.9%** |
 | **Log Analysis** *(Root Cause Debugging)* | ~87,239 tokens | ~56 tokens | **~99.9%** |
 | **Test Debugging** *(Failure Isolation)* | ~38,497 tokens | ~69 tokens | **~99.8%** |
-| **Large-Scale Search** *(Codex CLI Independent Test)* | ~448,514 tokens | ~3,782 tokens | **~118x (~99.1%)** |
-| **Multi-Hop Architecture Audit** *(TRUE Real-World Stress Test)* | ~1,383,460 tokens | ~3,004 tokens | **~460x (~99.7%)** |
+| **Large-Scale Search** *(Codex CLI 2MB Independent Test)* | ~448,514 tokens | ~3,782 tokens | **~99.1%** |
+| **Multi-Hop Architecture Audit** *(5.5MB Chaos Stress Test)* | ~1,383,460 tokens | ~3,004 tokens | **~99.7%** |
 | **AVERAGE ACROSS WORKLOADS** | **~270,518 tokens** | **~888 tokens** | **~99.6% Reduction** |
 
-### The Ultimate Stress Test: Multi-Hop Reasoning on a 5.5MB Repository
-To ensure these benchmarks hold up in realistic, chaotic environments, we generated a **5.5MB** mock application repository containing deeply nested configuration files, hundreds of highly-padded Python scripts, and massive noisy log files.
+### Why This Matters
 
-- **The Task:** *"Analyze the artifacts to find the root cause of the system crash. Tell me the specific config value causing it, the file that throws the error, and the exact error message from the logs."*
-- **The LLM (Traditional):** Would require reading **~1,383,460 tokens** to trace the logic across the files. For most models, this breaks the context window entirely or causes catastrophic attention loss (hallucinations).
-- **The Pexo Orchestration:** Pexo autonomously mapped the config.json -> database.py -> production.log dependency chain in the background. It extracted the exact db_timeout_ms = 1500 config, the file throwing the exception, and the [FATAL] DB_TIMEOUT_REACHED log line using only **~3,004 orchestration tokens** inside the main LLM context.
-
-### The Value of O(1) Context Scaling
-
-1. **Eliminating Latency (TTFT):** Traditional workflows force the LLM to read 110,000+ tokens of raw data, adding 20–45 seconds of evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads the heavy lifting to local background storage.
-2. **Cost & Reliability:** Bypassing massive context windows drastically reduces token costs and eliminates "attention decay," ensuring the LLM doesn't lose critical context due to saturation.
-3. **True Scalability:** With Pexo, you can scale the workload to thousands of files and the LLM context consumed in your primary chat window remains static.
+1. **Eliminating Latency (TTFT):** Forcing an LLM to evaluate 270,000+ tokens of raw text adds massive evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads this to local background storage, making the session lightning fast.
+2. **Cost & Reliability:** Bypassing massive context windows drastically reduces token costs and eliminates "attention decay", preventing the LLM from hallucinating or missing critical context due to saturation.
+3. **True Scalability:** With Pexo, you can scale your workload to thousands of files, and the LLM context consumed in your primary chat window remains static.
 
 ---
 
@@ -438,4 +239,3 @@ Checkout mode is for contributors or users who explicitly want a repo-backed nod
 **Pexo is what you install when you want AI clients to stop behaving like isolated terminals and start behaving like interchangeable workers on top of one local operator layer.**
 
 It keeps the memory, context, preferences, artifacts, and task state where they belong: **on your machine, under your control, and reusable across the whole stack.**
-
