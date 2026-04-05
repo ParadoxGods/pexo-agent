@@ -5,6 +5,7 @@ import os
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
+from threading import RLock
 from urllib.parse import unquote, urlparse
 
 APP_DIR = Path(__file__).resolve().parent
@@ -12,6 +13,13 @@ CODE_ROOT = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
 _ENV_UNSET = object()
 CHECKOUT_STATE_DIRNAME = ".pexo"
+_context_lock = RLock()
+_runtime_path_context = {
+    "env_override": _ENV_UNSET,
+    "home_dir": None,
+    "runtime_invoker": None,
+    "code_root": None,
+}
 
 
 def normalize_user_path(raw_path: str | None) -> Path | None:
@@ -117,17 +125,104 @@ def resolve_state_root(
     return (base_home / ".pexo").resolve(strict=False)
 
 
-STATE_ROOT = resolve_state_root()
-WORKSPACE_ROOT = CODE_ROOT.resolve(strict=False) if looks_like_repo_checkout(CODE_ROOT) else STATE_ROOT
-PROJECT_ROOT = WORKSPACE_ROOT
-DYNAMIC_TOOLS_DIR = STATE_ROOT / "dynamic_tools"
-ARTIFACTS_DIR = STATE_ROOT / "artifacts"
-PEXO_DB_PATH = STATE_ROOT / "pexo.db"
-CHROMA_DB_DIR = STATE_ROOT / "chroma_db"
-RUNTIME_MARKER_PATH = STATE_ROOT / ".pexo-deps-profile"
-UPDATE_STAMP_PATH = STATE_ROOT / ".pexo-update-check"
-INSTALL_METADATA_PATH = STATE_ROOT / ".pexo-install.json"
+def set_runtime_path_context(
+    *,
+    env_override: str | None | object = _ENV_UNSET,
+    home_dir: Path | None = None,
+    runtime_invoker: str | Path | None = None,
+    code_root: Path | None = None,
+) -> None:
+    with _context_lock:
+        _runtime_path_context["env_override"] = env_override
+        _runtime_path_context["home_dir"] = home_dir
+        _runtime_path_context["runtime_invoker"] = runtime_invoker
+        _runtime_path_context["code_root"] = code_root
+
+
+def reset_runtime_path_context() -> None:
+    set_runtime_path_context(
+        env_override=_ENV_UNSET,
+        home_dir=None,
+        runtime_invoker=None,
+        code_root=None,
+    )
+
+
+def _current_code_root() -> Path:
+    with _context_lock:
+        override = _runtime_path_context["code_root"]
+    return (override or CODE_ROOT).resolve(strict=False)
+
+
+def current_state_root() -> Path:
+    with _context_lock:
+        env_override = _runtime_path_context["env_override"]
+        home_dir = _runtime_path_context["home_dir"]
+        runtime_invoker = _runtime_path_context["runtime_invoker"]
+    return resolve_state_root(
+        code_root=_current_code_root(),
+        env_override=env_override,
+        home_dir=home_dir,
+        runtime_invoker=runtime_invoker,
+    )
+
+
+def current_project_root() -> Path:
+    code_root = _current_code_root()
+    if looks_like_repo_checkout(code_root):
+        return code_root.resolve(strict=False)
+    return current_state_root()
+
+
+class RuntimePath(os.PathLike):
+    def __init__(self, resolver):
+        self._resolver = resolver
+
+    def _path(self) -> Path:
+        return self._resolver().resolve(strict=False)
+
+    def __fspath__(self) -> str:
+        return os.fspath(self._path())
+
+    def __str__(self) -> str:
+        return str(self._path())
+
+    def __repr__(self) -> str:
+        return repr(self._path())
+
+    def __truediv__(self, other):
+        return self._path() / other
+
+    def __rtruediv__(self, other):
+        return Path(other) / self._path()
+
+    def __getattr__(self, name):
+        return getattr(self._path(), name)
+
+    def __eq__(self, other) -> bool:
+        try:
+            other_path = other._path() if isinstance(other, RuntimePath) else Path(other)
+        except TypeError:
+            return False
+        return self._path() == other_path.resolve(strict=False)
+
+    def __hash__(self) -> int:
+        return hash(self._path())
+
+
+STATE_ROOT = RuntimePath(current_state_root)
+WORKSPACE_ROOT = RuntimePath(current_project_root)
+PROJECT_ROOT = RuntimePath(current_project_root)
+DYNAMIC_TOOLS_DIR = RuntimePath(lambda: current_state_root() / "dynamic_tools")
+ARTIFACTS_DIR = RuntimePath(lambda: current_state_root() / "artifacts")
+PEXO_DB_PATH = RuntimePath(lambda: current_state_root() / "pexo.db")
+CHROMA_DB_DIR = RuntimePath(lambda: current_state_root() / "chroma_db")
+RUNTIME_MARKER_PATH = RuntimePath(lambda: current_state_root() / ".pexo-deps-profile")
+UPDATE_STAMP_PATH = RuntimePath(lambda: current_state_root() / ".pexo-update-check")
+INSTALL_METADATA_PATH = RuntimePath(lambda: current_state_root() / ".pexo-install.json")
 
 
 def running_from_repo_checkout() -> bool:
-    return looks_like_repo_checkout(CODE_ROOT) and resolve_managed_runtime_state_root() is None
+    return looks_like_repo_checkout(_current_code_root()) and resolve_managed_runtime_state_root(
+        _runtime_path_context.get("runtime_invoker")
+    ) is None

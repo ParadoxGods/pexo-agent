@@ -95,10 +95,16 @@ def build_runtime_status(db: Session | None = None) -> dict:
     marker_key = get_runtime_marker_profile()
 
     def loader():
+        from .routers.tools import get_genesis_policy
+
         installed_profiles = _profile_install_matrix()
         marker_profile = reconcile_runtime_marker_profile(installed_profiles)
         active_profile = _highest_installed_profile(installed_profiles)
         vector_offer_pending = False
+        genesis_policy = get_genesis_policy(db) if db is not None else {
+            "mode": "approval-required",
+            "approved_tools": ["safe_tool", "cwd_echo"],
+        }
 
         return {
             "active_profile": active_profile,
@@ -111,6 +117,7 @@ def build_runtime_status(db: Session | None = None) -> dict:
             "state_root": str(STATE_ROOT),
             "code_root": str(CODE_ROOT),
             "install_mode": "checkout" if running_from_repo_checkout() else "packaged",
+            "genesis_policy": genesis_policy,
             "recommended_promotions": [
                 profile
                 for profile in ("mcp", "full")

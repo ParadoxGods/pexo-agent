@@ -300,6 +300,7 @@ def router(state: PexoState):
     current_agent = state.get("current_agent")
     tasks = state.get("tasks", [])
     completed = state.get("completed_tasks", [])
+    reviewed = state.get("reviewed_tasks", [])
 
     if current_agent == "Supervisor":
         if not tasks:
@@ -335,15 +336,17 @@ def router(state: PexoState):
         return "developer"
 
     if current_agent == "Genesis Architect":
-        return "developer"
+        return "reviewer"
 
     if current_agent == "Quality Assurance Manager":
+        if len(reviewed) < len(completed):
+            return "reviewer"
         if len(completed) < len(tasks):
             return "shadow"
         return "manager"
 
     if current_agent not in ["Supervisor", "Code Organization Manager", "Quality Assurance Manager", "Time Manager"]:
-        return "manager"
+        return "reviewer"
 
     if current_agent == "Code Organization Manager":
         return END
@@ -428,8 +431,8 @@ else:
     workflow.add_conditional_edges("supervisor", router, {END: END, "shadow": "shadow"})
     workflow.add_conditional_edges("shadow", router, {END: END, "developer": "developer", "genesis": "genesis"})
     workflow.add_conditional_edges("developer", router, {END: END, "reviewer": "reviewer"})
-    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager", "genesis": "genesis", "shadow": "shadow"})
-    workflow.add_conditional_edges("genesis", router, {END: END, "developer": "developer"})
+    workflow.add_conditional_edges("reviewer", router, {END: END, "developer": "developer", "manager": "manager", "genesis": "genesis", "reviewer": "reviewer", "shadow": "shadow"})
+    workflow.add_conditional_edges("genesis", router, {END: END, "reviewer": "reviewer"})
     workflow.add_conditional_edges("manager", router, {END: END})
 
     pexo_app = workflow.compile()

@@ -1,17 +1,31 @@
 import sqlite3
+from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import NullPool
+
 from .paths import PEXO_DB_PATH
 
-# Pure local SQLite database. Zero external dependencies.
-DATABASE_URL = f"sqlite:///{PEXO_DB_PATH.as_posix()}"
 
-# connect_args={"check_same_thread": False} is needed for SQLite in FastAPI.
-# timeout + WAL/busy_timeout make rapid chat/UI access much less fragile.
+def current_db_path() -> Path:
+    return Path(PEXO_DB_PATH).resolve(strict=False)
+
+
+def current_database_url() -> str:
+    return f"sqlite:///{current_db_path().as_posix()}"
+
+
+def _connect_current_sqlite():
+    db_path = current_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(str(db_path), check_same_thread=False, timeout=30)
+
+
 engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False, "timeout": 30},
+    "sqlite://",
+    creator=_connect_current_sqlite,
+    poolclass=NullPool,
 )
 
 
@@ -36,7 +50,7 @@ def _configure_sqlite_connection(dbapi_connection, connection_record):
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-_db_initialized = False
+_initialized_db_paths: set[str] = set()
 
 
 MEMORY_TABLE_MIGRATIONS = {
@@ -73,22 +87,20 @@ def run_schema_migrations() -> None:
             if column_name not in existing_artifact_columns
         )
 
-    if not statements:
-        ensure_search_indexes()
-        return
-
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))
+    if statements:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
     ensure_search_indexes()
 
+
 def init_db():
-    """Initializes the local SQLite database."""
-    global _db_initialized
+    """Initializes the active local SQLite database."""
     from . import models  # Ensure SQLAlchemy metadata is registered before create_all.
     from .core_agents import ensure_core_agent_profiles
 
-    PEXO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    db_path = current_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     run_schema_migrations()
     db = SessionLocal()
@@ -96,13 +108,21 @@ def init_db():
         ensure_core_agent_profiles(db)
     finally:
         db.close()
-    _db_initialized = True
+    _initialized_db_paths.add(str(db_path))
 
 
 def ensure_db_ready():
-    if _db_initialized and PEXO_DB_PATH.exists():
+    db_path = current_db_path()
+    db_key = str(db_path)
+    if db_key in _initialized_db_paths and db_path.exists():
         return
     init_db()
+
+
+def reset_database_runtime() -> None:
+    engine.dispose()
+    _initialized_db_paths.clear()
+
 
 def get_db():
     ensure_db_ready()

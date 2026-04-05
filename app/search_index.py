@@ -5,15 +5,15 @@ from functools import lru_cache
 
 from sqlalchemy import text
 
-from .database import engine
+from .database import current_db_path, engine
 
 MEMORY_FTS_TABLE = "memories_fts"
 ARTIFACT_FTS_TABLE = "artifacts_fts"
 FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
-@lru_cache(maxsize=1)
-def sqlite_fts_enabled() -> bool:
+@lru_cache(maxsize=16)
+def _sqlite_fts_enabled_for_db(db_key: str) -> bool:
     try:
         with engine.begin() as connection:
             connection.execute(text("CREATE VIRTUAL TABLE IF NOT EXISTS pexo_fts_probe USING fts5(content)"))
@@ -21,6 +21,10 @@ def sqlite_fts_enabled() -> bool:
         return True
     except Exception:
         return False
+
+
+def sqlite_fts_enabled() -> bool:
+    return _sqlite_fts_enabled_for_db(str(current_db_path()))
 
 
 def _fts_query(query: str) -> str:
@@ -240,3 +244,7 @@ def search_artifact_ids(query: str, limit: int) -> list[int]:
             {"query": compiled_query, "limit": max(1, min(limit, 100))},
         ).all()
     return [int(row[0]) for row in rows]
+
+
+def reset_search_index_runtime() -> None:
+    _sqlite_fts_enabled_for_db.cache_clear()

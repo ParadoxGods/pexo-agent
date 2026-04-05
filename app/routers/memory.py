@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..cache import invalidate_surface_caches
-from ..database import get_db, SessionLocal
+from ..database import ensure_db_ready, get_db, SessionLocal
 from ..models import Memory
 from ..paths import CHROMA_DB_DIR
 from ..runtime import build_runtime_status, build_vector_promotion_offer, promote_runtime
@@ -33,6 +33,7 @@ SUMMARY_FRAGMENT_LIMIT = 6
 SUMMARY_FRAGMENT_LENGTH = 240
 
 _memory_collection = None
+_memory_collection_path = None
 _memory_cogmachine_lock = threading.Lock()
 _memory_cogmachine_thread = None
 _memory_cogmachine_stop_event = None
@@ -45,18 +46,20 @@ def _coerce_db_session(db: Session | None) -> tuple[Session, bool]:
 
 
 def refresh_memory_runtime() -> bool:
-    global chromadb, Settings, _memory_collection
+    global chromadb, Settings, _memory_collection, _memory_collection_path
     if chromadb is not None and Settings is not None:
         return True
     try:
         chromadb = importlib.import_module("chromadb")
         Settings = importlib.import_module("chromadb.config").Settings
         _memory_collection = None
+        _memory_collection_path = None
         return True
     except ImportError:
         chromadb = None
         Settings = None
         _memory_collection = None
+        _memory_collection_path = None
         return False
 
 
@@ -65,15 +68,17 @@ def memory_embeddings_enabled() -> bool:
 
 
 def get_memory_collection():
-    global _memory_collection
+    global _memory_collection, _memory_collection_path
     if not memory_embeddings_enabled():
         return None
-    if _memory_collection is None:
+    current_path = str(CHROMA_DB_DIR)
+    if _memory_collection is None or _memory_collection_path != current_path:
         chroma_client = chromadb.PersistentClient(
             path=str(CHROMA_DB_DIR),
             settings=Settings(anonymized_telemetry=False),
         )
         _memory_collection = chroma_client.get_or_create_collection(name="pexo_global_memory")
+        _memory_collection_path = current_path
     return _memory_collection
 
 
@@ -568,11 +573,17 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     for m in memories:
         if normalize_for_likeness(m.content) == norm_merged:
             # Found an existing one that perfectly captures the merge result. Use it.
+            connection = db.connection()
+            archived_chroma_ids: list[str] = []
             for other_m in memories:
                 if other_m.id != m.id:
                     other_m.is_archived = True
                     other_m.compacted_into_id = m.id
+                    archived_chroma_ids.append(other_m.chroma_id)
+                    delete_memory_search_document(other_m.id, connection=connection)
+            _delete_memory_embeddings(archived_chroma_ids)
             db.commit()
+            invalidate_surface_caches()
             return m.id
 
     # Create new high-efficiency record
@@ -585,12 +596,25 @@ def merge_memory_cluster(db: Session, memory_ids: list[int]) -> int | None:
     db.add(new_memory)
     db.flush()
     _upsert_memory_embedding(new_memory)
+    connection = db.connection()
+    upsert_memory_search_document(
+        new_memory.id,
+        content=new_memory.content,
+        task_context=new_memory.task_context,
+        session_id=new_memory.session_id,
+        connection=connection,
+    )
 
+    archived_chroma_ids: list[str] = []
     for m in memories:
         m.is_archived = True
         m.compacted_into_id = new_memory.id
+        archived_chroma_ids.append(m.chroma_id)
+        delete_memory_search_document(m.id, connection=connection)
     
+    _delete_memory_embeddings(archived_chroma_ids)
     db.commit()
+    invalidate_surface_caches()
     return new_memory.id
 
 
@@ -635,6 +659,7 @@ def maintain_memory_health(db: Session, task_context: str | None = None) -> dict
 
 
 def maintain_memory_health_bg(task_context: str | None = None) -> None:
+    ensure_db_ready()
     db = SessionLocal()
     try:
         maintain_memory_health(db, task_context)
@@ -653,6 +678,7 @@ def autonomous_memory_cogmachine_loop(stop_event: threading.Event | None = None)
     
     while not (stop_event and stop_event.is_set()):
         try:
+            ensure_db_ready()
             db = SessionLocal()
             try:
                 # Proactive sweep of ALL context-less or global memories

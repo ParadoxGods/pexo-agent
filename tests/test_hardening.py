@@ -27,9 +27,9 @@ import app.database as database_module
 import app.direct_chat as direct_chat_module
 from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
-from app.agents.graph import FallbackPexoApp
+from app.agents.graph import FallbackPexoApp, invoke_pexo_graph
 from app.main import app
-from app.database import SessionLocal, engine, init_db
+from app.database import SessionLocal, engine, init_db, reset_database_runtime
 from app.direct_chat import create_chat_session, get_chat_session_payload, send_chat_message
 from app.mcp_server import (
     mcp,
@@ -83,7 +83,7 @@ from app.mcp_server import (
     pexo_update_profile,
     pexo_update_tool,
 )
-from app.models import AgentProfile, AgentState, ChatMessage, ChatSession, Memory, Profile
+from app.models import AgentProfile, AgentState, ChatMessage, ChatSession, DynamicTool, Memory, Profile
 from app.paths import (
     ARTIFACTS_DIR,
     CHROMA_DB_DIR,
@@ -91,10 +91,13 @@ from app.paths import (
     PEXO_DB_PATH,
     PROJECT_ROOT,
     looks_like_repo_checkout,
+    reset_runtime_path_context,
     resolve_managed_runtime_state_root,
     resolve_state_root,
+    set_runtime_path_context,
 )
 from app.routers.admin import build_telemetry_payload, get_admin_snapshot
+from app.search_index import reset_search_index_runtime
 from app.routers.artifacts import (
     ArtifactPathRequest,
     ArtifactTextRequest,
@@ -152,6 +155,15 @@ class FakeCollection:
 
 
 class HardeningTests(unittest.TestCase):
+    def setUp(self):
+        self._runtime_tmpdir = Path(tempfile.mkdtemp(prefix="pexo-hardening-"))
+        self._state_root = self._runtime_tmpdir / "state"
+        reset_runtime_path_context()
+        reset_search_index_runtime()
+        reset_database_runtime()
+        engine.dispose()
+        set_runtime_path_context(env_override=str(self._state_root))
+
     def tearDown(self):
         engine.dispose()
         for _ in range(10):
@@ -163,10 +175,20 @@ class HardeningTests(unittest.TestCase):
                 time.sleep(0.05)
         shutil.rmtree(CHROMA_DB_DIR, ignore_errors=True)
         shutil.rmtree(ARTIFACTS_DIR, ignore_errors=True)
+        reset_runtime_path_context()
+        reset_search_index_runtime()
+        reset_database_runtime()
+        shutil.rmtree(self._runtime_tmpdir, ignore_errors=True)
 
     def test_init_db_creates_all_tables_without_preimporting_models(self):
         engine.dispose()
-        PEXO_DB_PATH.unlink(missing_ok=True)
+        for _ in range(10):
+            try:
+                PEXO_DB_PATH.unlink(missing_ok=True)
+                break
+            except PermissionError:
+                engine.dispose()
+                time.sleep(0.05)
 
         init_db()
 
@@ -552,6 +574,13 @@ class HardeningTests(unittest.TestCase):
         self.assertNotIn("## Core Architecture", readme)
         self.assertNotIn("## Fleet Quickstart", readme)
         self.assertNotIn("pexo_exchange", readme)
+
+    def test_architecture_doc_matches_local_first_sqlite_runtime(self):
+        architecture = Path("docs/ARCHITECTURE.md").read_text(encoding="utf-8")
+        self.assertIn("SQLite", architecture)
+        self.assertIn("local-first", architecture)
+        self.assertIn("Genesis trust modes", architecture)
+        self.assertNotIn("PostgreSQL", architecture)
 
     def test_agents_file_documents_safe_windows_install_path(self):
         agents_doc = Path("AGENTS.md").read_text(encoding="utf-8")
@@ -1547,6 +1576,65 @@ class HardeningTests(unittest.TestCase):
                 os.path.normcase(os.path.realpath(str(managed_root))),
             )
 
+    def test_runtime_state_root_and_database_follow_context_changes_after_import(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_one = Path(tmpdir) / "state-one"
+            root_two = Path(tmpdir) / "state-two"
+
+            set_runtime_path_context(env_override=str(root_one))
+            init_db()
+            db = SessionLocal()
+            try:
+                db.add(Profile(name="state-one-profile", personality_prompt="one", scripting_preferences={}))
+                db.commit()
+            finally:
+                db.close()
+
+            self.assertEqual(Path(PEXO_DB_PATH), root_one / "pexo.db")
+            self.assertTrue((root_one / "pexo.db").exists())
+
+            set_runtime_path_context(env_override=str(root_two))
+            init_db()
+            db = SessionLocal()
+            try:
+                names = {profile.name for profile in db.query(Profile).all()}
+            finally:
+                db.close()
+
+            self.assertEqual(Path(PEXO_DB_PATH), root_two / "pexo.db")
+            self.assertTrue((root_two / "pexo.db").exists())
+            self.assertNotIn("state-one-profile", names)
+
+    def test_qa_is_a_hard_gate_after_normal_worker_completion(self):
+        state = {
+            "session_id": "qa-gate-test",
+            "user_prompt": "Build a landing page.",
+            "clarification_answer": "",
+            "tasks": [{"id": "task-1", "description": "Build page", "assigned_agent": "Developer"}],
+            "completed_tasks": [
+                {
+                    "task": {"id": "task-1", "description": "Build page", "assigned_agent": "Developer"},
+                    "result": "Implemented the landing page.",
+                }
+            ],
+            "reviewed_tasks": [],
+            "active_tasks": [],
+            "current_agent": "Developer",
+            "current_instruction": "",
+            "waiting_for_ai": False,
+            "final_response": "",
+            "user_profile": "",
+            "available_agents": "",
+            "available_tools": "",
+            "context_snapshot": {},
+        }
+
+        result = invoke_pexo_graph(state)
+
+        self.assertEqual(result["current_agent"], "Quality Assurance Manager")
+        self.assertTrue(result["waiting_for_ai"])
+        self.assertIn("TASK TO REVIEW", result["current_instruction"])
+
     def test_gitattributes_enforces_shell_script_line_endings(self):
         content = Path(".gitattributes").read_text(encoding="utf-8")
         self.assertIn("*.sh text eol=lf", content)
@@ -1757,6 +1845,42 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    @patch("app.routers.memory.get_memory_collection")
+    def test_memory_dedup_archives_remove_search_and_vector_records(self, mock_get_memory_collection):
+        collection = FakeCollection()
+        mock_get_memory_collection.return_value = collection
+        init_db()
+        db = SessionLocal()
+        try:
+            first = store_memory(
+                MemoryStoreRequest(
+                    session_id="session-dedup",
+                    content="Same note for deduplication.",
+                    task_context="dedup-test",
+                ),
+                db,
+            )
+            second = store_memory(
+                MemoryStoreRequest(
+                    session_id="session-dedup",
+                    content="Same note for deduplication.",
+                    task_context="dedup-test",
+                ),
+                db,
+            )
+
+            merged_id = memory_router.merge_memory_cluster(db, [first["memory_id"], second["memory_id"]])
+            archived_id = second["memory_id"] if merged_id == first["memory_id"] else first["memory_id"]
+            archived = db.query(Memory).filter(Memory.id == archived_id).first()
+
+            self.assertIsNotNone(merged_id)
+            self.assertTrue(archived.is_archived)
+            self.assertNotIn(archived_id, memory_router.search_memory_ids("Same deduplication", 10))
+            if archived.chroma_id:
+                self.assertNotIn(archived.chroma_id, collection.records)
+        finally:
+            db.close()
+
     def test_memory_search_falls_back_to_sqlite_when_chromadb_is_unavailable(self):
         init_db()
         db = SessionLocal()
@@ -1927,6 +2051,8 @@ class HardeningTests(unittest.TestCase):
             self.assertFalse(status["vector_embeddings_available"])
             self.assertFalse(status["semantic_memory_ready"])
             self.assertEqual(status["memory_backend"], "keyword")
+            self.assertEqual(status["genesis_policy"]["mode"], "approval-required")
+            self.assertIn("safe_tool", status["genesis_policy"]["approved_tools"])
             self.assertFalse(status["vector_promotion_offer_pending"])
             self.assertIsNone(status["vector_promotion_offer"])
         finally:
@@ -2750,9 +2876,9 @@ class HardeningTests(unittest.TestCase):
                 stop_before_external_worker=False,
             )
 
-            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertGreaterEqual(mock_run_backend.call_count, 2)
             self.assertEqual(reply["task_payload"]["status"], "complete")
-            self.assertIn("landing page structure and hero section", reply["assistant_text"].lower())
+            self.assertIn("ready for review", reply["assistant_text"].lower())
             self.assertNotIn("respond as pexo", reply["assistant_text"].lower())
         finally:
             db.close()
@@ -2790,9 +2916,9 @@ class HardeningTests(unittest.TestCase):
                 stop_before_external_worker=False,
             )
 
-            self.assertEqual(mock_run_backend.call_count, 2)
+            self.assertGreaterEqual(mock_run_backend.call_count, 2)
             self.assertEqual(reply["task_payload"]["status"], "complete")
-            self.assertIn("frontend design agent role and capabilities", reply["assistant_text"].lower())
+            self.assertIn("frontend design agent is ready", reply["assistant_text"].lower())
         finally:
             db.close()
 
@@ -2851,7 +2977,17 @@ class HardeningTests(unittest.TestCase):
                 db,
             )
             self.assertEqual(after_developer["status"], "agent_action_required")
-            self.assertEqual(after_developer["role"], "Code Organization Manager")
+            self.assertEqual(after_developer["role"], "Quality Assurance Manager")
+
+            after_qa = continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data="PASS",
+                ),
+                db,
+            )
+            self.assertEqual(after_qa["status"], "agent_action_required")
+            self.assertEqual(after_qa["role"], "Code Organization Manager")
 
             completed = continue_simple_task(
                 SimpleContinueRequest(
@@ -3000,38 +3136,131 @@ class HardeningTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tool_dir = Path(tmpdir)
-                with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
-                    register_tool(
-                        ToolRegistrationRequest(
-                            name="cwd_echo",
-                            description="Echoes cwd and prints stdout.",
-                            python_code=(
-                                "from pathlib import Path\n"
-                                "def run(**kwargs):\n"
-                                "    print(f\"printed:{kwargs['value']}\")\n"
-                                "    return {'cwd': str(Path.cwd()), 'value': kwargs['value']}\n"
+                with patch.dict(os.environ, {"PEXO_GENESIS_TRUST_MODE": "full-local-exec"}):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        register_tool(
+                            ToolRegistrationRequest(
+                                name="cwd_echo",
+                                description="Echoes cwd and prints stdout.",
+                                python_code=(
+                                    "from pathlib import Path\n"
+                                    "def run(**kwargs):\n"
+                                    "    print(f\"printed:{kwargs['value']}\")\n"
+                                    "    return {'cwd': str(Path.cwd()), 'value': kwargs['value']}\n"
+                                ),
                             ),
-                        ),
-                        db,
-                    )
-                    result = execute_tool(
-                        "cwd_echo",
-                        ToolExecutionRequest(
-                            kwargs={"value": "hello"},
-                            session_id="tool-session",
-                            working_directory=str(PROJECT_ROOT),
-                        ),
-                        db,
-                    )
-                    self.assertEqual(result["status"], "success")
-                    self.assertEqual(result["execution_mode"], "subprocess")
-                    self.assertIn("printed:hello", result["stdout"])
-                    self.assertEqual(result["result"]["value"], "hello")
-                    self.assertEqual(Path(result["result"]["cwd"]), PROJECT_ROOT)
+                            db,
+                        )
+                        result = execute_tool(
+                            "cwd_echo",
+                            ToolExecutionRequest(
+                                kwargs={"value": "hello"},
+                                session_id="tool-session",
+                                working_directory=str(PROJECT_ROOT),
+                            ),
+                            db,
+                        )
+                        self.assertEqual(result["status"], "success")
+                        self.assertEqual(result["execution_mode"], "subprocess")
+                        self.assertEqual(result["genesis_policy"]["mode"], "full-local-exec")
+                        self.assertIn("printed:hello", result["stdout"])
+                        self.assertEqual(result["result"]["value"], "hello")
+                        self.assertEqual(Path(result["result"]["cwd"]), PROJECT_ROOT)
 
-                    log_entry = db.query(AgentState).filter(AgentState.session_id == "tool-session").first()
-                    self.assertIsNotNone(log_entry)
-                    self.assertEqual(log_entry.agent_name, "Genesis:cwd_echo")
+                        log_entry = db.query(AgentState).filter(AgentState.session_id == "tool-session").first()
+                        self.assertIsNotNone(log_entry)
+                        self.assertEqual(log_entry.agent_name, "Genesis:cwd_echo")
+        finally:
+            db.close()
+
+    def test_tool_execution_requires_explicit_genesis_trust(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir)
+                with patch.dict(os.environ, {"PEXO_GENESIS_TRUST_MODE": "approval-required"}, clear=False):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        with self.assertRaises(HTTPException) as ctx:
+                            register_tool(
+                                ToolRegistrationRequest(
+                                    name="unsafe_tool",
+                                    description="Writes local code.",
+                                    python_code="def run(**kwargs):\n    return kwargs\n",
+                                ),
+                                db,
+                            )
+                        self.assertEqual(ctx.exception.status_code, 403)
+        finally:
+            db.close()
+
+    def test_tool_execution_in_approval_mode_allows_only_preapproved_tools(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir)
+                tool_dir.mkdir(parents=True, exist_ok=True)
+                tool_name = "approval_safe_tool"
+                (tool_dir / f"{tool_name}.py").write_text("def run(**kwargs):\n    return {'ok': True}\n", encoding="utf-8")
+                db.add(DynamicTool(name=tool_name, description="safe", python_code="def run(**kwargs):\n    return {'ok': True}\n"))
+                db.commit()
+                with patch.dict(
+                    os.environ,
+                    {
+                        "PEXO_GENESIS_TRUST_MODE": "approval-required",
+                        "PEXO_GENESIS_APPROVED_TOOLS": tool_name,
+                    },
+                    clear=False,
+                ):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        result = execute_tool(
+                            tool_name,
+                            ToolExecutionRequest(
+                                kwargs={},
+                                session_id="tool-session",
+                                working_directory=str(PROJECT_ROOT),
+                            ),
+                            db,
+                        )
+                        self.assertEqual(result["status"], "success")
+                        self.assertEqual(result["genesis_policy"]["mode"], "approval-required")
+        finally:
+            db.close()
+
+    def test_tool_execution_captures_import_time_output(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir)
+                tool_name = "import_noise_tool_case"
+                with patch.dict(os.environ, {"PEXO_GENESIS_TRUST_MODE": "full-local-exec"}):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        register_tool(
+                            ToolRegistrationRequest(
+                                name=tool_name,
+                                description="Prints during import.",
+                                python_code=(
+                                    "print('import side effect')\n"
+                                    "def run(**kwargs):\n"
+                                    "    return {'value': kwargs.get('value')}\n"
+                                ),
+                            ),
+                            db,
+                        )
+                        result = execute_tool(
+                            tool_name,
+                            ToolExecutionRequest(
+                                kwargs={"value": "hello"},
+                                session_id="tool-session",
+                                working_directory=str(PROJECT_ROOT),
+                            ),
+                            db,
+                        )
+                        self.assertEqual(result["status"], "success")
+                        self.assertIn("import side effect", result["stdout"])
+                        self.assertEqual(result["result"]["value"], "hello")
         finally:
             db.close()
 
@@ -3044,26 +3273,60 @@ class HardeningTests(unittest.TestCase):
                 outside_dir = Path(tmpdir) / "outside"
                 tool_dir.mkdir()
                 outside_dir.mkdir()
-                with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
-                    register_tool(
-                        ToolRegistrationRequest(
-                            name="safe_tool",
-                            description="No-op",
-                            python_code="def run(**kwargs):\n    return kwargs\n",
-                        ),
-                        db,
-                    )
-                    with self.assertRaises(HTTPException) as ctx:
-                        execute_tool(
-                            "safe_tool",
-                            ToolExecutionRequest(
-                                kwargs={},
-                                session_id="tool-session",
-                                working_directory=str(outside_dir),
+                tool_name = "working_dir_guard_tool"
+                with patch.dict(os.environ, {"PEXO_GENESIS_TRUST_MODE": "full-local-exec"}):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        register_tool(
+                            ToolRegistrationRequest(
+                                name=tool_name,
+                                description="No-op",
+                                python_code="def run(**kwargs):\n    return kwargs\n",
                             ),
                             db,
                         )
-                    self.assertEqual(ctx.exception.status_code, 400)
+                        with self.assertRaises(HTTPException) as ctx:
+                            execute_tool(
+                                tool_name,
+                                ToolExecutionRequest(
+                                    kwargs={},
+                                    session_id="tool-session",
+                                    working_directory=str(outside_dir),
+                                ),
+                                db,
+                            )
+                        self.assertEqual(ctx.exception.status_code, 400)
+        finally:
+            db.close()
+
+    def test_tool_execution_rejects_outside_project_unless_full_local_exec(self):
+        init_db()
+        db = SessionLocal()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tool_dir = Path(tmpdir) / "tools"
+                tool_dir.mkdir()
+                tool_name = "outside_guard_tool"
+                with patch.dict(
+                    os.environ,
+                    {"PEXO_GENESIS_TRUST_MODE": "approval-required", "PEXO_GENESIS_APPROVED_TOOLS": tool_name},
+                    clear=False,
+                ):
+                    with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", tool_dir):
+                        (tool_dir / f"{tool_name}.py").write_text("def run(**kwargs):\n    return kwargs\n", encoding="utf-8")
+                        db.add(DynamicTool(name=tool_name, description="No-op", python_code="def run(**kwargs):\n    return kwargs\n"))
+                        db.commit()
+                        with self.assertRaises(HTTPException) as ctx:
+                            execute_tool(
+                                tool_name,
+                                ToolExecutionRequest(
+                                    kwargs={},
+                                    session_id="tool-session",
+                                    working_directory=str(Path(tmpdir)),
+                                    allow_outside_project=True,
+                                ),
+                                db,
+                            )
+                        self.assertEqual(ctx.exception.status_code, 403)
         finally:
             db.close()
 
@@ -3406,36 +3669,37 @@ class HardeningTests(unittest.TestCase):
         init_db()
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_tools_dir = Path(tmpdir)
-            with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", temp_tools_dir):
-                created = pexo_register_tool(
-                    name="echo_tool",
-                    description="Echoes keyword arguments.",
-                    python_code="def run(**kwargs):\n    return {'echo': kwargs.get('message', ''), 'count': kwargs.get('count', 0)}\n",
-                )
-                self.assertEqual(created["status"], "Success. Genesis Engine has assimilated the new tool.")
+            with patch.dict(os.environ, {"PEXO_GENESIS_TRUST_MODE": "full-local-exec"}, clear=False):
+                with patch("app.routers.tools.DYNAMIC_TOOLS_DIR", temp_tools_dir):
+                    created = pexo_register_tool(
+                        name="echo_tool",
+                        description="Echoes keyword arguments.",
+                        python_code="def run(**kwargs):\n    return {'echo': kwargs.get('message', ''), 'count': kwargs.get('count', 0)}\n",
+                    )
+                    self.assertEqual(created["status"], "Success. Genesis Engine has assimilated the new tool.")
 
-                tool = pexo_get_tool("echo_tool")
-                self.assertEqual(tool["name"], "echo_tool")
-                self.assertIn("def run", tool["python_code"])
+                    tool = pexo_get_tool("echo_tool")
+                    self.assertEqual(tool["name"], "echo_tool")
+                    self.assertIn("def run", tool["python_code"])
 
-                tools = pexo_list_tools()
-                self.assertTrue(any(entry["name"] == "echo_tool" for entry in tools))
+                    tools = pexo_list_tools()
+                    self.assertTrue(any(entry["name"] == "echo_tool" for entry in tools))
 
-                updated = pexo_update_tool(
-                    "echo_tool",
-                    description="Echoes keyword arguments in uppercase.",
-                    python_code="def run(**kwargs):\n    return {'echo': str(kwargs.get('message', '')).upper()}\n",
-                )
-                self.assertEqual(updated["status"], "success")
-                self.assertIn("uppercase", updated["tool"]["description"])
+                    updated = pexo_update_tool(
+                        "echo_tool",
+                        description="Echoes keyword arguments in uppercase.",
+                        python_code="def run(**kwargs):\n    return {'echo': str(kwargs.get('message', '')).upper()}\n",
+                    )
+                    self.assertEqual(updated["status"], "success")
+                    self.assertIn("uppercase", updated["tool"]["description"])
 
-                executed = pexo_execute_tool("echo_tool", {"message": "hello"})
-                self.assertEqual(executed["status"], "success")
-                self.assertEqual(executed["result"]["echo"], "HELLO")
+                    executed = pexo_execute_tool("echo_tool", {"message": "hello"})
+                    self.assertEqual(executed["status"], "success")
+                    self.assertEqual(executed["result"]["echo"], "HELLO")
 
-                deleted = pexo_delete_tool("echo_tool")
-                self.assertEqual(deleted["status"], "success")
-                self.assertFalse((temp_tools_dir / "echo_tool.py").exists())
+                    deleted = pexo_delete_tool("echo_tool")
+                    self.assertEqual(deleted["status"], "success")
+                    self.assertFalse((temp_tools_dir / "echo_tool.py").exists())
 
     def test_mcp_artifact_tools_round_trip(self):
         init_db()

@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..cache import invalidate_surface_caches, invalidate_telemetry_caches
 from ..database import get_db
-from ..models import AgentState, DynamicTool
+from ..models import AgentState, DynamicTool, SystemSetting
 from ..orchestration_context import invalidate_session_context_snapshot
 from ..paths import DYNAMIC_TOOLS_DIR, PROJECT_ROOT, normalize_user_path
 
@@ -20,6 +21,12 @@ router = APIRouter()
 SAFE_TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEFAULT_TOOL_TIMEOUT_SECONDS = 30
 MAX_TOOL_TIMEOUT_SECONDS = 300
+GENESIS_POLICY_KEY = "genesis_policy"
+GENESIS_POLICY_MODES = {"read-only", "approval-required", "full-local-exec"}
+DEFAULT_GENESIS_POLICY = {
+    "mode": "approval-required",
+    "approved_tools": ["safe_tool", "cwd_echo"],
+}
 
 SUBPROCESS_TOOL_HARNESS = """
 import contextlib
@@ -44,16 +51,15 @@ payload = {
 }
 
 try:
-    spec = importlib.util.spec_from_file_location(module_name, tool_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load tool at {tool_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    run_callable = getattr(module, "run", None)
-    if not callable(run_callable):
-        raise RuntimeError(f"Tool '{tool_path.stem}' does not implement a callable 'run' function.")
-
     with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+        spec = importlib.util.spec_from_file_location(module_name, tool_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load tool at {tool_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        run_callable = getattr(module, "run", None)
+        if not callable(run_callable):
+            raise RuntimeError(f"Tool '{tool_path.stem}' does not implement a callable 'run' function.")
         payload["result"] = run_callable(**tool_kwargs)
     payload["status"] = "success"
 except Exception as exc:  # noqa: BLE001
@@ -86,6 +92,83 @@ class ToolExecutionRequest(BaseModel):
     working_directory: str | None = None
     allow_outside_project: bool = False
     timeout_seconds: int = DEFAULT_TOOL_TIMEOUT_SECONDS
+
+
+def _normalize_genesis_policy(value: dict | None) -> dict:
+    payload = value or {}
+    mode = str(payload.get("mode") or DEFAULT_GENESIS_POLICY["mode"]).strip().lower()
+    if mode not in GENESIS_POLICY_MODES:
+        mode = DEFAULT_GENESIS_POLICY["mode"]
+    approved_tools = [
+        validate_tool_name(str(name).strip())
+        for name in (payload.get("approved_tools") or DEFAULT_GENESIS_POLICY["approved_tools"])
+        if str(name).strip()
+    ]
+    return {
+        "mode": mode,
+        "approved_tools": sorted(set(approved_tools)),
+    }
+
+
+def get_genesis_policy(db: Session) -> dict:
+    env_mode = str(os.environ.get("PEXO_GENESIS_TRUST_MODE") or "").strip().lower()
+    env_tools = str(os.environ.get("PEXO_GENESIS_APPROVED_TOOLS") or "").strip()
+    if env_mode:
+        return _normalize_genesis_policy(
+            {
+                "mode": env_mode,
+                "approved_tools": [item.strip() for item in env_tools.split(",") if item.strip()],
+            }
+        )
+
+    setting = db.query(SystemSetting).filter(SystemSetting.key == GENESIS_POLICY_KEY).first()
+    return _normalize_genesis_policy(setting.value if setting else None)
+
+
+def _require_genesis_access(
+    db: Session,
+    *,
+    action: str,
+    tool_name: str | None = None,
+    allow_outside_project: bool = False,
+) -> dict:
+    policy = get_genesis_policy(db)
+    mode = policy["mode"]
+
+    if allow_outside_project and mode != "full-local-exec":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Genesis tools may only run outside the Pexo project in full-local-exec mode. "
+                f"Current mode: {mode}."
+            ),
+        )
+
+    if action in {"register", "update", "delete"} and mode != "full-local-exec":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Genesis tool mutation is disabled unless Pexo is explicitly placed in full-local-exec mode. "
+                f"Current mode: {mode}."
+            ),
+        )
+
+    if action == "execute":
+        if mode == "read-only":
+            raise HTTPException(
+                status_code=403,
+                detail="Genesis tool execution is disabled in read-only mode.",
+            )
+        if mode == "approval-required" and tool_name not in policy["approved_tools"]:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Tool '{tool_name}' is not approved for execution in approval-required mode. "
+                    "Use a pre-approved tool or explicitly enable full-local-exec mode on the host."
+                ),
+            )
+
+    return policy
 
 
 def validate_tool_name(tool_name: str) -> str:
@@ -169,6 +252,7 @@ def _log_tool_execution(
     stdout: str = "",
     stderr: str = "",
     error_detail: dict | None = None,
+    policy: dict | None = None,
 ) -> None:
     db.add(
         AgentState(
@@ -187,6 +271,7 @@ def _log_tool_execution(
                 "stderr_preview": stderr[:500],
                 "result_preview": _truncate_payload(result) if result is not None else None,
                 "error_detail": error_detail,
+                "genesis_policy": policy,
             },
         )
     )
@@ -257,6 +342,13 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
     if not tool:
         raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
 
+    policy = _require_genesis_access(
+        db,
+        action="execute",
+        tool_name=safe_tool_name,
+        allow_outside_project=request.allow_outside_project,
+    )
+
     tool_path = resolve_tool_path(safe_tool_name)
     if not tool_path.exists():
         raise HTTPException(status_code=500, detail=f"Tool file missing from disk: {tool_path}")
@@ -282,6 +374,7 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
             stdout=detail.get("stdout", ""),
             stderr=detail.get("stderr", ""),
             error_detail=detail,
+            policy=policy,
         )
         raise
 
@@ -302,6 +395,7 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
             stdout=stdout,
             stderr=stderr,
             error_detail=error_detail,
+            policy=policy,
         )
         raise HTTPException(
             status_code=500,
@@ -327,6 +421,7 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
         result=result,
         stdout=stdout,
         stderr=stderr,
+        policy=policy,
     )
     return {
         "status": "success",
@@ -336,6 +431,7 @@ def execute_tool(tool_name: str, request: ToolExecutionRequest, db: Session = De
         "working_directory": str(working_directory),
         "duration_ms": duration_ms,
         "execution_mode": "subprocess",
+        "genesis_policy": policy,
     }
 
 
@@ -347,6 +443,7 @@ def register_tool(request: ToolRegistrationRequest, db: Session = Depends(get_db
     it can write a Python script and register it here.
     """
     safe_tool_name = validate_tool_name(request.name)
+    _require_genesis_access(db, action="register", tool_name=safe_tool_name)
     _ensure_tool_code_compiles(safe_tool_name, request.python_code)
     existing_tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
     if existing_tool:
@@ -393,6 +490,11 @@ def list_tools(db: Session = Depends(get_db)):
     return [serialize_tool(tool) for tool in tools]
 
 
+@router.get("/policy")
+def get_tool_policy(db: Session = Depends(get_db)):
+    return get_genesis_policy(db)
+
+
 @router.get("/{tool_name}")
 def get_tool(tool_name: str, db: Session = Depends(get_db)):
     safe_tool_name = validate_tool_name(tool_name)
@@ -405,6 +507,7 @@ def get_tool(tool_name: str, db: Session = Depends(get_db)):
 @router.put("/{tool_name}")
 def update_tool(tool_name: str, request: ToolUpdateRequest, db: Session = Depends(get_db)):
     safe_tool_name = validate_tool_name(tool_name)
+    _require_genesis_access(db, action="update", tool_name=safe_tool_name)
     tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
     if not tool:
         raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
@@ -439,6 +542,7 @@ def update_tool(tool_name: str, request: ToolUpdateRequest, db: Session = Depend
 @router.delete("/{tool_name}")
 def delete_tool(tool_name: str, db: Session = Depends(get_db)):
     safe_tool_name = validate_tool_name(tool_name)
+    _require_genesis_access(db, action="delete", tool_name=safe_tool_name)
     tool = db.query(DynamicTool).filter(DynamicTool.name == safe_tool_name).first()
     if not tool:
         raise HTTPException(status_code=404, detail=f"Tool '{safe_tool_name}' not found.")
