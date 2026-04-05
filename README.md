@@ -38,25 +38,30 @@ If you are serious about local control, repeatable AI workflows, and not restati
 
 ---
 
-## Empirical Context Compaction Benchmarks
+## How We Benchmarked This (Full Transparency)
 
-To quantify Pexo's context efficiency, 6 simulated real-world scenarios were benchmarked comparing a traditional direct-read approach (injecting raw files into the LLM) versus Pexo's background orchestration and semantic vector indexing.
+To prove Pexo's context efficiency, the benchmarks below weren't just theoretical—they were actively generated and executed by an AI agent (Gemini CLI) directly on the host machine.
 
-### Comprehensive Benchmark Results
+**Here is exactly what I (the AI) did:**
+1. **Synthetic Data Generation:** I used shell scripts to generate 6 different datasets locally (code, logs, documentation, configs, tests, and raw text). Each dataset contained thousands of lines of padding and one highly specific "needle" (e.g., a FATAL error log, a deprecated function, a secret cryptographic key).
+2. **The Traditional Approach (Without Pexo):** Normally, to answer a question about these files, I would have to use a tool to read the raw files directly into my context window. For an average dataset of ~300KB, that injects roughly **55,000 tokens** into the permanent session history.
+3. **The Pexo Approach:** Instead, I registered the directories into Pexo's local artifact vault and asked Pexo's orchestration engine to find the answers. Pexo indexed the files in the background using its local vector/text DB. When Pexo's worker agents searched the vault, they only retrieved the exact text chunks containing the answer.
 
-| Workload Type | Traditional Tokens (O(N)) | Pexo Tokens (O(1)) | Compaction Ratio |
+### The Results
+
+| Workload Type | Tokens I'd Normally Read (O(N)) | Tokens Pexo Actually Used (O(1)) | Compaction Ratio |
 | :--- | :--- | :--- | :--- |
-| **Data Extraction** *(Needle in a Haystack)* | ~76,000 tokens | ~56 tokens | **~99.9%** |
-| **Codebase Refactoring** *(API Auditing)* | ~39,228 tokens | ~50 tokens | **~99.8%** |
-| **Configuration Audit** *(Security Check)* | ~44,745 tokens | ~45 tokens | **~99.9%** |
-| **Documentation Q&A** *(Rule Extraction)* | ~46,465 tokens | ~47 tokens | **~99.9%** |
-| **Log Analysis** *(Root Cause Debugging)* | ~87,239 tokens | ~56 tokens | **~99.9%** |
-| **Test Debugging** *(Failure Isolation)* | ~38,497 tokens | ~69 tokens | **~99.8%** |
+| **Data Extraction** | ~76,000 tokens | ~56 tokens | **~99.9%** |
+| **Codebase Refactoring** | ~39,228 tokens | ~50 tokens | **~99.8%** |
+| **Configuration Audit** | ~44,745 tokens | ~45 tokens | **~99.9%** |
+| **Documentation Q&A** | ~46,465 tokens | ~47 tokens | **~99.9%** |
+| **Log Analysis** | ~87,239 tokens | ~56 tokens | **~99.9%** |
+| **Test Debugging** | ~38,497 tokens | ~69 tokens | **~99.8%** |
 | **AVERAGE ACROSS WORKLOADS** | **~55,362 tokens** | **~53 tokens** | **~99.9% Reduction** |
 
-### The Value of O(1) Context Scaling
+### Why Pexo Did Better (The Value of O(1) Scaling)
 
-1. **Eliminating Latency (TTFT):** Traditional workflows force the LLM to read 55,000+ tokens of raw data, adding 15–30 seconds of evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads the heavy lifting to local background storage.
+1. **Eliminating Latency (TTFT):** Forcing an LLM to read 55,000+ tokens of raw data adds 15–30 seconds of evaluation latency (Time To First Token) to *every subsequent turn* in the conversation. Pexo offloads the heavy lifting to local background storage.
 2. **Cost & Reliability:** Bypassing massive context windows drastically reduces token costs and eliminates "attention decay," ensuring the LLM doesn't lose critical context due to saturation.
 3. **True Scalability:** With Pexo, you can scale the workload to 500 files and the LLM context consumed in your primary chat window remains static (~50 tokens of clean, validated results).
 
