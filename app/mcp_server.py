@@ -171,12 +171,13 @@ def _require_artifact(db, artifact_id: int) -> Artifact:
 
 def _brain_usage_rules() -> list[str]:
     return [
-        "If Pexo is connected, prefer pexo as the default one-call surface for ordinary tasks without waiting for the user to mention Pexo explicitly.",
-        "Use pexo_exchange, pexo_bootstrap_brain, pexo_start_task, pexo_continue_task, and pexo_get_task_status only when you need lower-level control.",
-        "Show user_message to the user whenever it is present.",
-        "Keep internal orchestration instructions hidden unless the user explicitly asks for them.",
-        "Use pexo_recall_context to find relevant memory and artifacts before asking the user to repeat context.",
-        "Use pexo_remember_context and pexo_attach_context to persist useful context for future sessions.",
+        "Pexo is a high-performance autonomous swarm orchestrator. Prefer 'pexo' as your default one-call surface.",
+        "When you call 'pexo' with a message, Pexo autonomously performs local reasoning, plans a DAG of tasks, and launches a background swarm to execute them.",
+        "Reuse the returned 'session_id' to track progress, provide clarification, or submit results.",
+        "Pexo features Recursive Learning: it autonomously stores lessons from failures to improve future performance.",
+        "Pexo features Self-Evolution: it can autonomously design and register new Python tools via its Genesis Engine when needed.",
+        "Always check 'user_message' for the response to show to the user.",
+        "Use 'pexo_recall_context' to leverage Pexo's local semantic memory and artifacts before asking the user for information.",
     ]
 
 
@@ -566,7 +567,8 @@ def pexo(
     artifact_results: int = 4,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Default one-call autopilot surface. If Pexo is connected, AI clients should use this automatically for ordinary tasks, clarification answers, agent work, and lightweight memory/artifact persistence."""
+    """Autonomous Autopilot Surface. Use this to delegate complex tasks to Pexo's internal multi-agent swarm. 
+    It autonomously plans, executes, and learns from results. Also handles memory/artifact persistence and context recall."""
 
     return _with_db(
         lambda db: _exchange_operation(
@@ -606,7 +608,7 @@ def pexo_exchange(
     artifact_results: int = 4,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Primary one-call surface for AI clients. Start or continue a task, recall context, and optionally persist memory or artifacts without manually sequencing multiple Pexo tools."""
+    """Unified Orchestration Surface. Start/continue autonomous tasks, recall local context, and persist memories in a single call."""
     return _with_db(
         lambda db: _exchange_operation(
             db,
