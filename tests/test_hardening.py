@@ -505,7 +505,9 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("pexo-install-windows.zip", bundle_script)
         self.assertIn("pexo-install-unix.tar.gz", bundle_script)
         self.assertIn("pexo-install-manifest.json", bundle_script)
-        self.assertIn("softprops/action-gh-release@v2.6.1", workflow)
+        self.assertIn("gh release create", workflow)
+        self.assertIn("gh release upload", workflow)
+        self.assertIn("GH_TOKEN", workflow)
         self.assertIn("contents: write", workflow)
         self.assertNotIn("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24", workflow)
 
