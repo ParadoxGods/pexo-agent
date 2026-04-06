@@ -1010,8 +1010,11 @@ def replace_readme_section(readme_text: str, markdown: str) -> str:
             break
     if start_index is None:
         raise RuntimeError("Could not find existing benchmark section in README.")
-    end = "\n---\n\n## What Pexo Is Good At"
-    end_index = readme_text.index(end)
+    if "## Large Context Stress Test" in readme_text:
+        end_index = readme_text.index("## Large Context Stress Test")
+    else:
+        end = "\n---\n\n## What Pexo Is Good At"
+        end_index = readme_text.index(end)
     return f"{readme_text[:start_index]}{markdown}{readme_text[end_index:]}"
 
 

@@ -14,7 +14,7 @@ Traditional token counts are estimated using the rough rule of `bytes / 4`.
 ### Host System
 
 - OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel`
+- CPU: `Intel(R) Core(TM) i9-14900K`
 - Logical cores: `32`
 - RAM: `47.72` GB
 - Python: `3.12.10`
@@ -26,25 +26,25 @@ Traditional token counts are estimated using the rough rule of `bytes / 4`.
 
 | Mode | Wall Time | CPU Time | Peak RSS | Notes |
 | :--- | ---: | ---: | ---: | :--- |
-| Direct raw scan | `0.022` s | `0.047` s | `112.27` MB | Reads each workload directly without Pexo. |
-| Pexo (ingest + query) | `1.990` s | `1.578` s | `112.8` MB | Uses isolated local Pexo state and artifact indexing. |
-| Measured Pexo overhead | `1.968` s | `1.531` s | `0.53` MB | Additional cost of local ingest + retrieval over raw direct scanning for this suite. |
+| Direct raw scan | `0.039` s | `0.016` s | `112.68` MB | Reads each workload directly without Pexo. |
+| Pexo (ingest + query) | `3.845` s | `3.000` s | `113.38` MB | Uses isolated local Pexo state and artifact indexing. |
+| Measured Pexo overhead | `3.806` s | `2.984` s | `0.7` MB | Additional cost of local ingest + retrieval over raw direct scanning for this suite. |
 | Pexo benchmark state footprint | - | - | - | `49.09` MB on disk after the suite. |
 
 ### Per-Workload Results
 
 | Workload | Dataset Size | Traditional Tokens | Direct Scan Time | Pexo Ingest | Pexo Query | Pexo Tokens | Compaction Ratio | Correct |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
-| Needle in a haystack file lookup | `1,585,080` bytes | `396,270` | `0.003` s | `0.205` s | `0.030` s | `2,789` | `142.08x` | yes |
-| Config value lookup | `1,295,089` bytes | `323,772` | `0.002` s | `0.144` s | `0.027` s | `2,783` | `116.34x` | yes |
-| Endpoint owner lookup | `1,544,090` bytes | `386,022` | `0.002` s | `0.171` s | `0.027` s | `2,782` | `138.76x` | yes |
-| Migration file lookup | `1,412,060` bytes | `353,015` | `0.002` s | `0.144` s | `0.030` s | `2,782` | `126.89x` | yes |
-| Service port lookup | `1,669,176` bytes | `417,294` | `0.002` s | `0.171` s | `0.029` s | `2,779` | `150.16x` | yes |
-| Feature flag state lookup | `1,566,908` bytes | `391,727` | `0.003` s | `0.169` s | `0.032` s | `2,777` | `141.06x` | yes |
-| Cron schedule lookup | `1,478,484` bytes | `369,621` | `0.002` s | `0.153` s | `0.032` s | `2,781` | `132.91x` | yes |
-| Owner email lookup | `1,498,062` bytes | `374,515` | `0.002` s | `0.166` s | `0.031` s | `2,783` | `134.57x` | yes |
-| SQL query file lookup | `1,914,306` bytes | `478,576` | `0.002` s | `0.185` s | `0.036` s | `2,780` | `172.15x` | yes |
-| Multi-file chain lookup | `1,790,360` bytes | `447,590` | `0.002` s | `0.171` s | `0.037` s | `2,804` | `159.63x` | yes |
+| Needle in a haystack file lookup | `1,585,080` bytes | `396,270` | `0.002` s | `0.229` s | `0.033` s | `2,789` | `142.08x` | yes |
+| Config value lookup | `1,295,089` bytes | `323,772` | `0.002` s | `0.159` s | `0.032` s | `2,783` | `116.34x` | yes |
+| Endpoint owner lookup | `1,544,090` bytes | `386,022` | `0.002` s | `0.329` s | `0.055` s | `2,782` | `138.76x` | yes |
+| Migration file lookup | `1,412,060` bytes | `353,015` | `0.004` s | `0.314` s | `0.070` s | `2,782` | `126.89x` | yes |
+| Service port lookup | `1,669,176` bytes | `417,294` | `0.005` s | `0.373` s | `0.061` s | `2,779` | `150.16x` | yes |
+| Feature flag state lookup | `1,566,908` bytes | `391,727` | `0.005` s | `0.379` s | `0.081` s | `2,777` | `141.06x` | yes |
+| Cron schedule lookup | `1,478,484` bytes | `369,621` | `0.006` s | `0.329` s | `0.057` s | `2,781` | `132.91x` | yes |
+| Owner email lookup | `1,498,062` bytes | `374,515` | `0.004` s | `0.346` s | `0.062` s | `2,783` | `134.57x` | yes |
+| SQL query file lookup | `1,914,306` bytes | `478,576` | `0.004` s | `0.377` s | `0.082` s | `2,780` | `172.15x` | yes |
+| Multi-file chain lookup | `1,790,360` bytes | `447,590` | `0.005` s | `0.364` s | `0.112` s | `2,804` | `159.63x` | yes |
 
 ### Summary
 

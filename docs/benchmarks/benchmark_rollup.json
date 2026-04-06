@@ -1,0 +1,91 @@
+{
+  "generated_at_utc": "2026-04-06T01:43:10.193247+00:00",
+  "host": {
+    "timestamp_utc": "2026-04-06T01:42:52.615280+00:00",
+    "machine": "CDX-DUSTIN",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "logical_cores": 32,
+    "total_ram_gb": 47.72,
+    "pexo_version": "1.1.1"
+  },
+  "runtime": {
+    "memory_backend": "keyword",
+    "install_mode": "checkout",
+    "active_profile": "full"
+  },
+  "suites": [
+    {
+      "slug": "context_compaction",
+      "title": "Context Compaction",
+      "script": "scripts/run_context_compaction_benchmarks.py",
+      "results_json": "docs/benchmarks/context_compaction_results.json",
+      "results_md": "docs/benchmarks/context_compaction_results.md",
+      "description": "10 synthetic retrieval workloads over padded corpora.",
+      "case_count": 10,
+      "dataset_bytes": 15753615,
+      "before_tokens": 3938402,
+      "after_tokens": 27840,
+      "direct_wall_seconds": 0.039,
+      "pexo_wall_seconds": 3.845,
+      "overhead_wall_seconds": 3.806,
+      "direct_peak_rss_mb": 112.68,
+      "pexo_peak_rss_mb": 113.38,
+      "rss_delta_mb": 0.7,
+      "state_mb": 49.09,
+      "reduction_factor": 141.47,
+      "retained_pct": 0.7069
+    },
+    {
+      "slug": "operator_workflow",
+      "title": "Real-World Workflow",
+      "script": "scripts/run_operator_workflow_benchmarks.py",
+      "results_json": "docs/benchmarks/operator_workflow_results.json",
+      "results_md": "docs/benchmarks/operator_workflow_results.md",
+      "description": "10 repo, handoff, compounding, and resilience scenarios.",
+      "case_count": 10,
+      "dataset_bytes": 2189892,
+      "before_tokens": 764137,
+      "after_tokens": 37264,
+      "direct_wall_seconds": 0.037,
+      "pexo_wall_seconds": 4.098,
+      "overhead_wall_seconds": 4.061,
+      "direct_peak_rss_mb": 113.0,
+      "pexo_peak_rss_mb": 113.28,
+      "rss_delta_mb": 0.28,
+      "state_mb": 7.21,
+      "reduction_factor": 20.51,
+      "retained_pct": 4.8766
+    },
+    {
+      "slug": "large_context_stress",
+      "title": "Large Context Stress",
+      "script": "scripts/run_large_context_stress_benchmark.py",
+      "results_json": "docs/benchmarks/large_context_stress_results.json",
+      "results_md": "docs/benchmarks/large_context_stress_results.md",
+      "description": "One oversized exact-token lookup over a very large synthetic corpus.",
+      "case_count": 1,
+      "dataset_bytes": 194399656,
+      "before_tokens": 48599914,
+      "after_tokens": 2790,
+      "direct_wall_seconds": 0.34,
+      "pexo_wall_seconds": 6.705,
+      "overhead_wall_seconds": 6.365,
+      "direct_peak_rss_mb": 109.88,
+      "pexo_peak_rss_mb": 113.86,
+      "rss_delta_mb": 3.98,
+      "state_mb": 394.84,
+      "reduction_factor": 17419.32,
+      "retained_pct": 0.0057
+    }
+  ],
+  "summary": {
+    "suite_count": 3,
+    "total_dataset_bytes": 212343163,
+    "total_before_tokens": 53302453,
+    "total_after_tokens": 67894,
+    "overall_reduction_factor": 785.08,
+    "overall_retained_pct": 0.1274
+  }
+}

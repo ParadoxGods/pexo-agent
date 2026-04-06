@@ -6,6 +6,7 @@ import platform
 import random
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -152,6 +153,60 @@ def directory_size_bytes(path: Path) -> int:
 
 
 def build_host_specs() -> dict:
+    def detect_cpu_name() -> str:
+        system = platform.system().lower()
+        try:
+            if system == "windows":
+                completed = subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        "(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                name = completed.stdout.strip()
+                if name:
+                    return name
+            if system == "darwin":
+                completed = subprocess.run(
+                    ["sysctl", "-n", "machdep.cpu.brand_string"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                name = completed.stdout.strip()
+                if name:
+                    return name
+            if system == "linux":
+                cpuinfo = Path("/proc/cpuinfo")
+                if cpuinfo.exists():
+                    for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+                        if ":" in line and line.lower().startswith("model name"):
+                            name = line.split(":", 1)[1].strip()
+                            if name:
+                                return name
+                completed = subprocess.run(
+                    ["lscpu"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                for line in completed.stdout.splitlines():
+                    if ":" in line and line.lower().startswith("model name"):
+                        name = line.split(":", 1)[1].strip()
+                        if name:
+                            return name
+        except Exception:
+            pass
+        return platform.processor() or "Unknown CPU"
+
     try:
         import ctypes
 
@@ -180,7 +235,7 @@ def build_host_specs() -> dict:
         "machine": platform.node(),
         "os": platform.platform(),
         "python": platform.python_version(),
-        "cpu": platform.processor() or "Unknown CPU",
+        "cpu": detect_cpu_name(),
         "logical_cores": os.cpu_count() or 0,
         "total_ram_gb": total_ram_gb,
         "pexo_version": __version__,
@@ -582,6 +637,8 @@ def build_readme_markdown(results: dict) -> str:
 def replace_readme_section(readme_text: str, markdown: str) -> str:
     start = "## Context Compaction (Benchmarks)"
     end = "\n---\n\n## What Pexo Is Good At"
+    if start not in readme_text:
+        return readme_text
     start_index = readme_text.index(start)
     end_index = readme_text.index(end)
     return f"{readme_text[:start_index]}{markdown}{readme_text[end_index:]}"

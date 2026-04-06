@@ -17,7 +17,7 @@ The client-handoff tracks simulate distinct clients through separate Pexo sessio
 ### Host System
 
 - OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel`
+- CPU: `Intel(R) Core(TM) i9-14900K`
 - Logical cores: `32`
 - RAM: `47.72` GB
 - Python: `3.12.10`
@@ -29,42 +29,42 @@ The client-handoff tracks simulate distinct clients through separate Pexo sessio
 
 | Mode | Wall Time | CPU Time | Peak RSS | Notes |
 | :--- | ---: | ---: | ---: | :--- |
-| Direct baseline paths | `0.020` s | `0.000` s | `112.78` MB | Reads the direct corpus or replay payloads without Pexo. |
-| Pexo (setup + query) | `2.094` s | `1.531` s | `112.82` MB | Registers state locally and queries it through Pexo's MCP/control-plane surface. |
-| Measured Pexo overhead | `2.074` s | `1.531` s | `0.04` MB | Additional cost of local Pexo state management over the direct paths for this suite. |
-| Pexo benchmark state footprint | - | - | - | `7.16` MB on disk after the suite. |
+| Direct baseline paths | `0.037` s | `0.016` s | `113.0` MB | Reads the direct corpus or replay payloads without Pexo. |
+| Pexo (setup + query) | `4.098` s | `2.922` s | `113.28` MB | Registers state locally and queries it through Pexo's MCP/control-plane surface. |
+| Measured Pexo overhead | `4.061` s | `2.906` s | `0.28` MB | Additional cost of local Pexo state management over the direct paths for this suite. |
+| Pexo benchmark state footprint | - | - | - | `7.21` MB on disk after the suite. |
 
 ### Track Summary
 
 | Track | Cases | Cumulative Source Data | Traditional Tokens | Pexo Tokens | Avg Ratio | Baseline Time | Pexo Time | Correct |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
-| Retrieval | `4` | `1,576,352` bytes | `394,088` | `11,412` | `34.53x` | `0.009` s | `1.125` s | yes |
-| Handoff | `2` | `97,703` bytes | `24,425` | `6,472` | `3.78x` | `0.002` s | `0.211` s | yes |
-| Compounding | `2` | `442,859` bytes | `326,060` | `12,797` | `20.18x` | `0.007` s | `0.547` s | yes |
-| Resilience | `2` | `59,743` bytes | `14,935` | `6,632` | `2.25x` | `0.002` s | `0.211` s | yes |
+| Retrieval | `4` | `1,586,940` bytes | `396,732` | `11,363` | `34.91x` | `0.014` s | `1.968` s | yes |
+| Handoff | `2` | `97,703` bytes | `24,425` | `6,472` | `3.78x` | `0.004` s | `0.486` s | yes |
+| Compounding | `2` | `445,506` bytes | `328,045` | `12,797` | `20.29x` | `0.016` s | `1.128` s | yes |
+| Resilience | `2` | `59,743` bytes | `14,935` | `6,632` | `2.25x` | `0.004` s | `0.516` s | yes |
 
 ### Per-Scenario Results
 
 | Track | Workload | Source Bytes | Naive Context Tokens | Pexo Tokens | Ratio | Baseline Time | Pexo Setup | Pexo Query | Correct |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
-| Retrieval | Repo retrieval: default Genesis trust mode | `394,088` | `98,522` | `2,816` | `34.99x` | `0.002` s | `0.282` s | `0.043` s | yes |
-| Retrieval | Repo retrieval: QA hard gate after developer | `394,088` | `98,522` | `2,858` | `34.47x` | `0.002` s | `0.224` s | `0.046` s | yes |
-| Retrieval | Repo retrieval: packaged MCP command | `394,088` | `98,522` | `2,839` | `34.70x` | `0.002` s | `0.220` s | `0.043` s | yes |
-| Retrieval | Repo retrieval: uninstall while keeping state | `394,088` | `98,522` | `2,899` | `33.98x` | `0.002` s | `0.229` s | `0.039` s | yes |
-| Handoff | Cross-client handoff: landing page brief | `48,865` | `12,216` | `3,158` | `3.87x` | `0.001` s | `0.060` s | `0.047` s | yes |
-| Handoff | Cross-client handoff: bug triage continuity | `48,838` | `12,209` | `3,314` | `3.68x` | `0.001` s | `0.058` s | `0.046` s | yes |
-| Compounding | Repeated-use compounding: repo facts reused across tasks | `394,088` | `295,580` | `9,492` | `31.14x` | `0.005` s | `0.226` s | `0.205` s | yes |
-| Compounding | Repeated-use compounding: accepted defaults reused later | `48,771` | `30,480` | `3,305` | `9.22x` | `0.002` s | `0.080` s | `0.036` s | yes |
-| Resilience | Failure recovery: interrupted review resumed from stored state | `29,872` | `7,468` | `3,310` | `2.26x` | `0.001` s | `0.037` s | `0.071` s | yes |
-| Resilience | Failure recovery: client switch without context replay | `29,871` | `7,467` | `3,322` | `2.25x` | `0.001` s | `0.040` s | `0.063` s | yes |
+| Retrieval | Repo retrieval: default Genesis trust mode | `396,735` | `99,183` | `2,819` | `35.18x` | `0.003` s | `0.297` s | `0.044` s | yes |
+| Retrieval | Repo retrieval: QA hard gate after developer | `396,735` | `99,183` | `2,878` | `34.46x` | `0.002` s | `0.362` s | `0.097` s | yes |
+| Retrieval | Repo retrieval: packaged MCP command | `396,735` | `99,183` | `2,837` | `34.96x` | `0.005` s | `0.468` s | `0.120` s | yes |
+| Retrieval | Repo retrieval: uninstall while keeping state | `396,735` | `99,183` | `2,829` | `35.06x` | `0.004` s | `0.481` s | `0.099` s | yes |
+| Handoff | Cross-client handoff: landing page brief | `48,865` | `12,216` | `3,158` | `3.87x` | `0.002` s | `0.126` s | `0.123` s | yes |
+| Handoff | Cross-client handoff: bug triage continuity | `48,838` | `12,209` | `3,314` | `3.68x` | `0.002` s | `0.126` s | `0.110` s | yes |
+| Compounding | Repeated-use compounding: repo facts reused across tasks | `396,735` | `297,565` | `9,492` | `31.35x` | `0.012` s | `0.451` s | `0.402` s | yes |
+| Compounding | Repeated-use compounding: accepted defaults reused later | `48,771` | `30,480` | `3,305` | `9.22x` | `0.004` s | `0.202` s | `0.073` s | yes |
+| Resilience | Failure recovery: interrupted review resumed from stored state | `29,872` | `7,468` | `3,310` | `2.26x` | `0.002` s | `0.091` s | `0.164` s | yes |
+| Resilience | Failure recovery: client switch without context replay | `29,871` | `7,467` | `3,322` | `2.25x` | `0.002` s | `0.124` s | `0.137` s | yes |
 
 ### Summary
 
-- Total cumulative workload source bytes across all 10 scenarios: `2,176,657` bytes
-- Total naive context estimate across all 10 workloads: `759,508` tokens
-- Total Pexo session context across all 10 workloads: `37,313` tokens
-- Average compaction ratio: `19.06x`
-- Median compaction ratio: `31.14x`
+- Total cumulative workload source bytes across all 10 scenarios: `2,189,892` bytes
+- Total naive context estimate across all 10 workloads: `764,137` tokens
+- Total Pexo session context across all 10 workloads: `37,264` tokens
+- Average compaction ratio: `19.23x`
+- Median compaction ratio: `31.35x`
 - All 10 workloads returned the correct answer: `yes`
 
 ### What This Means

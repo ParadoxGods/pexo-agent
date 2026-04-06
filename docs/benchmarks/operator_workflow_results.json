@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-04-05T22:59:23.928171+00:00",
+  "generated_at_utc": "2026-04-06T01:42:54.236924+00:00",
   "seed": 20260405,
   "host": {
-    "timestamp_utc": "2026-04-05T22:59:23.902626+00:00",
+    "timestamp_utc": "2026-04-06T01:42:52.846559+00:00",
     "machine": "CDX-DUSTIN",
     "os": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
     "logical_cores": 32,
     "total_ram_gb": 47.72,
     "pexo_version": "1.1.1"
@@ -26,26 +26,26 @@
       "baseline_answer": "approval-required",
       "pexo_answer": "approval-required",
       "correct": true,
-      "source_bytes": 394088,
-      "traditional_context_bytes": 394088,
-      "traditional_tokens": 98522,
+      "source_bytes": 396735,
+      "traditional_context_bytes": 396735,
+      "traditional_tokens": 99183,
       "baseline": {
-        "wall_seconds": 0.0024981999886222184,
+        "wall_seconds": 0.0027395000215619802,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 110.48
+        "peak_rss_mb": 110.54
       },
       "pexo_setup": {
-        "wall_seconds": 0.28220299998065457,
+        "wall_seconds": 0.2966923000058159,
         "cpu_seconds": 0.203125,
-        "peak_rss_mb": 111.38
+        "peak_rss_mb": 111.39
       },
       "pexo_query": {
-        "wall_seconds": 0.04267579998122528,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 111.36
+        "wall_seconds": 0.0441133999847807,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 111.54
       },
-      "pexo_tokens": 2816,
-      "compaction_ratio": 34.99,
+      "pexo_tokens": 2819,
+      "compaction_ratio": 35.18,
       "sessions": [
         "realworld-repo_trust_mode-search"
       ],
@@ -59,26 +59,26 @@
       "baseline_answer": "Quality Assurance Manager",
       "pexo_answer": "Quality Assurance Manager",
       "correct": true,
-      "source_bytes": 394088,
-      "traditional_context_bytes": 394088,
-      "traditional_tokens": 98522,
+      "source_bytes": 396735,
+      "traditional_context_bytes": 396735,
+      "traditional_tokens": 99183,
       "baseline": {
-        "wall_seconds": 0.00224170001456514,
+        "wall_seconds": 0.002263000002130866,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 111.72
+        "peak_rss_mb": 111.84
       },
       "pexo_setup": {
-        "wall_seconds": 0.2240060999756679,
-        "cpu_seconds": 0.171875,
-        "peak_rss_mb": 112.0
+        "wall_seconds": 0.36198159999912605,
+        "cpu_seconds": 0.25,
+        "peak_rss_mb": 112.38
       },
       "pexo_query": {
-        "wall_seconds": 0.04582489997847006,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 112.24
+        "wall_seconds": 0.09713660000124946,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 111.96
       },
-      "pexo_tokens": 2858,
-      "compaction_ratio": 34.47,
+      "pexo_tokens": 2878,
+      "compaction_ratio": 34.46,
       "sessions": [
         "realworld-repo_qa_gate-search"
       ],
@@ -92,26 +92,26 @@
       "baseline_answer": "pexo-mcp",
       "pexo_answer": "pexo-mcp",
       "correct": true,
-      "source_bytes": 394088,
-      "traditional_context_bytes": 394088,
-      "traditional_tokens": 98522,
+      "source_bytes": 396735,
+      "traditional_context_bytes": 396735,
+      "traditional_tokens": 99183,
       "baseline": {
-        "wall_seconds": 0.002173100016079843,
-        "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.41
+        "wall_seconds": 0.004565300012473017,
+        "cpu_seconds": 0.015625,
+        "peak_rss_mb": 112.07
       },
       "pexo_setup": {
-        "wall_seconds": 0.21955320000415668,
-        "cpu_seconds": 0.09375,
-        "peak_rss_mb": 112.67
+        "wall_seconds": 0.4680635000113398,
+        "cpu_seconds": 0.28125,
+        "peak_rss_mb": 112.69
       },
       "pexo_query": {
-        "wall_seconds": 0.04278439999325201,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 112.78
+        "wall_seconds": 0.12016900000162423,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 113.0
       },
-      "pexo_tokens": 2839,
-      "compaction_ratio": 34.7,
+      "pexo_tokens": 2837,
+      "compaction_ratio": 34.96,
       "sessions": [
         "realworld-repo_mcp_command-search"
       ],
@@ -125,26 +125,26 @@
       "baseline_answer": "pexo uninstall --keep-state",
       "pexo_answer": "pexo uninstall --keep-state",
       "correct": true,
-      "source_bytes": 394088,
-      "traditional_context_bytes": 394088,
-      "traditional_tokens": 98522,
+      "source_bytes": 396735,
+      "traditional_context_bytes": 396735,
+      "traditional_tokens": 99183,
       "baseline": {
-        "wall_seconds": 0.002141500008292496,
+        "wall_seconds": 0.003980300039984286,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.78
+        "peak_rss_mb": 113.0
       },
       "pexo_setup": {
-        "wall_seconds": 0.22916129999794066,
-        "cpu_seconds": 0.140625,
-        "peak_rss_mb": 112.82
+        "wall_seconds": 0.481369299988728,
+        "cpu_seconds": 0.359375,
+        "peak_rss_mb": 113.04
       },
       "pexo_query": {
-        "wall_seconds": 0.03856299998005852,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 112.3
+        "wall_seconds": 0.09865619998890907,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 111.79
       },
-      "pexo_tokens": 2899,
-      "compaction_ratio": 33.98,
+      "pexo_tokens": 2829,
+      "compaction_ratio": 35.06,
       "sessions": [
         "realworld-repo_keep_state_uninstall-search"
       ],
@@ -162,19 +162,19 @@
       "traditional_context_bytes": 48865,
       "traditional_tokens": 12216,
       "baseline": {
-        "wall_seconds": 0.0009472999954596162,
+        "wall_seconds": 0.001909599988721311,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.32
+        "peak_rss_mb": 111.79
       },
       "pexo_setup": {
-        "wall_seconds": 0.05991159996483475,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 112.37
+        "wall_seconds": 0.1260613999911584,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 111.86
       },
       "pexo_query": {
-        "wall_seconds": 0.04749160003848374,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 112.42
+        "wall_seconds": 0.12330819998169318,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 112.29
       },
       "pexo_tokens": 3158,
       "compaction_ratio": 3.87,
@@ -195,19 +195,19 @@
       "traditional_context_bytes": 48838,
       "traditional_tokens": 12209,
       "baseline": {
-        "wall_seconds": 0.0009457999840378761,
+        "wall_seconds": 0.0021809000172652304,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.44
+        "peak_rss_mb": 112.3
       },
       "pexo_setup": {
-        "wall_seconds": 0.05777929996838793,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 112.45
+        "wall_seconds": 0.12633160001132637,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 112.33
       },
       "pexo_query": {
-        "wall_seconds": 0.0456784000271,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 112.45
+        "wall_seconds": 0.1104349999804981,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 112.32
       },
       "pexo_tokens": 3314,
       "compaction_ratio": 3.68,
@@ -224,26 +224,26 @@
       "baseline_answer": "approval-required | pexo-mcp | pexo uninstall --keep-state",
       "pexo_answer": "approval-required | pexo-mcp | pexo uninstall --keep-state",
       "correct": true,
-      "source_bytes": 394088,
-      "traditional_context_bytes": 1182322,
-      "traditional_tokens": 295580,
+      "source_bytes": 396735,
+      "traditional_context_bytes": 1190263,
+      "traditional_tokens": 297565,
       "baseline": {
-        "wall_seconds": 0.005302899982780218,
+        "wall_seconds": 0.01183520001359284,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.46
+        "peak_rss_mb": 112.95
       },
       "pexo_setup": {
-        "wall_seconds": 0.2264943000045605,
-        "cpu_seconds": 0.15625,
-        "peak_rss_mb": 112.49
+        "wall_seconds": 0.4508913999889046,
+        "cpu_seconds": 0.296875,
+        "peak_rss_mb": 113.28
       },
       "pexo_query": {
-        "wall_seconds": 0.205390399962198,
-        "cpu_seconds": 0.140625,
-        "peak_rss_mb": 112.51
+        "wall_seconds": 0.40159680001670495,
+        "cpu_seconds": 0.34375,
+        "peak_rss_mb": 112.37
       },
       "pexo_tokens": 9492,
-      "compaction_ratio": 31.14,
+      "compaction_ratio": 31.35,
       "sessions": [
         "compound-repo-step-1",
         "compound-repo-step-2",
@@ -263,19 +263,19 @@
       "traditional_context_bytes": 121921,
       "traditional_tokens": 30480,
       "baseline": {
-        "wall_seconds": 0.0019082999788224697,
+        "wall_seconds": 0.0037985999952070415,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.5
+        "peak_rss_mb": 112.38
       },
       "pexo_setup": {
-        "wall_seconds": 0.0799480999703519,
-        "cpu_seconds": 0.09375,
-        "peak_rss_mb": 112.55
+        "wall_seconds": 0.20185959996888414,
+        "cpu_seconds": 0.1875,
+        "peak_rss_mb": 112.39
       },
       "pexo_query": {
-        "wall_seconds": 0.03585909999674186,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 112.52
+        "wall_seconds": 0.07290410000132397,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 112.4
       },
       "pexo_tokens": 3305,
       "compaction_ratio": 9.22,
@@ -296,19 +296,19 @@
       "traditional_context_bytes": 29872,
       "traditional_tokens": 7468,
       "baseline": {
-        "wall_seconds": 0.0008239999879151583,
+        "wall_seconds": 0.002165100013371557,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.54
+        "peak_rss_mb": 112.41
       },
       "pexo_setup": {
-        "wall_seconds": 0.036667700042016804,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 112.54
+        "wall_seconds": 0.09072610002476722,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 112.41
       },
       "pexo_query": {
-        "wall_seconds": 0.07104869995964691,
-        "cpu_seconds": 0.0625,
-        "peak_rss_mb": 112.55
+        "wall_seconds": 0.16429510002490133,
+        "cpu_seconds": 0.109375,
+        "peak_rss_mb": 112.43
       },
       "pexo_tokens": 3310,
       "compaction_ratio": 2.26,
@@ -329,19 +329,19 @@
       "traditional_context_bytes": 29871,
       "traditional_tokens": 7467,
       "baseline": {
-        "wall_seconds": 0.0008446000283583999,
+        "wall_seconds": 0.0015490000369027257,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 112.55
+        "peak_rss_mb": 112.44
       },
       "pexo_setup": {
-        "wall_seconds": 0.0401288999710232,
+        "wall_seconds": 0.12420670001301914,
         "cpu_seconds": 0.03125,
-        "peak_rss_mb": 112.55
+        "peak_rss_mb": 112.47
       },
       "pexo_query": {
-        "wall_seconds": 0.06273180001880974,
-        "cpu_seconds": 0.0625,
-        "peak_rss_mb": 112.77
+        "wall_seconds": 0.13684070005547255,
+        "cpu_seconds": 0.125,
+        "peak_rss_mb": 112.45
       },
       "pexo_tokens": 3322,
       "compaction_ratio": 2.25,
@@ -355,13 +355,13 @@
     {
       "track": "retrieval",
       "case_count": 4,
-      "source_bytes": 1576352,
-      "traditional_tokens": 394088,
-      "pexo_tokens": 11412,
-      "avg_compaction_ratio": 34.53,
-      "baseline_wall_seconds": 0.009,
-      "pexo_setup_wall_seconds": 0.955,
-      "pexo_query_wall_seconds": 0.17,
+      "source_bytes": 1586940,
+      "traditional_tokens": 396732,
+      "pexo_tokens": 11363,
+      "avg_compaction_ratio": 34.91,
+      "baseline_wall_seconds": 0.014,
+      "pexo_setup_wall_seconds": 1.608,
+      "pexo_query_wall_seconds": 0.36,
       "all_correct": true
     },
     {
@@ -371,21 +371,21 @@
       "traditional_tokens": 24425,
       "pexo_tokens": 6472,
       "avg_compaction_ratio": 3.78,
-      "baseline_wall_seconds": 0.002,
-      "pexo_setup_wall_seconds": 0.118,
-      "pexo_query_wall_seconds": 0.093,
+      "baseline_wall_seconds": 0.004,
+      "pexo_setup_wall_seconds": 0.252,
+      "pexo_query_wall_seconds": 0.234,
       "all_correct": true
     },
     {
       "track": "compounding",
       "case_count": 2,
-      "source_bytes": 442859,
-      "traditional_tokens": 326060,
+      "source_bytes": 445506,
+      "traditional_tokens": 328045,
       "pexo_tokens": 12797,
-      "avg_compaction_ratio": 20.18,
-      "baseline_wall_seconds": 0.007,
-      "pexo_setup_wall_seconds": 0.306,
-      "pexo_query_wall_seconds": 0.241,
+      "avg_compaction_ratio": 20.29,
+      "baseline_wall_seconds": 0.016,
+      "pexo_setup_wall_seconds": 0.653,
+      "pexo_query_wall_seconds": 0.475,
       "all_correct": true
     },
     {
@@ -395,37 +395,37 @@
       "traditional_tokens": 14935,
       "pexo_tokens": 6632,
       "avg_compaction_ratio": 2.25,
-      "baseline_wall_seconds": 0.002,
-      "pexo_setup_wall_seconds": 0.077,
-      "pexo_query_wall_seconds": 0.134,
+      "baseline_wall_seconds": 0.004,
+      "pexo_setup_wall_seconds": 0.215,
+      "pexo_query_wall_seconds": 0.301,
       "all_correct": true
     }
   ],
   "suite_performance": {
     "baseline": {
-      "wall_seconds": 0.02,
-      "cpu_seconds": 0.0,
-      "peak_rss_mb": 112.78
+      "wall_seconds": 0.037,
+      "cpu_seconds": 0.016,
+      "peak_rss_mb": 113.0
     },
     "pexo": {
-      "wall_seconds": 2.094,
-      "cpu_seconds": 1.531,
-      "peak_rss_mb": 112.82
+      "wall_seconds": 4.098,
+      "cpu_seconds": 2.922,
+      "peak_rss_mb": 113.28
     },
     "delta": {
-      "wall_seconds": 2.074,
-      "cpu_seconds": 1.531,
-      "peak_rss_mb": 0.04
+      "wall_seconds": 4.061,
+      "cpu_seconds": 2.906,
+      "peak_rss_mb": 0.28
     },
-    "pexo_state_mb": 7.16
+    "pexo_state_mb": 7.21
   },
   "summary": {
     "case_count": 10,
-    "source_bytes": 2176657,
-    "traditional_tokens": 759508,
-    "pexo_tokens": 37313,
-    "avg_compaction_ratio": 19.06,
-    "median_compaction_ratio": 31.14,
+    "source_bytes": 2189892,
+    "traditional_tokens": 764137,
+    "pexo_tokens": 37264,
+    "avg_compaction_ratio": 19.23,
+    "median_compaction_ratio": 31.35,
     "all_correct": true
   }
 }

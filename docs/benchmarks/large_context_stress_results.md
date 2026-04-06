@@ -7,7 +7,7 @@ For this stress run, the Pexo ingest phase forces full artifact materialization 
 ### Host System
 
 - OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel`
+- CPU: `Intel(R) Core(TM) i9-14900K`
 - Logical cores: `32`
 - RAM: `47.72` GB
 - Python: `3.12.10`
@@ -23,9 +23,9 @@ For this stress run, the Pexo ingest phase forces full artifact materialization 
 | Lines per file | `4500` |
 | Dataset size | `194,399,656` bytes |
 | Naive direct-context estimate | `48,599,914` tokens |
-| Direct raw scan time | `0.205` s |
-| Pexo ingest time | `4.791` s |
-| Pexo query time | `0.092` s |
+| Direct raw scan time | `0.340` s |
+| Pexo ingest time | `6.611` s |
+| Pexo query time | `0.094` s |
 | Pexo session context | `2,790` tokens |
 | Compaction ratio | `17419.32x` |
 | Correct answer | `yes` |
@@ -35,9 +35,9 @@ For this stress run, the Pexo ingest phase forces full artifact materialization 
 
 | Mode | Wall Time | CPU Time | Peak RSS | Notes |
 | :--- | ---: | ---: | ---: | :--- |
-| Direct raw scan | `0.205` s | `0.203` s | `109.72` MB | Reads the whole oversized dataset directly. |
-| Pexo (ingest + query) | `4.882` s | `4.047` s | `112.29` MB | Registers the large dataset locally, materializes full text for exact search, and answers via Pexo retrieval. |
-| Measured Pexo overhead | `4.677` s | `3.844` s | `2.57` MB | Additional local state-management cost versus direct scanning for this one stress run. |
+| Direct raw scan | `0.340` s | `0.344` s | `109.88` MB | Reads the whole oversized dataset directly. |
+| Pexo (ingest + query) | `6.705` s | `5.297` s | `113.86` MB | Registers the large dataset locally, materializes full text for exact search, and answers via Pexo retrieval. |
+| Measured Pexo overhead | `6.365` s | `4.953` s | `3.98` MB | Additional local state-management cost versus direct scanning for this one stress run. |
 | Pexo stress-run state footprint | `394.84` MB |
 
 ### What This Means

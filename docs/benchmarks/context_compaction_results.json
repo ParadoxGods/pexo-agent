@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-04-05T22:25:48.781442+00:00",
+  "generated_at_utc": "2026-04-06T01:42:54.195886+00:00",
   "seed": 20260405,
   "host": {
-    "timestamp_utc": "2026-04-05T22:25:48.531269+00:00",
+    "timestamp_utc": "2026-04-06T01:42:52.573738+00:00",
     "machine": "CDX-DUSTIN",
     "os": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10",
-    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
     "logical_cores": 32,
     "total_ram_gb": 47.72,
     "pexo_version": "1.1.1"
@@ -30,19 +30,19 @@
       "dataset_bytes": 1585080,
       "traditional_tokens": 396270,
       "baseline": {
-        "wall_seconds": 0.003051400010008365,
+        "wall_seconds": 0.0023070000461302698,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 106.29
+        "peak_rss_mb": 106.55
       },
       "pexo_ingest": {
-        "wall_seconds": 0.20485410001128912,
+        "wall_seconds": 0.22872349998215213,
         "cpu_seconds": 0.203125,
-        "peak_rss_mb": 109.51
+        "peak_rss_mb": 110.16
       },
       "pexo_query": {
-        "wall_seconds": 0.030413999978918582,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 109.82
+        "wall_seconds": 0.033216700016055256,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 110.51
       },
       "pexo_tokens": 2789,
       "compaction_ratio": 142.08,
@@ -76,19 +76,19 @@
       "dataset_bytes": 1295089,
       "traditional_tokens": 323772,
       "baseline": {
-        "wall_seconds": 0.0017461999668739736,
+        "wall_seconds": 0.0020008000428788364,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 110.11
+        "peak_rss_mb": 110.78
       },
       "pexo_ingest": {
-        "wall_seconds": 0.1444476000033319,
-        "cpu_seconds": 0.046875,
-        "peak_rss_mb": 110.95
+        "wall_seconds": 0.15944229997694492,
+        "cpu_seconds": 0.125,
+        "peak_rss_mb": 111.29
       },
       "pexo_query": {
-        "wall_seconds": 0.02687760000117123,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 109.3
+        "wall_seconds": 0.03232090000528842,
+        "cpu_seconds": 0.03125,
+        "peak_rss_mb": 109.96
       },
       "pexo_tokens": 2783,
       "compaction_ratio": 116.34,
@@ -122,19 +122,19 @@
       "dataset_bytes": 1544090,
       "traditional_tokens": 386022,
       "baseline": {
-        "wall_seconds": 0.0021653000148944557,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 110.35
+        "wall_seconds": 0.0022213999764062464,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 110.85
       },
       "pexo_ingest": {
-        "wall_seconds": 0.17074419994605705,
-        "cpu_seconds": 0.078125,
-        "peak_rss_mb": 111.86
+        "wall_seconds": 0.32921269995858893,
+        "cpu_seconds": 0.265625,
+        "peak_rss_mb": 112.14
       },
       "pexo_query": {
-        "wall_seconds": 0.027084200002718717,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 110.14
+        "wall_seconds": 0.05497100000502542,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 110.67
       },
       "pexo_tokens": 2782,
       "compaction_ratio": 138.76,
@@ -168,19 +168,19 @@
       "dataset_bytes": 1412060,
       "traditional_tokens": 353015,
       "baseline": {
-        "wall_seconds": 0.0015992000116966665,
+        "wall_seconds": 0.003822400001809001,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 110.75
+        "peak_rss_mb": 111.54
       },
       "pexo_ingest": {
-        "wall_seconds": 0.14396760001545772,
-        "cpu_seconds": 0.109375,
-        "peak_rss_mb": 111.97
+        "wall_seconds": 0.3136708000092767,
+        "cpu_seconds": 0.15625,
+        "peak_rss_mb": 111.94
       },
       "pexo_query": {
-        "wall_seconds": 0.030240599997341633,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 110.29
+        "wall_seconds": 0.07016050000675023,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 110.64
       },
       "pexo_tokens": 2782,
       "compaction_ratio": 126.89,
@@ -214,19 +214,19 @@
       "dataset_bytes": 1669176,
       "traditional_tokens": 417294,
       "baseline": {
-        "wall_seconds": 0.0020385999814607203,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 111.43
+        "wall_seconds": 0.005245100008323789,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 111.4
       },
       "pexo_ingest": {
-        "wall_seconds": 0.17052260000491515,
-        "cpu_seconds": 0.140625,
-        "peak_rss_mb": 112.57
+        "wall_seconds": 0.3732383000315167,
+        "cpu_seconds": 0.296875,
+        "peak_rss_mb": 112.61
       },
       "pexo_query": {
-        "wall_seconds": 0.02894439996453002,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 110.48
+        "wall_seconds": 0.06126320001203567,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 111.16
       },
       "pexo_tokens": 2779,
       "compaction_ratio": 150.16,
@@ -260,19 +260,19 @@
       "dataset_bytes": 1566908,
       "traditional_tokens": 391727,
       "baseline": {
-        "wall_seconds": 0.002679100027307868,
-        "cpu_seconds": 0.0,
-        "peak_rss_mb": 111.23
-      },
-      "pexo_ingest": {
-        "wall_seconds": 0.16946599999209866,
-        "cpu_seconds": 0.125,
+        "wall_seconds": 0.004697299969848245,
+        "cpu_seconds": 0.015625,
         "peak_rss_mb": 111.63
       },
+      "pexo_ingest": {
+        "wall_seconds": 0.3786471000057645,
+        "cpu_seconds": 0.3125,
+        "peak_rss_mb": 112.33
+      },
       "pexo_query": {
-        "wall_seconds": 0.03231689997483045,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 110.63
+        "wall_seconds": 0.08056620002025738,
+        "cpu_seconds": 0.046875,
+        "peak_rss_mb": 110.99
       },
       "pexo_tokens": 2777,
       "compaction_ratio": 141.06,
@@ -306,19 +306,19 @@
       "dataset_bytes": 1478484,
       "traditional_tokens": 369621,
       "baseline": {
-        "wall_seconds": 0.0016456999583169818,
+        "wall_seconds": 0.005565500003285706,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 111.05
+        "peak_rss_mb": 111.75
       },
       "pexo_ingest": {
-        "wall_seconds": 0.15292319998843595,
-        "cpu_seconds": 0.140625,
-        "peak_rss_mb": 111.88
+        "wall_seconds": 0.3291528999689035,
+        "cpu_seconds": 0.25,
+        "peak_rss_mb": 112.45
       },
       "pexo_query": {
-        "wall_seconds": 0.031615199986845255,
+        "wall_seconds": 0.05684610002208501,
         "cpu_seconds": 0.046875,
-        "peak_rss_mb": 110.69
+        "peak_rss_mb": 111.05
       },
       "pexo_tokens": 2781,
       "compaction_ratio": 132.91,
@@ -352,19 +352,19 @@
       "dataset_bytes": 1498062,
       "traditional_tokens": 374515,
       "baseline": {
-        "wall_seconds": 0.002142600016668439,
+        "wall_seconds": 0.00395729998126626,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 110.9
+        "peak_rss_mb": 111.19
       },
       "pexo_ingest": {
-        "wall_seconds": 0.16597360000014305,
-        "cpu_seconds": 0.15625,
-        "peak_rss_mb": 111.53
+        "wall_seconds": 0.3463349000085145,
+        "cpu_seconds": 0.3125,
+        "peak_rss_mb": 112.05
       },
       "pexo_query": {
-        "wall_seconds": 0.031131799973081797,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 110.87
+        "wall_seconds": 0.06232250004541129,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 111.21
       },
       "pexo_tokens": 2783,
       "compaction_ratio": 134.57,
@@ -398,19 +398,19 @@
       "dataset_bytes": 1914306,
       "traditional_tokens": 478576,
       "baseline": {
-        "wall_seconds": 0.0020374999730847776,
-        "cpu_seconds": 0.015625,
-        "peak_rss_mb": 112.27
+        "wall_seconds": 0.004167299950495362,
+        "cpu_seconds": 0.0,
+        "peak_rss_mb": 112.0
       },
       "pexo_ingest": {
-        "wall_seconds": 0.1847515999688767,
-        "cpu_seconds": 0.15625,
-        "peak_rss_mb": 112.8
+        "wall_seconds": 0.37729530001524836,
+        "cpu_seconds": 0.28125,
+        "peak_rss_mb": 113.07
       },
       "pexo_query": {
-        "wall_seconds": 0.03607440000632778,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 109.93
+        "wall_seconds": 0.08199790003709495,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 112.24
       },
       "pexo_tokens": 2780,
       "compaction_ratio": 172.15,
@@ -444,19 +444,19 @@
       "dataset_bytes": 1790360,
       "traditional_tokens": 447590,
       "baseline": {
-        "wall_seconds": 0.002481300034560263,
+        "wall_seconds": 0.005169600015506148,
         "cpu_seconds": 0.0,
-        "peak_rss_mb": 111.41
+        "peak_rss_mb": 112.68
       },
       "pexo_ingest": {
-        "wall_seconds": 0.17072519997600466,
-        "cpu_seconds": 0.125,
-        "peak_rss_mb": 112.4
+        "wall_seconds": 0.3637810999643989,
+        "cpu_seconds": 0.265625,
+        "peak_rss_mb": 113.38
       },
       "pexo_query": {
-        "wall_seconds": 0.03687670000363141,
-        "cpu_seconds": 0.03125,
-        "peak_rss_mb": 111.14
+        "wall_seconds": 0.11151399998925626,
+        "cpu_seconds": 0.0625,
+        "peak_rss_mb": 112.4
       },
       "pexo_tokens": 2804,
       "compaction_ratio": 159.63,
@@ -481,29 +481,29 @@
   ],
   "suite_performance": {
     "baseline": {
-      "wall_seconds": 0.022,
-      "cpu_seconds": 0.047,
-      "peak_rss_mb": 112.27
+      "wall_seconds": 0.039,
+      "cpu_seconds": 0.016,
+      "peak_rss_mb": 112.68
     },
     "pexo_ingest": {
-      "wall_seconds": 1.678,
-      "cpu_seconds": 1.281,
-      "peak_rss_mb": 112.8
+      "wall_seconds": 3.199,
+      "cpu_seconds": 2.469,
+      "peak_rss_mb": 113.38
     },
     "pexo_query": {
-      "wall_seconds": 0.312,
-      "cpu_seconds": 0.297,
-      "peak_rss_mb": 111.14
+      "wall_seconds": 0.645,
+      "cpu_seconds": 0.531,
+      "peak_rss_mb": 112.4
     },
     "pexo": {
-      "wall_seconds": 1.99,
-      "cpu_seconds": 1.578,
-      "peak_rss_mb": 112.8
+      "wall_seconds": 3.845,
+      "cpu_seconds": 3.0,
+      "peak_rss_mb": 113.38
     },
     "delta": {
-      "wall_seconds": 1.968,
-      "cpu_seconds": 1.531,
-      "peak_rss_mb": 0.53
+      "wall_seconds": 3.806,
+      "cpu_seconds": 2.984,
+      "peak_rss_mb": 0.7
     },
     "pexo_state_mb": 49.09
   },
