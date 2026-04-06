@@ -1097,6 +1097,126 @@ def run_warmup(quiet: bool = False) -> int:
         return 1
 
 
+def build_self_test_report() -> dict:
+    ensure_db_ready()
+    runtime = build_runtime_status()
+
+    from .mcp_server import (
+        pexo_find_artifact,
+        pexo_find_memory,
+        pexo_register_artifact_text,
+        pexo_remember_context,
+    )
+
+    session_suffix = f"{os.getpid()}-{int(time.time())}"
+    session_id = f"self-test-{session_suffix}"
+    task_context = "self-test"
+    memory_token = f"PEXO_SELF_TEST_MEMORY_{session_suffix}"
+    artifact_token = f"PEXO_SELF_TEST_ARTIFACT_{session_suffix}"
+
+    remembered = pexo_remember_context(
+        content=memory_token,
+        task_context=task_context,
+        session_id=session_id,
+    )
+    memory_lookup = pexo_find_memory(memory_token, limit=3)
+    memory_match = memory_lookup.get("best_match") or {}
+    memory_ok = memory_match.get("content") == memory_token
+
+    attached = pexo_register_artifact_text(
+        name=f"{session_id}.txt",
+        content=f"{artifact_token}\nPexo self-test artifact payload.",
+        session_id=session_id,
+        task_context=task_context,
+    )
+    artifact_lookup = pexo_find_artifact(
+        artifact_token,
+        limit=3,
+        session_id=session_id,
+        task_context=task_context,
+    )
+    artifact_match = artifact_lookup.get("best_match") or {}
+    artifact_ok = artifact_match.get("name") == f"{session_id}.txt"
+
+    genesis_policy = runtime.get("genesis_policy") or {}
+    trust_mode = str(genesis_policy.get("mode") or "unknown")
+    trust_ok = trust_mode != "full-local-exec"
+
+    checks = [
+        {
+            "name": "memory_round_trip",
+            "ok": memory_ok,
+            "details": {
+                "memory_id": (remembered.get("memory") or {}).get("id"),
+                "expected": memory_token,
+                "found": memory_match.get("content"),
+            },
+        },
+        {
+            "name": "artifact_round_trip",
+            "ok": artifact_ok,
+            "details": {
+                "artifact_id": (attached.get("artifact") or {}).get("id"),
+                "expected": f"{session_id}.txt",
+                "found": artifact_match.get("name"),
+            },
+        },
+        {
+            "name": "genesis_default_safety",
+            "ok": trust_ok,
+            "details": {
+                "mode": trust_mode,
+                "approved_tools": genesis_policy.get("approved_tools") or [],
+                "note": (
+                    "full-local-exec is enabled on this host"
+                    if trust_mode == "full-local-exec"
+                    else "default safety gate is active"
+                ),
+            },
+        },
+    ]
+
+    passed = sum(1 for item in checks if item["ok"])
+    status = "success" if passed == len(checks) else "warning"
+    return {
+        "status": status,
+        "summary": {
+            "passed": passed,
+            "total": len(checks),
+            "session_id": session_id,
+            "task_context": task_context,
+        },
+        "runtime": {
+            "install_mode": runtime.get("install_mode"),
+            "memory_backend": runtime.get("memory_backend"),
+            "active_profile": runtime.get("active_profile"),
+        },
+        "checks": checks,
+    }
+
+
+def run_self_test(as_json: bool = False) -> int:
+    report = build_self_test_report()
+
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        summary = report["summary"]
+        print("Pexo Self-Test")
+        print(f"Status: {report['status']}")
+        print(f"Checks: {summary['passed']}/{summary['total']}")
+        print(f"Session: {summary['session_id']}")
+        print(f"Task context: {summary['task_context']}")
+        print("")
+        for check in report["checks"]:
+            label = "PASS" if check["ok"] else "WARN"
+            print(f"{label} {check['name']}")
+            for key, value in (check.get("details") or {}).items():
+                print(f"  {key}: {value}")
+
+    return 0 if report["status"] == "success" else 1
+
+
 def run_chat_mode(backend: str = "auto", workspace_path: str | None = None) -> int:
     ensure_db_ready()
     status = build_runtime_status()
@@ -1335,6 +1455,8 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--json", action="store_true")
     doctor_parser = subparsers.add_parser("doctor", help="Run local diagnostics for the current Pexo installation.")
     doctor_parser.add_argument("--json", action="store_true", help="Emit diagnostic data as JSON.")
+    self_test_parser = subparsers.add_parser("self-test", help="Run a local memory/artifact/control-plane self-test.")
+    self_test_parser.add_argument("--json", action="store_true", help="Emit self-test data as JSON.")
     connect_parser = subparsers.add_parser("connect", help="Configure Codex, Claude, or Gemini to use Pexo as an MCP server.")
     connect_parser.add_argument("client", nargs="?", default="all", choices=["all", *SUPPORTED_CLIENTS])
     connect_parser.add_argument("--scope", default="user", choices=list(SUPPORTED_SCOPES))
@@ -1363,6 +1485,7 @@ def print_help() -> None:
     print("  pexo update          Updates the current Pexo installation")
     print("  pexo warmup          Primes local state after install or update")
     print("  pexo doctor          Prints local installation and runtime diagnostics")
+    print("  pexo self-test       Verifies local memory, artifact, and safety basics")
     print("  pexo connect all     Connects Codex, Claude, and Gemini to pexo-mcp when installed")
     print("  pexo uninstall       Removes the current packaged Pexo install")
     print("  pexo --mcp           Starts Pexo as a native MCP server (stdio)")
@@ -1672,6 +1795,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_uninstall()
     if raw_args and raw_args[0] == "--doctor":
         return run_doctor(as_json="--json" in raw_args[1:])
+    if raw_args and raw_args[0] == "--self-test":
+        return run_self_test(as_json="--json" in raw_args[1:])
     if raw_args and raw_args[0] == "--connect":
         raw_args = ["connect", *raw_args[1:]]
     if raw_args and raw_args[0] == "--chat":
@@ -1713,6 +1838,8 @@ def main(argv: list[str] | None = None) -> int:
         return dispatch_cli_subcommand(cli_args)
     if args.command == "doctor":
         return run_doctor(as_json=args.json)
+    if args.command == "self-test":
+        return run_self_test(as_json=args.json)
     if args.command == "connect":
         return run_connect(target=args.client, scope=args.scope, dry_run=args.dry_run, as_json=args.json)
     if args.command == "warmup":

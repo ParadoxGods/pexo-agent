@@ -184,6 +184,7 @@ The default install is meant to be useful without silently turning your machine 
 | `pexo --mcp` / `pexo-mcp` | Start MCP only. |
 | `pexo --update` | Update the current install. |
 | `pexo doctor` | Print local installation and runtime diagnostics. |
+| `pexo self-test` | Verify local memory, artifact, and safety basics. |
 | `pexo connect all --scope user` | Connect supported local AI clients to `pexo-mcp`. |
 | `pexo warmup` | Prime local state after install or update. |
 | `pexo promote full` | Repair or reinstall the standard local runtime. |
@@ -198,6 +199,7 @@ For most users, maintenance is just:
 ```powershell
 pexo --update
 pexo doctor --json
+pexo self-test --json
 ```
 
 If client wiring drifts:

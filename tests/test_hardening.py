@@ -561,6 +561,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("pexo-mcp", readme)
         self.assertIn("PEXO_HOME", readme)
         self.assertIn("pexo doctor", readme)
+        self.assertIn("pexo self-test", readme)
         self.assertIn("pexo connect all --scope user", readme)
         self.assertIn("pexo --chat", readme)
         self.assertIn("Some clients will reach for it automatically", readme)
@@ -1473,6 +1474,44 @@ class HardeningTests(unittest.TestCase):
         mock_promote.assert_called_once_with("mcp")
         mock_warmup.assert_called_once_with(quiet=True)
         mock_restart.assert_called_once()
+
+    @patch("app.launcher.time.time", return_value=1700000000)
+    @patch("app.launcher.os.getpid", return_value=4321)
+    @patch("app.launcher.ensure_db_ready")
+    @patch("app.launcher.build_runtime_status", return_value={"install_mode": "packaged", "memory_backend": "keyword", "active_profile": "full", "genesis_policy": {"mode": "approval-required", "approved_tools": ["safe_tool", "cwd_echo"]}})
+    @patch("app.mcp_server.pexo_find_artifact")
+    @patch("app.mcp_server.pexo_register_artifact_text")
+    @patch("app.mcp_server.pexo_find_memory")
+    @patch("app.mcp_server.pexo_remember_context")
+    def test_build_self_test_report_checks_memory_artifact_and_trust(self, mock_remember, mock_find_memory, mock_register_artifact, mock_find_artifact, _mock_runtime, _mock_db_ready, _mock_pid, _mock_time):
+        mock_remember.return_value = {"memory": {"id": 101, "content": "token"}}
+        mock_find_memory.return_value = {"best_match": {"content": "PEXO_SELF_TEST_MEMORY_4321-1700000000"}}
+        mock_register_artifact.return_value = {"artifact": {"id": 202, "name": "self-test-4321-1700000000.txt"}}
+        mock_find_artifact.return_value = {"best_match": {"name": "self-test-4321-1700000000.txt"}}
+
+        report = launcher_module.build_self_test_report()
+
+        self.assertEqual(report["status"], "success")
+        self.assertEqual(report["summary"]["passed"], 3)
+        self.assertEqual(report["runtime"]["memory_backend"], "keyword")
+        self.assertEqual(len(report["checks"]), 3)
+        self.assertEqual(report["checks"][2]["name"], "genesis_default_safety")
+
+    @patch("app.launcher.build_self_test_report")
+    def test_run_self_test_can_emit_json(self, mock_report):
+        mock_report.return_value = {
+            "status": "success",
+            "summary": {"passed": 3, "total": 3, "session_id": "self-test-1", "task_context": "self-test"},
+            "runtime": {"install_mode": "packaged", "memory_backend": "keyword", "active_profile": "full"},
+            "checks": [{"name": "memory_round_trip", "ok": True, "details": {"memory_id": 1}}],
+        }
+
+        output = StringIO()
+        with redirect_stdout(output):
+            result = launcher_module.run_self_test(as_json=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"status": "success"', output.getvalue())
 
     @patch("app.client_connect.running_from_repo_checkout", return_value=False)
     @patch("app.client_connect.which")
