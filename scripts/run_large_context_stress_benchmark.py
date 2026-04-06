@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, init_db, reset_database_runtime
 from app.models import AgentState, Artifact
-from app.paths import current_state_root, reset_runtime_path_context, set_runtime_path_context
+from app.paths import current_state_root, set_runtime_path_context
 from app.routers.artifacts import ArtifactPathRequest, get_artifact, register_artifact_path
 from app.routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, start_simple_task
 from app.runtime import build_runtime_status

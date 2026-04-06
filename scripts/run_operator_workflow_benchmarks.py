@@ -24,7 +24,7 @@ from app.mcp_server import (
     pexo_start_task,
     pexo_store_memory,
 )
-from app.paths import current_state_root, reset_runtime_path_context, set_runtime_path_context
+from app.paths import current_state_root, set_runtime_path_context
 from app.runtime import build_runtime_status
 from app.search_index import reset_search_index_runtime
 from scripts.run_context_compaction_benchmarks import (

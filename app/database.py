@@ -1,3 +1,4 @@
+import importlib
 import sqlite3
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def _apply_sqlite_pragmas(cursor) -> None:
 
 
 @event.listens_for(engine, "connect")
-def _configure_sqlite_connection(dbapi_connection, connection_record):
+def _configure_sqlite_connection(dbapi_connection, _connection_record):
     cursor = dbapi_connection.cursor()
     try:
         _apply_sqlite_pragmas(cursor)
@@ -96,11 +97,11 @@ def run_schema_migrations() -> None:
 
 def init_db():
     """Initializes the active local SQLite database."""
-    from . import models  # Ensure SQLAlchemy metadata is registered before create_all.
     from .core_agents import ensure_core_agent_profiles
 
     db_path = current_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    importlib.import_module("app.models")  # Ensure SQLAlchemy metadata is registered before create_all.
     Base.metadata.create_all(bind=engine)
     run_schema_migrations()
     db = SessionLocal()
@@ -131,3 +132,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

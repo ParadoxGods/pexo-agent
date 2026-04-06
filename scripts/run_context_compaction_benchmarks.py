@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.database import SessionLocal, init_db, reset_database_runtime
 from app.models import AgentState, Artifact
-from app.paths import current_state_root, reset_runtime_path_context, set_runtime_path_context
+from app.paths import current_state_root, set_runtime_path_context
 from app.routers.artifacts import ArtifactPathRequest, register_artifact_path
 from app.routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, start_simple_task
 from app.runtime import build_runtime_status
@@ -115,7 +115,7 @@ class PeakSampler:
         self._thread.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
         self._stop.set()
         self._thread.join(timeout=1)
         self._peak_rss = max(self._peak_rss, get_rss_bytes())
@@ -816,3 +816,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -2187,7 +2187,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_service_round_trip(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_service_round_trip(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2224,7 +2224,7 @@ class HardeningTests(unittest.TestCase):
 
     @patch("app.direct_chat._best_effort_backend_connection")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_session_creation_defers_backend_connection_verification(self, mock_backend_name, mock_best_effort):
+    def test_direct_chat_session_creation_defers_backend_connection_verification(self, _mock_backend_name, mock_best_effort):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2240,7 +2240,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_routes_simple_messages_to_conversation_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_routes_simple_messages_to_conversation_mode(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2260,7 +2260,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend", return_value="Noted.")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_learns_explicit_user_preferences(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_learns_explicit_user_preferences(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2289,7 +2289,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend", return_value="I'll act as the user-facing Pexo assistant for this session.")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_brain_lookup_surfaces_learned_preferences(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_brain_lookup_surfaces_learned_preferences(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2315,7 +2315,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_routes_task_follow_up_after_task_turn(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_routes_task_follow_up_after_task_turn(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2338,7 +2338,7 @@ class HardeningTests(unittest.TestCase):
 
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_answers_whats_next_from_task_session_context(self, mock_backend_name, mock_connect):
+    def test_direct_chat_answers_whats_next_from_task_session_context(self, _mock_backend_name, _mock_connect):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2364,7 +2364,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat._fast_web_fact_lookup", return_value={"answer": "According to Wikipedia, the incumbent president is Donald Trump.", "source": "wikipedia_search", "title": "List of presidents of the United States"})
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_answers_general_question_from_fast_web_fact_lookup(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+    def test_direct_chat_answers_general_question_from_fast_web_fact_lookup(self, _mock_backend_name, _mock_connect, _mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2391,7 +2391,7 @@ class HardeningTests(unittest.TestCase):
     )
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_explains_web_fact_answer_from_session_context(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+    def test_direct_chat_explains_web_fact_answer_from_session_context(self, _mock_backend_name, _mock_connect, _mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2412,7 +2412,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._best_effort_backend_connection")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_verifies_backend_connection_for_task_mode_when_session_is_unverified(self, mock_backend_name, mock_best_effort, mock_run_backend):
+    def test_direct_chat_verifies_backend_connection_for_task_mode_when_session_is_unverified(self, _mock_backend_name, mock_best_effort, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2437,7 +2437,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._best_effort_backend_connection", return_value="Unable to connect gemini to the Pexo MCP server.")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_surfaces_backend_warning_when_task_mode_verification_fails(self, mock_backend_name, mock_best_effort, mock_run_backend):
+    def test_direct_chat_surfaces_backend_warning_when_task_mode_verification_fails(self, _mock_backend_name, mock_best_effort, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2460,7 +2460,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_falls_back_to_local_identity_and_date_when_backend_fails(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_identity_and_date_when_backend_fails(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2482,7 +2482,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_falls_back_to_local_answer_when_fast_backend_times_out(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_answer_when_fast_backend_times_out(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2500,7 +2500,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_answers_direct_local_facts_without_waiting_on_backend(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_answers_direct_local_facts_without_waiting_on_backend(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2519,7 +2519,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+    def test_direct_chat_returns_graceful_message_when_general_question_backend_times_out(self, _mock_backend_name, _mock_connect, _mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2540,7 +2540,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_does_not_try_secondary_backend_for_general_question(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+    def test_direct_chat_does_not_try_secondary_backend_for_general_question(self, _mock_backend_name, _mock_connect, _mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2563,7 +2563,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.build_client_connection_plan")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_task_worker_can_try_secondary_backend_in_auto_mode(self, mock_backend_name, mock_connect, mock_plan, mock_run_backend):
+    def test_direct_chat_task_worker_can_try_secondary_backend_in_auto_mode(self, _mock_backend_name, _mock_connect, mock_plan, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2609,7 +2609,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.threading.Thread.start", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_starts_background_task_worker_on_continue(self, mock_backend_name, mock_connect, _mock_thread_start):
+    def test_direct_chat_starts_background_task_worker_on_continue(self, _mock_backend_name, _mock_connect, _mock_thread_start):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2675,7 +2675,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat._fast_web_fact_lookup", return_value=None)
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_rejects_generic_filler_for_general_question(self, mock_backend_name, mock_connect, mock_web_fact, mock_run_backend):
+    def test_direct_chat_rejects_generic_filler_for_general_question(self, _mock_backend_name, _mock_connect, _mock_web_fact, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2697,7 +2697,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_falls_back_to_local_smalltalk_and_feedback_when_backend_fails(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_smalltalk_and_feedback_when_backend_fails(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2719,7 +2719,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_rewrites_generic_backend_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_rewrites_generic_backend_filler(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2741,7 +2741,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_falls_back_to_local_direct_answer_when_backend_misses_the_question(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_falls_back_to_local_direct_answer_when_backend_misses_the_question(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2762,7 +2762,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_routes_lookup_requests_to_brain_lookup_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_routes_lookup_requests_to_brain_lookup_mode(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2790,7 +2790,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_routes_build_requests_to_task_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_routes_build_requests_to_task_mode(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2815,7 +2815,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_help_framed_task_stays_local_first(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_help_framed_task_stays_local_first(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2838,7 +2838,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_routes_create_agent_request_to_task_mode(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_routes_create_agent_request_to_task_mode(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2859,7 +2859,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_task_mode_rejects_meta_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_task_mode_rejects_meta_filler(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -2899,7 +2899,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_direct_chat_task_mode_rejects_im_pexo_meta_filler(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_task_mode_rejects_im_pexo_meta_filler(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -3017,7 +3017,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_promotes_concrete_task_into_real_pexo_session(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_promotes_concrete_task_into_real_pexo_session(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -3042,7 +3042,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="codex")
-    def test_direct_chat_uses_real_task_session_for_clarification_follow_up(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_direct_chat_uses_real_task_session_for_clarification_follow_up(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -3080,7 +3080,7 @@ class HardeningTests(unittest.TestCase):
     @patch("app.direct_chat.run_direct_chat_backend")
     @patch("app.direct_chat._ensure_backend_connected")
     @patch("app.direct_chat._resolve_backend_name", return_value="gemini")
-    def test_chat_api_and_snapshot_include_direct_chat(self, mock_backend_name, mock_connect, mock_run_backend):
+    def test_chat_api_and_snapshot_include_direct_chat(self, _mock_backend_name, _mock_connect, mock_run_backend):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         mock_run_backend.side_effect = [
@@ -3742,3 +3742,4 @@ class HardeningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
