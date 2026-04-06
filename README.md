@@ -6,9 +6,7 @@
 
 ---
 
-Pexo sits between you and your AI clients and keeps the work coherent on your machine. Codex, Gemini, Claude, and any other MCP-capable client can all work against the same local memory, artifacts, preferences, sessions, agents, and task state.
-
-It is not another disposable chat shell. It is the local operator layer that stops your workflow from fragmenting every time you switch tools.
+Pexo is the local operator layer that sits between you and your AI clients and keeps the work coherent on your machine. Codex, Gemini, Claude, and any other MCP-capable client can all work against the same local memory, artifacts, preferences, sessions, agents, and task state.
 
 ## Why Pexo
 
@@ -30,54 +28,6 @@ Pexo fixes that by keeping a shared local brain underneath the clients.
 | Agents and tools | Local operating rules stay reusable and inspectable. |
 
 If you want local control, lower active context pressure, and a workflow that compounds over time instead of resetting, this is the missing layer.
-
-## Benchmark Snapshot
-
-These are three isolated real-world benchmark suites for **compression and recollection**.
-They compare naive full-corpus replay against the same workloads routed through Pexo's MCP surfaces.
-
-How to read this:
-- **Before Pexo** is the naive context you would carry if you replayed the full corpus for every question.
-- **After Pexo** is the measured `context_size_tokens` recorded by the Pexo-managed sessions.
-- **Accuracy** is exact-match against the expected answer for every workload in the suite.
-
-Full benchmark detail lives in:
-- `docs/benchmarks/realworld_compression_recollection_results.md`
-- `docs/benchmarks/realworld_compression_recollection_results.json`
-- `scripts/run_realworld_compression_recollection_benchmarks.py`
-
-### Host System
-
-| Metric | Value |
-| :--- | :--- |
-| CPU | `Intel(R) Core(TM) i9-14900K` |
-| RAM | `47.72 GB` |
-| Python | `3.12.10` |
-| Pexo version | `1.1.1` |
-| Memory backend | `keyword` |
-
-### At A Glance
-
-| Suite | Before Pexo | After Pexo | Reduction | Accuracy |
-| :--- | ---: | ---: | ---: | ---: |
-| Massive Repo Retrieval | `53,080,530` tokens | `17,004` tokens | `3121.65x` | `100.00%` |
-| Massive Timeline Recollection | `9,792,312` tokens | `18,703` tokens | `523.57x` | `100.00%` |
-| Massive Handoff Reconstruction | `14,209,182` tokens | `19,333` tokens | `734.97x` | `100.00%` |
-
-### Combined Totals
-
-| Metric | Before Pexo | After Pexo |
-| :--- | :--- | :--- |
-| Corpus handled | `51,388,021` bytes | `51,388,021` bytes |
-| Active context | `77,082,024` tokens | `55,040` tokens |
-| Total wall time | `0.500` | `6.864` |
-| Accuracy | direct baseline replay | `100.00%` exact-match accuracy |
-| Net effect | full corpus replay every time | `1400.47x` reduction, `0.0714%` retained |
-
-What this means:
-- Direct replay can still be faster for one-off local scans because it skips ingestion and retrieval work.
-- Pexo wins when the same project state needs to survive repeated questions, interruptions, and client handoffs without replaying the whole corpus.
-- The table above is the GitHub summary. The full per-suite breakdown stays in `docs/benchmarks/realworld_compression_recollection_results.md`.
 
 ## Install
 
@@ -138,11 +88,6 @@ Some clients will reach for it automatically. Others may need one short instruct
 
 Open `http://127.0.0.1:9999/ui/` if you want to inspect the local state directly.
 
-**Direct terminal chat:**
-```powershell
-pexo --chat
-```
-
 ## MCP First
 
 Pexo is designed around MCP because the real point is interoperability. You should not have to pick one AI client as the source of truth. Pexo keeps the state local and lets whichever connected model is active work against the same substrate.
@@ -174,6 +119,42 @@ Pexo is meant to be a middle layer, so local trust boundaries matter.
 
 The default install is meant to be useful without silently turning your machine into an unrestricted execution surface.
 
+## Benchmark Snapshot
+
+Pexo's strongest benchmark is not raw local scan speed. It is **compression plus recollection**: keeping active AI context small while still returning the right answer later.
+
+How to read this:
+- **Before Pexo** is the naive context you would carry if you replayed the full corpus for every question.
+- **After Pexo** is the measured `context_size_tokens` recorded by the Pexo-managed sessions.
+- **Accuracy** is exact-match against the expected answer for every workload in the suite.
+
+### Host System
+
+| Metric | Value |
+| :--- | :--- |
+| CPU | `Intel(R) Core(TM) i9-14900K` |
+| RAM | `47.72 GB` |
+| Python | `3.12.10` |
+| Pexo version | `1.1.1` |
+| Memory backend | `keyword` |
+
+### Summary
+
+| Suite | Before Pexo | After Pexo | Reduction | Accuracy |
+| :--- | ---: | ---: | ---: | ---: |
+| Massive Repo Retrieval | `53,080,530` tokens | `17,004` tokens | `3121.65x` | `100.00%` |
+| Massive Timeline Recollection | `9,792,312` tokens | `18,703` tokens | `523.57x` | `100.00%` |
+| Massive Handoff Reconstruction | `14,209,182` tokens | `19,333` tokens | `734.97x` | `100.00%` |
+| Combined totals | `77,082,024` tokens | `55,040` tokens | `1400.47x` | `100.00%` |
+
+What this means:
+- Direct replay can still be faster for one-off local scans because it skips ingestion and retrieval work.
+- Pexo wins when the same project state needs to survive repeated questions, interruptions, and client handoffs without replaying the whole corpus.
+- Full benchmark detail lives in:
+  - `docs/benchmarks/realworld_compression_recollection_results.md`
+  - `docs/benchmarks/realworld_compression_recollection_results.json`
+  - `scripts/run_realworld_compression_recollection_benchmarks.py`
+
 ## Commands
 
 | Command | Description |
@@ -189,6 +170,7 @@ The default install is meant to be useful without silently turning your machine 
 | `pexo warmup` | Prime local state after install or update. |
 | `pexo promote full` | Repair or reinstall the standard local runtime. |
 | `pexo promote vector` | Add optional semantic-memory support. |
+| `pexo --chat` | Optional direct terminal chat. |
 | `pexo uninstall` | Remove the current install. |
 | `pexo uninstall --keep-state` | Remove the install but preserve local state. |
 
