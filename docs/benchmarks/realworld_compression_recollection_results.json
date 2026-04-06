@@ -1,0 +1,396 @@
+{
+  "generated_at_utc": "2026-04-06T03:02:11.059380+00:00",
+  "host": {
+    "timestamp_utc": "2026-04-06T03:02:09.624936+00:00",
+    "machine": "CDX-DUSTIN",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "logical_cores": 32,
+    "total_ram_gb": 47.72,
+    "pexo_version": "1.1.1"
+  },
+  "runtime": {
+    "active_profile": "full",
+    "marker_profile": "full",
+    "installed_profiles": {
+      "core": true,
+      "mcp": true,
+      "full": true,
+      "vector": false
+    },
+    "vector_embeddings_available": false,
+    "semantic_memory_ready": false,
+    "memory_backend": "keyword",
+    "project_root": "C:\\CDXCLI\\pexo",
+    "state_root": "C:\\CDXCLI\\pexo\\sandbox\\benchmark_realworld_compression_recollection\\state\\handoff-reconstruction",
+    "code_root": "C:\\CDXCLI\\pexo",
+    "install_mode": "checkout",
+    "genesis_policy": {
+      "mode": "approval-required",
+      "approved_tools": [
+        "cwd_echo",
+        "safe_tool"
+      ]
+    },
+    "recommended_promotions": [],
+    "vector_promotion_offer_pending": false,
+    "vector_promotion_offer": null,
+    "performance": {
+      "estimated": true,
+      "headline": "Low to moderate overhead in the full profile",
+      "summary": "Pexo is mostly a disk and memory cost, not a permanent background drain. Nothing stays resident until you launch it.",
+      "before_install": {
+        "label": "Before Pexo",
+        "disk_mb": 0.0,
+        "idle_ram_mb": 0,
+        "idle_cpu_pct": "0%",
+        "background_processes": 0,
+        "summary": "No local Pexo state, no MCP bridge, and no local control-plane process."
+      },
+      "after_install": {
+        "label": "Installed, not running",
+        "disk_mb": 29.1,
+        "idle_ram_mb": 0,
+        "idle_cpu_pct": "0%",
+        "background_processes": 0,
+        "summary": "Checkout mode reuses your repo and Python environment. The Pexo-specific local state is about 29.1 MB."
+      },
+      "current_runtime": {
+        "label": "Current runtime (full)",
+        "profile": "full",
+        "impact_label": "Low to moderate",
+        "idle_ram_mb": 86,
+        "idle_cpu_pct": "0.1-0.5%",
+        "startup_seconds": "0.7-1.8s",
+        "background_processes": 1,
+        "memory_backend": "keyword",
+        "summary": "Adds the full control plane, browser UI, and heavier orchestration surfaces."
+      },
+      "profile_matrix": [
+        {
+          "profile": "core",
+          "impact_label": "Very low",
+          "idle_ram_mb": 42,
+          "idle_cpu_pct": "0.0-0.1%",
+          "startup_seconds": "0.2-0.6s",
+          "available": true,
+          "use_case": "Local API, memory, and profile state only."
+        },
+        {
+          "profile": "mcp",
+          "impact_label": "Low",
+          "idle_ram_mb": 56,
+          "idle_cpu_pct": "0.0-0.2%",
+          "startup_seconds": "0.3-0.8s",
+          "available": true,
+          "use_case": "Adds the MCP bridge so Codex, Gemini, and Claude can share one local state layer."
+        },
+        {
+          "profile": "full",
+          "impact_label": "Low to moderate",
+          "idle_ram_mb": 86,
+          "idle_cpu_pct": "0.1-0.5%",
+          "startup_seconds": "0.7-1.8s",
+          "available": true,
+          "use_case": "Adds the full control plane, browser UI, and heavier orchestration surfaces."
+        },
+        {
+          "profile": "vector",
+          "impact_label": "Moderate",
+          "idle_ram_mb": 126,
+          "idle_cpu_pct": "0.2-0.8%",
+          "startup_seconds": "1.0-2.5s",
+          "available": false,
+          "use_case": "Adds semantic vector memory on top of the full runtime."
+        }
+      ],
+      "notes": [
+        "These numbers are estimates for local developer machines, not live benchmarks of this host.",
+        "The largest persistent cost is disk footprint. The largest active cost is one local Pexo process while the control plane is running.",
+        "Keyword memory keeps the runtime lighter than the optional vector layer."
+      ]
+    }
+  },
+  "suites": [
+    {
+      "slug": "repo-noise-retrieval",
+      "title": "Massive Repo Retrieval",
+      "description": "A real repo corpus plus heavy surrounding noise. The baseline rereads the whole corpus for every question; the Pexo path ingests once and recalls only the needed material.",
+      "what_it_tests": "Large noisy codebase retrieval.",
+      "workload_count": 6,
+      "corpus_bytes": 35387023,
+      "direct_tokens": 53080530,
+      "pexo_tokens": 17004,
+      "reduction_factor": 3121.65,
+      "retained_pct": 0.032,
+      "exact_match_accuracy_pct": 100.0,
+      "direct_metrics": {
+        "wall_seconds": 0.335955299960915,
+        "cpu_seconds": 0.328125,
+        "peak_rss_mb": 142.79
+      },
+      "pexo_setup_metrics": {
+        "wall_seconds": 1.9565781999845058,
+        "cpu_seconds": 1.453125,
+        "peak_rss_mb": 110.51
+      },
+      "pexo_query_metrics": {
+        "wall_seconds": 0.7502667999942787,
+        "cpu_seconds": 0.6875,
+        "peak_rss_mb": 116.43
+      },
+      "pexo_total_metrics": {
+        "wall_seconds": 2.706845,
+        "cpu_seconds": 2.140625,
+        "peak_rss_mb": 116.43
+      },
+      "pexo_state_mb": 44.22,
+      "workload_results": [
+        {
+          "title": "Default Genesis trust mode",
+          "query": "DEFAULT_GENESIS_POLICY approval-required",
+          "expected_answer": "approval-required",
+          "direct_answer": "approval-required",
+          "pexo_answer": "approval-required",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-01"
+        },
+        {
+          "title": "QA gate after developer",
+          "query": "Quality Assurance Manager reviewer",
+          "expected_answer": "Quality Assurance Manager",
+          "direct_answer": "Quality Assurance Manager",
+          "pexo_answer": "Quality Assurance Manager",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-02"
+        },
+        {
+          "title": "Packaged MCP command",
+          "query": "native MCP server pexo-mcp",
+          "expected_answer": "pexo-mcp",
+          "direct_answer": "pexo-mcp",
+          "pexo_answer": "pexo-mcp",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-03"
+        },
+        {
+          "title": "Keep-state uninstall command",
+          "query": "keep-state uninstall preserve local state",
+          "expected_answer": "pexo uninstall --keep-state",
+          "direct_answer": "pexo uninstall --keep-state",
+          "pexo_answer": "pexo uninstall --keep-state",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-04"
+        },
+        {
+          "title": "Checkout mutable state directory",
+          "query": "Checkout mode keeps mutable state under",
+          "expected_answer": ".pexo",
+          "direct_answer": ".pexo",
+          "pexo_answer": ".pexo",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-05"
+        },
+        {
+          "title": "Default memory backend",
+          "query": "SQLite keyword-backed retrieval",
+          "expected_answer": "SQLite",
+          "direct_answer": "SQLite",
+          "pexo_answer": "SQLite",
+          "correct": true,
+          "session_id": "repo-noise-retrieval-task-06"
+        }
+      ]
+    },
+    {
+      "slug": "timeline-recollection",
+      "title": "Massive Timeline Recollection",
+      "description": "A long sequence of large decision logs with changing accepted defaults over time. The job is to recall the final accepted state, not just find an old mention.",
+      "what_it_tests": "Latest-state recollection across long histories.",
+      "workload_count": 6,
+      "corpus_bytes": 6528210,
+      "direct_tokens": 9792312,
+      "pexo_tokens": 18703,
+      "reduction_factor": 523.57,
+      "retained_pct": 0.191,
+      "exact_match_accuracy_pct": 100.0,
+      "direct_metrics": {
+        "wall_seconds": 0.06477900000754744,
+        "cpu_seconds": 0.078125,
+        "peak_rss_mb": 117.02
+      },
+      "pexo_setup_metrics": {
+        "wall_seconds": 1.303103500045836,
+        "cpu_seconds": 0.875,
+        "peak_rss_mb": 114.38
+      },
+      "pexo_query_metrics": {
+        "wall_seconds": 0.5233784000156447,
+        "cpu_seconds": 0.484375,
+        "peak_rss_mb": 116.33
+      },
+      "pexo_total_metrics": {
+        "wall_seconds": 1.826482,
+        "cpu_seconds": 1.359375,
+        "peak_rss_mb": 116.33
+      },
+      "pexo_state_mb": 20.69,
+      "workload_results": [
+        {
+          "title": "Current UI stack",
+          "query": "Current UI stack CURRENT_UI_STACK",
+          "expected_answer": "nextjs_app_router",
+          "direct_answer": "nextjs_app_router",
+          "pexo_answer": "nextjs_app_router",
+          "correct": true,
+          "session_id": "timeline-recollection-task-01"
+        },
+        {
+          "title": "Current packaging path",
+          "query": "Current packaging path CURRENT_PACKAGING",
+          "expected_answer": "release_bundle",
+          "direct_answer": "release_bundle",
+          "pexo_answer": "release_bundle",
+          "correct": true,
+          "session_id": "timeline-recollection-task-02"
+        },
+        {
+          "title": "Current owner mode",
+          "query": "Current product owner mode CURRENT_OWNER",
+          "expected_answer": "operator-control",
+          "direct_answer": "operator-control",
+          "pexo_answer": "operator-control",
+          "correct": true,
+          "session_id": "timeline-recollection-task-03"
+        },
+        {
+          "title": "Current required gate",
+          "query": "Current required gate CURRENT_GATE",
+          "expected_answer": "Quality Assurance Manager",
+          "direct_answer": "Quality Assurance Manager",
+          "pexo_answer": "Quality Assurance Manager",
+          "correct": true,
+          "session_id": "timeline-recollection-task-04"
+        },
+        {
+          "title": "Rejected default option",
+          "query": "Rejected default REJECTED_OPTION",
+          "expected_answer": "vector_by_default",
+          "direct_answer": "vector_by_default",
+          "pexo_answer": "vector_by_default",
+          "correct": true,
+          "session_id": "timeline-recollection-task-05"
+        },
+        {
+          "title": "Combined latest product direction",
+          "query": "CURRENT_UI_STACK CURRENT_PACKAGING CURRENT_OWNER",
+          "expected_answer": "nextjs_app_router | release_bundle | operator-control",
+          "direct_answer": "nextjs_app_router | release_bundle | operator-control",
+          "pexo_answer": "nextjs_app_router | release_bundle | operator-control",
+          "correct": true,
+          "session_id": "timeline-recollection-task-06"
+        }
+      ]
+    },
+    {
+      "slug": "handoff-reconstruction",
+      "title": "Massive Handoff Reconstruction",
+      "description": "A multi-client handoff history where the active issue, next gate, deploy target, and fallback client evolve over many batches.",
+      "what_it_tests": "Cross-client continuity and current-state reconstruction.",
+      "workload_count": 6,
+      "corpus_bytes": 9472788,
+      "direct_tokens": 14209182,
+      "pexo_tokens": 19333,
+      "reduction_factor": 734.97,
+      "retained_pct": 0.1361,
+      "exact_match_accuracy_pct": 100.0,
+      "direct_metrics": {
+        "wall_seconds": 0.09967829997185618,
+        "cpu_seconds": 0.09375,
+        "peak_rss_mb": 114.96
+      },
+      "pexo_setup_metrics": {
+        "wall_seconds": 1.68086940003559,
+        "cpu_seconds": 1.40625,
+        "peak_rss_mb": 114.8
+      },
+      "pexo_query_metrics": {
+        "wall_seconds": 0.6494139999849722,
+        "cpu_seconds": 0.5625,
+        "peak_rss_mb": 117.46
+      },
+      "pexo_total_metrics": {
+        "wall_seconds": 2.330283,
+        "cpu_seconds": 1.96875,
+        "peak_rss_mb": 117.46
+      },
+      "pexo_state_mb": 29.19,
+      "workload_results": [
+        {
+          "title": "Current issue across handoffs",
+          "query": "Current issue HANDOFF_CURRENT_ISSUE",
+          "expected_answer": "mcp_stability",
+          "direct_answer": "mcp_stability",
+          "pexo_answer": "mcp_stability",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-01"
+        },
+        {
+          "title": "Current required gate across handoffs",
+          "query": "Next gate HANDOFF_NEXT_GATE",
+          "expected_answer": "Quality Assurance Manager",
+          "direct_answer": "Quality Assurance Manager",
+          "pexo_answer": "Quality Assurance Manager",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-02"
+        },
+        {
+          "title": "Current deploy target across handoffs",
+          "query": "Deploy target HANDOFF_DEPLOY_TARGET",
+          "expected_answer": "packaged_release",
+          "direct_answer": "packaged_release",
+          "pexo_answer": "packaged_release",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-03"
+        },
+        {
+          "title": "Fallback client after handoff",
+          "query": "Fallback client HANDOFF_FALLBACK_CLIENT",
+          "expected_answer": "gemini",
+          "direct_answer": "gemini",
+          "pexo_answer": "gemini",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-04"
+        },
+        {
+          "title": "Current owner mode after handoff",
+          "query": "Current owner HANDOFF_OWNER",
+          "expected_answer": "operator-control",
+          "direct_answer": "operator-control",
+          "pexo_answer": "operator-control",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-05"
+        },
+        {
+          "title": "Combined current handoff state",
+          "query": "HANDOFF_CURRENT_ISSUE HANDOFF_NEXT_GATE HANDOFF_DEPLOY_TARGET HANDOFF_FALLBACK_CLIENT",
+          "expected_answer": "mcp_stability | Quality Assurance Manager | packaged_release | gemini",
+          "direct_answer": "mcp_stability | Quality Assurance Manager | packaged_release | gemini",
+          "pexo_answer": "mcp_stability | Quality Assurance Manager | packaged_release | gemini",
+          "correct": true,
+          "session_id": "handoff-reconstruction-task-06"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "suite_count": 3,
+    "total_corpus_bytes": 51388021,
+    "total_direct_tokens": 77082024,
+    "total_pexo_tokens": 55040,
+    "overall_reduction_factor": 1400.47,
+    "overall_retained_pct": 0.0714,
+    "overall_accuracy_pct": 100.0
+  }
+}
