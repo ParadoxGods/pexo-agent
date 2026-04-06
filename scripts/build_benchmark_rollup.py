@@ -152,13 +152,6 @@ def build_markdown(rollup: dict) -> str:
     suites = rollup["suites"]
     summary = rollup["summary"]
 
-    x_labels = ", ".join(f'"{item["title"]}"' for item in suites)
-    before_series = ", ".join(str(round(item["before_tokens"] / 1000, 2)) for item in suites)
-    after_series = ", ".join(str(round(item["after_tokens"] / 1000, 2)) for item in suites)
-    retained_series = ", ".join(str(item["retained_pct"]) for item in suites)
-    raw_axis_max = round(max(item["before_tokens"] for item in suites) / 1000)
-    retained_axis_max = max(5, int(max(item["retained_pct"] for item in suites)) + 1)
-
     lines = [
         "## Benchmark Rollup",
         "",
@@ -184,28 +177,36 @@ def build_markdown(rollup: dict) -> str:
         "",
         "### Data Usage Before vs After Pexo",
         "",
-        "```mermaid",
-        "xychart-beta",
-        '    title "Context Usage Before vs After Pexo (thousands of tokens)"',
-        f"    x-axis [{x_labels}]",
-        f'    y-axis "Tokens (thousands)" 0 --> {raw_axis_max}',
-        f"    bar \"Before Pexo\" [{before_series}]",
-        f"    bar \"After Pexo\" [{after_series}]",
-        "```",
-        "",
-        "```mermaid",
-        "xychart-beta",
-        '    title "Context Retained After Pexo (% of original)"',
-        f"    x-axis [{x_labels}]",
-        f'    y-axis "Retained %" 0 --> {retained_axis_max}',
-        f"    bar \"After / Before %\" [{retained_series}]",
-        "```",
-        "",
-        "### Combined Suite Summary",
-        "",
-        "| Suite | Workloads | Dataset Size | Before Pexo | After Pexo | Retained | Reduction |",
-        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
+        "| Suite | Before Pexo | After Pexo | Tokens Avoided | Reduction |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+      ]
+    for item in suites:
+        tokens_avoided = item["before_tokens"] - item["after_tokens"]
+        lines.append(
+            f"| {item['title']} | `{format_number(item['before_tokens'])}` tokens | "
+            f"`{format_number(item['after_tokens'])}` tokens | `{format_number(tokens_avoided)}` tokens | "
+            f"`{item['reduction_factor']:.2f}x` |"
+        )
+    lines.extend(
+        [
+            "",
+            "### Retained Share After Pexo",
+            "",
+            "| Suite | Retained After Pexo |",
+            "| :--- | ---: |",
+        ]
+    )
+    for item in suites:
+        lines.append(f"| {item['title']} | `{item['retained_pct']:.4f}%` |")
+    lines.extend(
+        [
+            "",
+            "### Combined Suite Summary",
+            "",
+            "| Suite | Workloads | Dataset Size | Before Pexo | After Pexo | Retained | Reduction |",
+            "| :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
     for item in suites:
         lines.append(
             f"| {item['title']} | `{item['case_count']}` | `{format_number(item['dataset_bytes'])}` bytes | "
@@ -240,14 +241,14 @@ def build_markdown(rollup: dict) -> str:
             "",
             "### How To Read This",
             "",
-            "- **Before Pexo** is the naive context load you would pay if you shoved the source material directly into the model path.",
-            "- **After Pexo** is what the Pexo-managed session actually carried according to recorded `context_size_tokens` telemetry.",
-            "- The timing numbers are true wall-clock and CPU measurements on this machine.",
-            "- The token comparison is partly measured and partly derived: Pexo tokens are measured, the direct-path token count is estimated from bytes.",
-            "- The large stress suite dominates the raw chart by design. The retained-percent chart shows the same data normalized.",
-            "",
-        ]
-    )
+              "- **Before Pexo** is the naive context load you would pay if you shoved the source material directly into the model path.",
+              "- **After Pexo** is what the Pexo-managed session actually carried according to recorded `context_size_tokens` telemetry.",
+              "- The timing numbers are true wall-clock and CPU measurements on this machine.",
+              "- The token comparison is partly measured and partly derived: Pexo tokens are measured, the direct-path token count is estimated from bytes.",
+              "- The large stress suite is intentionally much larger than the others, so the normalized retained-percent table matters as much as the raw token totals.",
+              "",
+          ]
+      )
     return "\n".join(lines)
 
 

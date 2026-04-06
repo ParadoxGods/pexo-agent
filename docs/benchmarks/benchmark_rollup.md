@@ -22,22 +22,19 @@ Raw benchmark artifacts:
 
 ### Data Usage Before vs After Pexo
 
-```mermaid
-xychart-beta
-    title "Context Usage Before vs After Pexo (thousands of tokens)"
-    x-axis ["Context Compaction", "Real-World Workflow", "Large Context Stress"]
-    y-axis "Tokens (thousands)" 0 --> 48600
-    bar "Before Pexo" [3938.4, 764.14, 48599.91]
-    bar "After Pexo" [27.84, 37.26, 2.79]
-```
+| Suite | Before Pexo | After Pexo | Tokens Avoided | Reduction |
+| :--- | ---: | ---: | ---: | ---: |
+| Context Compaction | `3,938,402` tokens | `27,840` tokens | `3,910,562` tokens | `141.47x` |
+| Real-World Workflow | `764,137` tokens | `37,264` tokens | `726,873` tokens | `20.51x` |
+| Large Context Stress | `48,599,914` tokens | `2,790` tokens | `48,597,124` tokens | `17419.32x` |
 
-```mermaid
-xychart-beta
-    title "Context Retained After Pexo (% of original)"
-    x-axis ["Context Compaction", "Real-World Workflow", "Large Context Stress"]
-    y-axis "Retained %" 0 --> 5
-    bar "After / Before %" [0.7069, 4.8766, 0.0057]
-```
+### Retained Share After Pexo
+
+| Suite | Retained After Pexo |
+| :--- | ---: |
+| Context Compaction | `0.7069%` |
+| Real-World Workflow | `4.8766%` |
+| Large Context Stress | `0.0057%` |
 
 ### Combined Suite Summary
 
@@ -69,4 +66,4 @@ xychart-beta
 - **After Pexo** is what the Pexo-managed session actually carried according to recorded `context_size_tokens` telemetry.
 - The timing numbers are true wall-clock and CPU measurements on this machine.
 - The token comparison is partly measured and partly derived: Pexo tokens are measured, the direct-path token count is estimated from bytes.
-- The large stress suite dominates the raw chart by design. The retained-percent chart shows the same data normalized.
+- The large stress suite is intentionally much larger than the others, so the normalized retained-percent table matters as much as the raw token totals.
