@@ -1105,7 +1105,7 @@ def build_self_test_report() -> dict:
         pexo_find_artifact,
         pexo_find_memory,
         pexo_register_artifact_text,
-        pexo_remember_context,
+        pexo_store_memory,
     )
 
     session_suffix = f"{os.getpid()}-{int(time.time())}"
@@ -1114,7 +1114,7 @@ def build_self_test_report() -> dict:
     memory_token = f"PEXO_SELF_TEST_MEMORY_{session_suffix}"
     artifact_token = f"PEXO_SELF_TEST_ARTIFACT_{session_suffix}"
 
-    remembered = pexo_remember_context(
+    remembered = pexo_store_memory(
         content=memory_token,
         task_context=task_context,
         session_id=session_id,
@@ -1147,7 +1147,7 @@ def build_self_test_report() -> dict:
             "name": "memory_round_trip",
             "ok": memory_ok,
             "details": {
-                "memory_id": (remembered.get("memory") or {}).get("id"),
+                "memory_id": remembered.get("memory_id"),
                 "expected": memory_token,
                 "found": memory_match.get("content"),
             },

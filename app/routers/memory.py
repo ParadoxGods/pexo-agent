@@ -760,16 +760,11 @@ class MemoryMaintenanceRequest(BaseModel):
     task_context: str | None = None
 
 
-@router.post("/store")
-def store_memory(
+def store_memory_record(
     request: MemoryStoreRequest,
-    background_tasks: BackgroundTasks = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
-    This acts as the global, persistent brain across all tasks.
-    """
+    db: Session | None = None,
+    background_tasks: BackgroundTasks | None = None,
+) -> dict:
     run_maintenance_inline = background_tasks is None
     if background_tasks is not None and hasattr(background_tasks, "query") and hasattr(background_tasks, "commit"):
         db = background_tasks
@@ -828,6 +823,19 @@ def store_memory(
     finally:
         if owns_db:
             db.close()
+
+
+@router.post("/store")
+def store_memory(
+    request: MemoryStoreRequest,
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Stores a memory chunk in both SQLite (metadata) and ChromaDB (vector embeddings).
+    This acts as the global, persistent brain across all tasks.
+    """
+    return store_memory_record(request, db=db, background_tasks=background_tasks)
 
 
 @router.post("/search")

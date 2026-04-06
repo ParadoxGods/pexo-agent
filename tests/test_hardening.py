@@ -1482,9 +1482,9 @@ class HardeningTests(unittest.TestCase):
     @patch("app.mcp_server.pexo_find_artifact")
     @patch("app.mcp_server.pexo_register_artifact_text")
     @patch("app.mcp_server.pexo_find_memory")
-    @patch("app.mcp_server.pexo_remember_context")
-    def test_build_self_test_report_checks_memory_artifact_and_trust(self, mock_remember, mock_find_memory, mock_register_artifact, mock_find_artifact, _mock_runtime, _mock_db_ready, _mock_pid, _mock_time):
-        mock_remember.return_value = {"memory": {"id": 101, "content": "token"}}
+    @patch("app.mcp_server.pexo_store_memory")
+    def test_build_self_test_report_checks_memory_artifact_and_trust(self, mock_store_memory, mock_find_memory, mock_register_artifact, mock_find_artifact, _mock_runtime, _mock_db_ready, _mock_pid, _mock_time):
+        mock_store_memory.return_value = {"memory_id": 101}
         mock_find_memory.return_value = {"best_match": {"content": "PEXO_SELF_TEST_MEMORY_4321-1700000000"}}
         mock_register_artifact.return_value = {"artifact": {"id": 202, "name": "self-test-4321-1700000000.txt"}}
         mock_find_artifact.return_value = {"best_match": {"name": "self-test-4321-1700000000.txt"}}

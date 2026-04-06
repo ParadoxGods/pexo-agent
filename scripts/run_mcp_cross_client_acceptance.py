@@ -117,7 +117,7 @@ async def run_acceptance(*, command: str, args: list[str], workspace: str) -> di
             tools = await client_a.list_tools()
             tool_names = sorted(tool.name for tool in tools.tools)
             required_tools = {
-                "pexo_remember_context",
+                "pexo_store_memory",
                 "pexo_find_memory",
                 "pexo_attach_text_context",
                 "pexo_find_artifact",
@@ -133,7 +133,7 @@ async def run_acceptance(*, command: str, args: list[str], workspace: str) -> di
 
             remembered = await call_tool_json(
                 client_a,
-                "pexo_remember_context",
+                "pexo_store_memory",
                 {
                     "content": memory_token,
                     "task_context": task_context,
@@ -143,8 +143,8 @@ async def run_acceptance(*, command: str, args: list[str], workspace: str) -> di
             report["steps"].append(
                 {
                     "name": "client_a_store_memory",
-                    "ok": (remembered.get("memory") or {}).get("content") == memory_token,
-                    "memory_id": (remembered.get("memory") or {}).get("id"),
+                    "ok": remembered.get("memory_id") is not None,
+                    "memory_id": remembered.get("memory_id"),
                 }
             )
 

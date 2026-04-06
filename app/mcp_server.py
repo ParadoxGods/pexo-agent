@@ -41,6 +41,7 @@ from .routers.memory import (
     search_memory,
     serialize_memory,
     store_memory,
+    store_memory_record,
     update_memory,
 )
 from .routers.orchestrator import (
@@ -407,15 +408,15 @@ def _exchange_operation(
 
     writes: dict[str, Any] = {}
     if effective_remember:
-        stored_memory = store_memory(
+        stored_memory = store_memory_record(
             MemoryStoreRequest(
                 session_id=session_id or "brain_session",
                 content=effective_remember,
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            background_tasks=BackgroundTasks(),
             db=db,
+            background_tasks=BackgroundTasks(),
         )
         memory_id = stored_memory.get("memory_id")
         writes["memory"] = _compact_memory_result(get_memory(memory_id, db)) if memory_id else None
@@ -975,15 +976,15 @@ def pexo_remember_context(
     """Simple memory write surface. Store a note or decision in Pexo's local brain."""
 
     def operation(db):
-        stored = store_memory(
+        stored = store_memory_record(
             MemoryStoreRequest(
                 session_id=session_id,
                 content=content,
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            background_tasks=BackgroundTasks(),
             db=db,
+            background_tasks=BackgroundTasks(),
         )
         memory_id = stored.get("memory_id")
         memory_payload = get_memory(memory_id, db) if memory_id else None
@@ -1278,15 +1279,15 @@ def pexo_store_memory(
 ) -> dict:
     """Stores a memory record and triggers lifecycle maintenance."""
     return _with_db(
-        lambda db: store_memory(
+        lambda db: store_memory_record(
             MemoryStoreRequest(
                 session_id=session_id,
                 content=content,
                 task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
-            background_tasks=BackgroundTasks(),
             db=db,
+            background_tasks=BackgroundTasks(),
         )
     )
 
