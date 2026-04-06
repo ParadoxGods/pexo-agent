@@ -38,6 +38,7 @@ jobs:
           .\venv\Scripts\python.exe -c "from app.mcp_server import mcp; print('mcp-import-ok')"
           cmd /c .\pexo.bat --help
           .\venv\Scripts\python.exe -m unittest discover -s tests -v
+          .\venv\Scripts\python.exe .\scripts\run_mcp_cross_client_acceptance.py --json
 
       - name: Repo-local install and launcher smoke (Linux)
         if: runner.os != 'Windows'
@@ -48,6 +49,7 @@ jobs:
           ./venv/bin/python -c "from app.mcp_server import mcp; print('mcp-import-ok')"
           bash ./pexo --help
           ./venv/bin/python -m unittest discover -s tests -v
+          ./venv/bin/python ./scripts/run_mcp_cross_client_acceptance.py --json
 
       - name: Disposable install and uninstall smoke (Windows)
         if: runner.os == 'Windows'

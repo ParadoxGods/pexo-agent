@@ -1757,6 +1757,7 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("bash ./install.sh --use-current-checkout --allow-repo-install", workflow)
         self.assertIn("uninstall.ps1", workflow)
         self.assertIn("uninstall.sh", workflow)
+        self.assertIn("run_mcp_cross_client_acceptance.py", workflow)
 
     def test_uninstall_scripts_target_their_own_install_directory(self):
         windows_uninstall = Path("uninstall.ps1").read_text(encoding="utf-8")
