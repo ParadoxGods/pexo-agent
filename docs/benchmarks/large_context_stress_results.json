@@ -1,0 +1,83 @@
+{
+  "generated_at_utc": "2026-04-06T01:33:20.140366+00:00",
+  "host": {
+    "timestamp_utc": "2026-04-06T01:33:14.291449+00:00",
+    "machine": "CDX-DUSTIN",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cores": 32,
+    "total_ram_gb": 47.72,
+    "pexo_version": "1.1.1"
+  },
+  "runtime": {
+    "memory_backend": "keyword",
+    "install_mode": "checkout",
+    "active_profile": "full"
+  },
+  "state_root": "C:\\CDXCLI\\pexo\\sandbox\\benchmark_large_context_stress\\pexo_state",
+  "case": {
+    "title": "Large context stress lookup",
+    "files": 96,
+    "lines_per_file": 4500,
+    "needle": "PEXO_LARGE_STRESS_NEEDLE_20260405",
+    "expected_answer": "dataset_073.txt",
+    "baseline_answer": "dataset_073.txt",
+    "pexo_answer": "dataset_073.txt",
+    "correct": true,
+    "dataset_bytes": 194399656,
+    "traditional_tokens": 48599914,
+    "baseline": {
+      "wall_seconds": 0.2049546000198461,
+      "cpu_seconds": 0.203125,
+      "peak_rss_mb": 109.72
+    },
+    "pexo_ingest": {
+      "wall_seconds": 4.790593199955765,
+      "cpu_seconds": 3.953125,
+      "peak_rss_mb": 112.29
+    },
+    "pexo_query": {
+      "wall_seconds": 0.09168559999670833,
+      "cpu_seconds": 0.09375,
+      "peak_rss_mb": 109.88
+    },
+    "pexo_tokens": 2790,
+    "compaction_ratio": 17419.32,
+    "session_activity": [
+      {
+        "agent_name": "orchestrator",
+        "status": "running",
+        "context_size_tokens": 2764
+      },
+      {
+        "agent_name": "orchestrator",
+        "status": "graph_started",
+        "context_size_tokens": 22
+      },
+      {
+        "agent_name": "Supervisor",
+        "status": "completed",
+        "context_size_tokens": 4
+      }
+    ]
+  },
+  "performance": {
+    "baseline": {
+      "wall_seconds": 0.205,
+      "cpu_seconds": 0.203,
+      "peak_rss_mb": 109.72
+    },
+    "pexo": {
+      "wall_seconds": 4.882,
+      "cpu_seconds": 4.047,
+      "peak_rss_mb": 112.29
+    },
+    "delta": {
+      "wall_seconds": 4.677,
+      "cpu_seconds": 3.844,
+      "peak_rss_mb": 2.57
+    },
+    "pexo_state_mb": 394.84
+  }
+}
