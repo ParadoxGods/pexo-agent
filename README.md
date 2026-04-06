@@ -8,6 +8,18 @@
 
 Pexo is the local operator layer that sits between you and your AI clients and keeps the work coherent on your machine. Codex, Gemini, Claude, and any other MCP-capable client can all work against the same local memory, artifacts, preferences, sessions, agents, and task state.
 
+## Index
+
+- [Why Pexo](#why-pexo)
+- [Install](#install)
+- [Start Using Pexo](#start-using-pexo)
+- [MCP First](#mcp-first)
+- [Safety And Control](#safety-and-control)
+- [Benchmark Snapshot](#benchmark-snapshot)
+- [Commands](#commands)
+- [Maintenance](#maintenance)
+- [Repo-Local Mode](#repo-local-mode)
+
 ## Why Pexo
 
 Most AI workflows fail in the same ways:
