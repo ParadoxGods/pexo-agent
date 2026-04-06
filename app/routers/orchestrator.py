@@ -7,11 +7,12 @@ import uuid
 from typing import Any, Optional
 
 from ..database import get_db
-from ..models import AgentState, Memory
+from ..models import AgentState
 from ..agents.graph import PexoState, invoke_pexo_graph
 from ..cache import invalidate_telemetry_caches
 from ..orchestration_context import build_session_context_snapshot
 from ..search_index import upsert_memory_search_document
+from .memory import MemoryStoreRequest, store_memory_record
 
 router = APIRouter()
 
@@ -607,10 +608,12 @@ def get_simple_task_status(session_id: str, db: Session = Depends(get_db)):
 
 @router.post("/memory")
 def store_memory(session_id: str, content: str, task_context: str, db: Session = Depends(get_db)):
-    """Store context as a memory chunk."""
-    # In a full production environment, an embedding model would vectorise `content` here.
-    # For now, we store the raw text in the database.
-    new_memory = Memory(session_id=session_id, content=content, task_context=task_context)
-    db.add(new_memory)
-    db.commit()
-    return {"status": "Memory stored"}
+    """Store context through the canonical memory pipeline."""
+    return store_memory_record(
+        MemoryStoreRequest(
+            session_id=session_id,
+            content=content,
+            task_context=task_context,
+        ),
+        db=db,
+    )

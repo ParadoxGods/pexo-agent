@@ -120,7 +120,14 @@ from app.routers.memory import (
     store_memory,
     update_memory,
 )
-from app.routers.orchestrator import PromptRequest, SimpleContinueRequest, continue_simple_task, start_simple_task, should_require_clarification
+from app.routers.orchestrator import (
+    PromptRequest,
+    SimpleContinueRequest,
+    continue_simple_task,
+    start_simple_task,
+    should_require_clarification,
+    store_memory as store_orchestrator_memory,
+)
 from app.routers.profile import ProfileAnswers, build_profile_from_preset, derive_profile_answers, upsert_profile
 from app.routers.tools import ToolExecutionRequest, ToolRegistrationRequest, execute_tool, register_tool, resolve_tool_path
 from app.runtime import build_runtime_status
@@ -1873,6 +1880,30 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(delete_result["status"], "success")
             self.assertIsNone(db.query(Memory).filter(Memory.id == memory_id).first())
             self.assertNotIn(chroma_id, mock_get_memory_collection.return_value.records)
+        finally:
+            db.close()
+
+    @patch("app.routers.memory.get_memory_collection")
+    def test_orchestrator_memory_endpoint_uses_canonical_memory_pipeline(self, mock_get_memory_collection):
+        mock_get_memory_collection.return_value = FakeCollection()
+        init_db()
+        db = SessionLocal()
+        try:
+            stored = store_orchestrator_memory(
+                session_id="orchestrator-memory-session",
+                content="Canonical orchestrator memory payload.",
+                task_context="orchestrator-memory",
+                db=db,
+            )
+            memory_id = stored["memory_id"]
+            self.assertIsInstance(memory_id, int)
+            self.assertIn("maintenance", stored)
+
+            search_result = search_memory(
+                MemorySearchRequest(query="Canonical orchestrator memory payload.", n_results=3),
+                db,
+            )
+            self.assertTrue(any("Canonical orchestrator memory payload." in item["content"] for item in search_result["results"]))
         finally:
             db.close()
 
