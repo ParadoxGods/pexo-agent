@@ -1,256 +1,81 @@
-﻿<div align="center">
-  <h1>Pexo</h1>
+<div align="center">
+  <h1>PEXO</h1>
   <p><b>Primary EXecution Operator</b></p>
   <p><i>A local-first operator layer for AI-assisted development.</i></p>
 </div>
 
 ---
 
-Pexo sits between you and your AI models. Whether you use Codex, Gemini, Claude, or other MCP-capable clients, they can all work against the **same local memory, artifacts, preferences, sessions, agents, and task state.** 
+Pexo sits between you and your AI clients and keeps the work coherent on your machine. Codex, Gemini, Claude, and any other MCP-capable client can all work against the same local memory, artifacts, preferences, sessions, agents, and task state.
 
-Instead of rebuilding context every time you switch tools, Pexo keeps the continuity on your machine and makes the stack feel like one cohesive system. 
+It is not another disposable chat shell. It is the local operator layer that stops your workflow from fragmenting every time you switch tools.
 
-> **Note:** This is not another disposable chat shell. It is the core engine that keeps your work coherent.
+## Why Pexo
 
----
+Most AI workflows fail in the same ways:
+- context gets trapped inside one client
+- switching models costs you project state
+- preferences vanish between sessions
+- files and artifacts drift away from the work that produced them
+- interrupted work has to be reconstructed from scratch
 
-## Why Pexo?
+Pexo fixes that by keeping a shared local brain underneath the clients.
 
-Most AI workflows break down in predictable ways:
-- Context gets trapped inside one specific client.
-- Every model switch costs you project state.
-- Preferences get lost.
-- Artifacts drift away from the conversation that produced them.
-- Useful decisions vanish between sessions.
-
-**Pexo fixes this by keeping a shared local brain underneath the clients.**
-
-### What That Buys You:
-| Feature | Benefit |
+| What Pexo keeps | Why it matters |
 | :--- | :--- |
-| **Durable Memory** | One place for persistent project memory. |
-| **Working Context** | One place for attached files and artifacts. |
-| **Continuity** | One place for session and task continuity. |
-| **Reusable Agents** | One place for local agents and tools. |
-| **Transparency** | One place to inspect what the stack actually knows. |
+| Durable memory | Project facts and accepted decisions survive client switches. |
+| Artifacts and files | Important context stays attached to the work. |
+| Session continuity | One model can pick up where another left off. |
+| Preferences | The stack stops asking the same setup questions. |
+| Agents and tools | Local operating rules stay reusable and inspectable. |
 
-If you are serious about local control, repeatable AI workflows, and not restating the same repo context forever, this is the missing layer.
+If you want local control, lower active context pressure, and a workflow that compounds over time instead of resetting, this is the missing layer.
 
----
+## Benchmark Snapshot
 
-## Benchmark Rollup
-
-These are real local benchmarks for wall time, CPU time, peak RSS, on-disk state, and Pexo session-context usage.
-The only estimated figure is the **naive before-Pexo context load**, which is approximated as `bytes / 4` so the direct path can be compared against Pexo's measured session telemetry.
+These are real local benchmarks for wall time, CPU time, peak RSS, on-disk state, and Pexo session-context usage. The only estimated figure is the naive before-Pexo context load, approximated as `bytes / 4`, so it can be compared against measured Pexo session telemetry.
 
 Raw benchmark artifacts:
-
 - `docs/benchmarks/context_compaction_results.json`
 - `docs/benchmarks/operator_workflow_results.json`
 - `docs/benchmarks/large_context_stress_results.json`
+- `docs/benchmarks/benchmark_rollup.json`
 
 ### Host System
 
-- OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel(R) Core(TM) i9-14900K`
-- Logical cores: `32`
-- RAM: `47.72` GB
-- Python: `3.12.10`
-- Pexo version: `1.1.1`
-- Pexo memory backend: `keyword`
-- Pexo execution mode during rollup runs: `checkout`
+| Metric | Value |
+| :--- | :--- |
+| OS | `Windows-11-10.0.26200-SP0` |
+| CPU | `Intel(R) Core(TM) i9-14900K` |
+| Logical cores | `32` |
+| RAM | `47.72 GB` |
+| Python | `3.12.10` |
+| Pexo version | `1.1.1` |
+| Memory backend | `keyword` |
+| Benchmark execution mode | `checkout` |
 
 ### Data Usage Before vs After Pexo
 
-| Suite | Before Pexo | After Pexo | Tokens Avoided | Reduction |
+| Suite | Before Pexo | After Pexo | Reduction | Retained After Pexo |
 | :--- | ---: | ---: | ---: | ---: |
-| Context Compaction | `3,938,402` tokens | `27,840` tokens | `3,910,562` tokens | `141.47x` |
-| Real-World Workflow | `764,137` tokens | `37,264` tokens | `726,873` tokens | `20.51x` |
-| Large Context Stress | `48,599,914` tokens | `2,790` tokens | `48,597,124` tokens | `17419.32x` |
+| Context Compaction | `3,938,402` tokens | `27,840` tokens | `141.47x` | `0.7069%` |
+| Real-World Workflow | `764,137` tokens | `37,264` tokens | `20.51x` | `4.8766%` |
+| Large Context Stress | `48,599,914` tokens | `2,790` tokens | `17419.32x` | `0.0057%` |
+| Combined total | `53,302,453` tokens | `67,894` tokens | `785.08x` | `0.1274%` |
 
-### Retained Share After Pexo
+### Machine Impact During Benchmarking
 
-| Suite | Retained After Pexo |
-| :--- | ---: |
-| Context Compaction | `0.7069%` |
-| Real-World Workflow | `4.8766%` |
-| Large Context Stress | `0.0057%` |
-
-### Combined Suite Summary
-
-| Suite | Workloads | Dataset Size | Before Pexo | After Pexo | Retained | Reduction |
+| Suite | Direct Time | Pexo Time | Overhead | Direct RSS | Pexo RSS | Pexo State |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Context Compaction | `10` | `15,753,615` bytes | `3,938,402` tokens | `27,840` tokens | `0.7069%` | `141.47x` |
-| Real-World Workflow | `10` | `2,189,892` bytes | `764,137` tokens | `37,264` tokens | `4.8766%` | `20.51x` |
-| Large Context Stress | `1` | `194,399,656` bytes | `48,599,914` tokens | `2,790` tokens | `0.0057%` | `17419.32x` |
+| Context Compaction | `0.039 s` | `3.845 s` | `3.806 s` | `112.68 MB` | `113.38 MB` | `49.09 MB` |
+| Real-World Workflow | `0.037 s` | `4.098 s` | `4.061 s` | `113.00 MB` | `113.28 MB` | `7.21 MB` |
+| Large Context Stress | `0.340 s` | `6.705 s` | `6.365 s` | `109.88 MB` | `113.86 MB` | `394.84 MB` |
 
-### Machine Impact Per Suite
-
-| Suite | Direct Time | Pexo Time | Overhead | Direct RSS | Pexo RSS | RSS Delta | Pexo State |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Context Compaction | `0.039` s | `3.845` s | `3.806` s | `112.68` MB | `113.38` MB | `0.70` MB | `49.09` MB |
-| Real-World Workflow | `0.037` s | `4.098` s | `4.061` s | `113.00` MB | `113.28` MB | `0.28` MB | `7.21` MB |
-| Large Context Stress | `0.340` s | `6.705` s | `6.365` s | `109.88` MB | `113.86` MB | `3.98` MB | `394.84` MB |
-
-### Overall Totals
-
-- Total data across all benchmark suites: `212,343,163` bytes
-- Total naive before-Pexo context: `53,302,453` tokens
-- Total Pexo session context: `67,894` tokens
-- Overall retained context after Pexo: `0.1274%`
-- Overall reduction factor: `785.08x`
-
-### How To Read This
-
-- **Before Pexo** is the naive context load you would pay if you shoved the source material directly into the model path.
-- **After Pexo** is what the Pexo-managed session actually carried according to recorded `context_size_tokens` telemetry.
-- The timing numbers are true wall-clock and CPU measurements on this machine.
-- The token comparison is partly measured and partly derived: Pexo tokens are measured, the direct-path token count is estimated from bytes.
-- The large stress suite is intentionally much larger than the others, so the normalized retained-percent table matters as much as the raw token totals.
-
-
-## Real-World Benchmarks
-
-These numbers come from a fresh local benchmark run generated by `scripts/run_operator_workflow_benchmarks.py`.
-The suite spins up an isolated sandbox state root, uses the live Pexo repo as a retrieval corpus, simulates cross-client handoffs through Pexo's MCP surface, and records the resulting session telemetry.
-Raw benchmark artifacts are checked into `docs/benchmarks/operator_workflow_results.json` and `docs/benchmarks/operator_workflow_results.md`.
-
-### What This Suite Measures
-
-1. **Real repo retrieval** against the current Pexo codebase.
-2. **Cross-client handoff** across simulated Gemini, Codex, and Claude sessions using Pexo memory and artifacts.
-3. **Repeated-use compounding** where later tasks reuse prior local findings instead of replaying the whole context.
-4. **Failure recovery** where interrupted or switched-client work resumes from persisted local state.
-
-Traditional token counts are estimated using the rough rule of `bytes / 4`.
-The client-handoff tracks simulate distinct clients through separate Pexo sessions so the benchmark measures Pexo continuity overhead rather than external CLI/model latency.
-
-### Host System
-
-- OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel(R) Core(TM) i9-14900K`
-- Logical cores: `32`
-- RAM: `47.72` GB
-- Python: `3.12.10`
-- Pexo version: `1.1.1`
-- Pexo memory backend: `keyword`
-- Pexo execution mode during suite: `checkout` (with an isolated sandbox state root)
-
-### Measured Machine Impact
-
-| Mode | Wall Time | CPU Time | Peak RSS | Notes |
-| :--- | ---: | ---: | ---: | :--- |
-| Direct baseline paths | `0.037` s | `0.016` s | `113.0` MB | Reads the direct corpus or replay payloads without Pexo. |
-| Pexo (setup + query) | `4.098` s | `2.922` s | `113.28` MB | Registers state locally and queries it through Pexo's MCP/control-plane surface. |
-| Measured Pexo overhead | `4.061` s | `2.906` s | `0.28` MB | Additional cost of local Pexo state management over the direct paths for this suite. |
-| Pexo benchmark state footprint | - | - | - | `7.21` MB on disk after the suite. |
-
-### Track Summary
-
-| Track | Cases | Cumulative Source Data | Traditional Tokens | Pexo Tokens | Avg Ratio | Baseline Time | Pexo Time | Correct |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
-| Retrieval | `4` | `1,586,940` bytes | `396,732` | `11,363` | `34.91x` | `0.014` s | `1.968` s | yes |
-| Handoff | `2` | `97,703` bytes | `24,425` | `6,472` | `3.78x` | `0.004` s | `0.486` s | yes |
-| Compounding | `2` | `445,506` bytes | `328,045` | `12,797` | `20.29x` | `0.016` s | `1.128` s | yes |
-| Resilience | `2` | `59,743` bytes | `14,935` | `6,632` | `2.25x` | `0.004` s | `0.516` s | yes |
-
-### Per-Scenario Results
-
-| Track | Workload | Source Bytes | Naive Context Tokens | Pexo Tokens | Ratio | Baseline Time | Pexo Setup | Pexo Query | Correct |
-| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
-| Retrieval | Repo retrieval: default Genesis trust mode | `396,735` | `99,183` | `2,819` | `35.18x` | `0.003` s | `0.297` s | `0.044` s | yes |
-| Retrieval | Repo retrieval: QA hard gate after developer | `396,735` | `99,183` | `2,878` | `34.46x` | `0.002` s | `0.362` s | `0.097` s | yes |
-| Retrieval | Repo retrieval: packaged MCP command | `396,735` | `99,183` | `2,837` | `34.96x` | `0.005` s | `0.468` s | `0.120` s | yes |
-| Retrieval | Repo retrieval: uninstall while keeping state | `396,735` | `99,183` | `2,829` | `35.06x` | `0.004` s | `0.481` s | `0.099` s | yes |
-| Handoff | Cross-client handoff: landing page brief | `48,865` | `12,216` | `3,158` | `3.87x` | `0.002` s | `0.126` s | `0.123` s | yes |
-| Handoff | Cross-client handoff: bug triage continuity | `48,838` | `12,209` | `3,314` | `3.68x` | `0.002` s | `0.126` s | `0.110` s | yes |
-| Compounding | Repeated-use compounding: repo facts reused across tasks | `396,735` | `297,565` | `9,492` | `31.35x` | `0.012` s | `0.451` s | `0.402` s | yes |
-| Compounding | Repeated-use compounding: accepted defaults reused later | `48,771` | `30,480` | `3,305` | `9.22x` | `0.004` s | `0.202` s | `0.073` s | yes |
-| Resilience | Failure recovery: interrupted review resumed from stored state | `29,872` | `7,468` | `3,310` | `2.26x` | `0.002` s | `0.091` s | `0.164` s | yes |
-| Resilience | Failure recovery: client switch without context replay | `29,871` | `7,467` | `3,322` | `2.25x` | `0.002` s | `0.124` s | `0.137` s | yes |
-
-### Summary
-
-- Total cumulative workload source bytes across all 10 scenarios: `2,189,892` bytes
-- Total naive context estimate across all 10 workloads: `764,137` tokens
-- Total Pexo session context across all 10 workloads: `37,264` tokens
-- Average compaction ratio: `19.23x`
-- Median compaction ratio: `31.35x`
-- All 10 workloads returned the correct answer: `yes`
-
-### What This Means
-
-- These measurements describe **active context pressure and continuity overhead**, not a universal wall-clock speed guarantee.
-- Direct file reading or direct replay can still be faster for one-off lookups.
-- Pexo's value shows up when context must survive **client switches, repeated tasks, and interrupted work** without replaying the full thread.
-- This run used the default SQLite + keyword retrieval path. Optional semantic vector memory was not required.
-- The narrower synthetic context-compaction microbenchmark still lives in `scripts/run_context_compaction_benchmarks.py` if you want a pure artifact-retrieval test.
-## Large Context Stress Test
-
-This is a single oversized synthetic stress benchmark generated by `scripts/run_large_context_stress_benchmark.py`.
-It creates one fresh large dataset, buries one exact needle in one file, compares direct raw scan against Pexo retrieval, records telemetry, and then removes the generated dataset.
-For this stress run, the Pexo ingest phase forces full artifact materialization so the exact token is searchable anywhere in the large corpus, not just in the deferred preview window.
-
-### Host System
-
-- OS: `Windows-11-10.0.26200-SP0`
-- CPU: `Intel(R) Core(TM) i9-14900K`
-- Logical cores: `32`
-- RAM: `47.72` GB
-- Python: `3.12.10`
-- Pexo version: `1.1.1`
-- Pexo memory backend: `keyword`
-- Pexo execution mode during stress run: `checkout` (isolated sandbox state root)
-
-### Result
-
-| Metric | Value |
-| :--- | ---: |
-| Files generated | `96` |
-| Lines per file | `4500` |
-| Dataset size | `194,399,656` bytes |
-| Naive direct-context estimate | `48,599,914` tokens |
-| Direct raw scan time | `0.340` s |
-| Pexo ingest time | `6.611` s |
-| Pexo query time | `0.094` s |
-| Pexo session context | `2,790` tokens |
-| Compaction ratio | `17419.32x` |
-| Correct answer | `yes` |
-| Needle file | `dataset_073.txt` |
-
-### Measured Machine Impact
-
-| Mode | Wall Time | CPU Time | Peak RSS | Notes |
-| :--- | ---: | ---: | ---: | :--- |
-| Direct raw scan | `0.340` s | `0.344` s | `109.88` MB | Reads the whole oversized dataset directly. |
-| Pexo (ingest + query) | `6.705` s | `5.297` s | `113.86` MB | Registers the large dataset locally, materializes full text for exact search, and answers via Pexo retrieval. |
-| Measured Pexo overhead | `6.365` s | `4.953` s | `3.98` MB | Additional local state-management cost versus direct scanning for this one stress run. |
-| Pexo stress-run state footprint | `394.84` MB |
-
-### What This Means
-
-- This is deliberately synthetic and oversized. It is meant to stress context volume, not mirror human-readable repo structure.
-- The Pexo ingest phase in this run includes full artifact text materialization so exact-token search works across the entire oversized corpus.
-- The direct path still wins on pure one-shot wall-clock lookup because it avoids local indexing work.
-- Pexo wins on active context pressure: the model-facing session stayed tiny while the source corpus grew very large.
-
-
-
----
-
-## What Pexo Is Good At
-
-Pexo is built for developers who want their system to compound over time.
-
-- **Keeps memory local.**  
-- **Lets one model pick up where another left off.**  
-- **Stores artifacts with the work they belong to.**  
-- **Preserves preferences** so the stack stops asking the same setup questions.  
-- **Gives you a stable MCP surface** instead of tying your workflow to one AI console.  
-
-> The important point is not that Pexo "talks." The important point is that Pexo **remembers, routes, and stabilizes the work.**
-
----
+How to read this:
+- **Before Pexo** is the naive context load you would pay if you pushed the source material straight into the model path.
+- **After Pexo** is the measured session context carried by the Pexo-managed workflow.
+- Direct one-off reads can still be faster on wall-clock time.
+- Pexo wins by reducing active model context and preserving continuity across repeated work, handoffs, and interrupted tasks.
 
 ## Install
 
@@ -272,9 +97,10 @@ tar -xzf pexo-install-unix.tar.gz
 
 The release bundle installs Pexo, completes headless setup, connects supported clients, runs `pexo doctor`, and warms the local runtime.
 
-> **Manual Download:** If `gh` is unavailable, download the latest release asset manually from [Releases](https://github.com/ParadoxGods/pexo-agent/releases), extract it, and run the included `install.cmd` or `install.sh`.
+If `gh` is unavailable, download the latest release asset manually from [Releases](https://github.com/ParadoxGods/pexo-agent/releases), extract it, and run the included `install.cmd` or `install.sh`.
 
 ### Fallback Packaged Install
+
 Use this only if the release bundle path is unavailable.
 
 ```bash
@@ -283,9 +109,8 @@ pexo headless-setup --preset efficient_operator
 pexo connect all --scope user
 pexo doctor
 ```
-*Packaged installs keep mutable state under `~/.pexo` by default. Override it with `PEXO_HOME` if you want the state root somewhere else.*
 
----
+Packaged installs keep mutable state under `~/.pexo` by default. Set `PEXO_HOME` if you want the state root somewhere else.
 
 ## Start Using Pexo
 
@@ -305,24 +130,23 @@ pexo doctor --json
 pexo connect all --scope user
 ```
 
-Then use your client as usual. Some clients will reach for it automatically. Others may need one short instruction:
-> *"Use Pexo as the shared local brain for this task. Review this repo, tell me the top 3 concrete issues, and store the result in Pexo memory."*
+Some clients will reach for it automatically. Others may need one short instruction:
 
-**Inspect the local state directly:**  
-Navigate to `http://127.0.0.1:9999/ui/` in your browser.
+> Use Pexo as the shared local brain for this task. Review this repo, tell me the top 3 concrete issues, and store the result in Pexo memory.
+
+Open `http://127.0.0.1:9999/ui/` if you want to inspect the local state directly.
 
 **Direct terminal chat:**
 ```powershell
 pexo --chat
 ```
 
----
-
 ## MCP First
 
-Pexo is designed around **MCP** (Model Context Protocol), because the real point is interoperability. You should not have to pick one AI client as the source of truth. Pexo keeps that state local and lets whichever connected model is active work against the same substrate.
+Pexo is designed around MCP because the real point is interoperability. You should not have to pick one AI client as the source of truth. Pexo keeps the state local and lets whichever connected model is active work against the same substrate.
 
 Packaged installs expose this MCP entrypoint:
+
 ```json
 {
   "mcpServers": {
@@ -334,23 +158,19 @@ Packaged installs expose this MCP entrypoint:
 }
 ```
 
-*Repository-level AI usage rules live in `AGENTS.md`.*
-
----
+Repository-level AI usage rules live in `AGENTS.md`.
 
 ## Safety And Control
 
 Pexo is meant to be a middle layer, so local trust boundaries matter.
 
-- Default installs work without extra semantic-memory dependencies.
-- Local memory uses SQLite and keyword-backed retrieval by default.
-- Semantic vector memory is optional.
-- Genesis tool execution is not wide open by default (default trust mode is `approval-required`).
-- Broad local execution requires explicit host trust via `full-local-exec`.
+- local memory uses SQLite and keyword-backed retrieval by default
+- semantic vector memory is optional
+- Genesis tool execution is not wide open by default
+- the default Genesis trust mode is `approval-required`
+- broad local execution requires explicit host trust via `full-local-exec`
 
-That is deliberate. The safe default should still be useful.
-
----
+The default install is meant to be useful without silently turning your machine into an unrestricted execution surface.
 
 ## Commands
 
@@ -362,30 +182,27 @@ That is deliberate. The safe default should still be useful.
 | `pexo --mcp` / `pexo-mcp` | Start MCP only. |
 | `pexo --update` | Update the current install. |
 | `pexo doctor` | Print local installation and runtime diagnostics. |
-| `pexo connect all --scope user`| Connect supported local AI clients to `pexo-mcp`. |
+| `pexo connect all --scope user` | Connect supported local AI clients to `pexo-mcp`. |
 | `pexo warmup` | Prime local state after install or update. |
 | `pexo promote full` | Repair or reinstall the standard local runtime. |
 | `pexo promote vector` | Add optional semantic-memory support. |
 | `pexo uninstall` | Remove the current install. |
 | `pexo uninstall --keep-state` | Remove the install but preserve local state. |
 
----
-
 ## Maintenance
 
 For most users, maintenance is just:
+
 ```powershell
 pexo --update
 pexo doctor --json
 ```
 
 If client wiring drifts:
+
 ```powershell
 pexo connect all --scope user
 ```
-*That is the whole point of the product. The stack should stay simple even as the local state gets deeper.*
-
----
 
 ## Repo-Local Mode
 
@@ -400,14 +217,11 @@ Checkout mode is for contributors or users who explicitly want a repo-backed nod
 ```bash
 ./install.sh --use-current-checkout --allow-repo-install --headless-setup --preset efficient_operator
 ```
-*Checkout mode keeps mutable state under the repo-local `.pexo` directory.*
 
----
+Checkout mode keeps mutable state under the repo-local `.pexo` directory.
 
 ## Bottom Line
 
-**Pexo is what you install when you want AI clients to stop behaving like isolated terminals and start behaving like interchangeable workers on top of one local operator layer.**
+Pexo is what you install when you want AI clients to stop behaving like isolated terminals and start behaving like interchangeable workers on top of one local operator layer.
 
-It keeps the memory, context, preferences, artifacts, and task state where they belong: **on your machine, under your control, and reusable across the whole stack.**
-
-
+It keeps the memory, context, preferences, artifacts, and task state where they belong: on your machine, under your control, and reusable across the whole stack.
