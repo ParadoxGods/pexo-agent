@@ -62,22 +62,21 @@ Raw benchmark artifacts:
 
 ### Summary
 
-| Suite | What it tests | Corpus | Workloads | Before Pexo | After Pexo | Reduction | Accuracy | Direct Time | Pexo Time |
-| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Massive Repo Retrieval | Large noisy codebase retrieval. | `35,387,023` bytes | `6` | `53,080,530` tokens | `17,004` tokens | `3121.65x` | `100.00%` | `0.336` | `2.707` |
-| Massive Timeline Recollection | Latest-state recollection across long histories. | `6,528,210` bytes | `6` | `9,792,312` tokens | `18,703` tokens | `523.57x` | `100.00%` | `0.065` | `1.826` |
-| Massive Handoff Reconstruction | Cross-client continuity and current-state reconstruction. | `9,472,788` bytes | `6` | `14,209,182` tokens | `19,333` tokens | `734.97x` | `100.00%` | `0.100` | `2.330` |
+| Suite | Before Pexo | After Pexo |
+| :--- | :--- | :--- |
+| Massive Repo Retrieval | Large noisy codebase retrieval.<br>`35,387,023` bytes corpus<br>`6` workloads<br>`53,080,530` tokens<br>`0.336` direct time | `17,004` tokens<br>`3121.65x` reduction<br>`100.00%` accuracy<br>`2.707` Pexo time |
+| Massive Timeline Recollection | Latest-state recollection across long histories.<br>`6,528,210` bytes corpus<br>`6` workloads<br>`9,792,312` tokens<br>`0.065` direct time | `18,703` tokens<br>`523.57x` reduction<br>`100.00%` accuracy<br>`1.826` Pexo time |
+| Massive Handoff Reconstruction | Cross-client continuity and current-state reconstruction.<br>`9,472,788` bytes corpus<br>`6` workloads<br>`14,209,182` tokens<br>`0.100` direct time | `19,333` tokens<br>`734.97x` reduction<br>`100.00%` accuracy<br>`2.330` Pexo time |
 
 ### Combined Totals
 
-| Metric | Value |
-| :--- | :--- |
-| Total corpus bytes | `51,388,021` |
-| Total before-Pexo context | `77,082,024` tokens |
-| Total after-Pexo context | `55,040` tokens |
-| Overall reduction | `1400.47x` |
-| Overall retained after Pexo | `0.0714%` |
-| Exact-match accuracy across all workloads | `100.00%` |
+| Metric | Before Pexo | After Pexo |
+| :--- | :--- | :--- |
+| Corpus handled | `51,388,021` bytes | `51,388,021` bytes |
+| Active context | `77,082,024` tokens | `55,040` tokens |
+| Total wall time | `0.500` | `6.864` |
+| Recollection quality | direct baseline replay | `100.00%` exact-match accuracy |
+| Net effect | full corpus replay every time | `1400.47x` reduction, `0.0714%` retained |
 
 ### Massive Repo Retrieval
 

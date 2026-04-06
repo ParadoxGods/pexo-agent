@@ -629,6 +629,29 @@ def build_markdown(results: dict) -> str:
     runtime = results["runtime"]
     suites = results["suites"]
     summary = results["summary"]
+    total_direct_wall = sum(float(suite["direct_metrics"]["wall_seconds"]) for suite in suites)
+    total_pexo_wall = sum(float(suite["pexo_total_metrics"]["wall_seconds"]) for suite in suites)
+
+    def before_cell(suite: dict) -> str:
+        return "<br>".join(
+            [
+                suite["what_it_tests"],
+                f"`{_format_number(suite['corpus_bytes'])}` bytes corpus",
+                f"`{suite['workload_count']}` workloads",
+                f"`{_format_number(suite['direct_tokens'])}` tokens",
+                f"`{format_seconds(suite['direct_metrics']['wall_seconds'])}` direct time",
+            ]
+        )
+
+    def after_cell(suite: dict) -> str:
+        return "<br>".join(
+            [
+                f"`{_format_number(suite['pexo_tokens'])}` tokens",
+                f"`{suite['reduction_factor']:.2f}x` reduction",
+                f"`{suite['exact_match_accuracy_pct']:.2f}%` accuracy",
+                f"`{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` Pexo time",
+            ]
+        )
 
     lines = [
         "## Benchmark Snapshot",
@@ -662,29 +685,25 @@ def build_markdown(results: dict) -> str:
         "",
         "### Summary",
         "",
-        "| Suite | What it tests | Corpus | Workloads | Before Pexo | After Pexo | Reduction | Accuracy | Direct Time | Pexo Time |",
-        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Suite | Before Pexo | After Pexo |",
+        "| :--- | :--- | :--- |",
     ]
     for suite in suites:
         lines.append(
-            f"| {suite['title']} | {suite['what_it_tests']} | `{_format_number(suite['corpus_bytes'])}` bytes | `{suite['workload_count']}` | "
-            f"`{_format_number(suite['direct_tokens'])}` tokens | `{_format_number(suite['pexo_tokens'])}` tokens | "
-            f"`{suite['reduction_factor']:.2f}x` | `{suite['exact_match_accuracy_pct']:.2f}%` | "
-            f"`{format_seconds(suite['direct_metrics']['wall_seconds'])}` | `{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` |"
+            f"| {suite['title']} | {before_cell(suite)} | {after_cell(suite)} |"
         )
     lines.extend(
         [
             "",
             "### Combined Totals",
             "",
-            "| Metric | Value |",
-            "| :--- | :--- |",
-            f"| Total corpus bytes | `{_format_number(summary['total_corpus_bytes'])}` |",
-            f"| Total before-Pexo context | `{_format_number(summary['total_direct_tokens'])}` tokens |",
-            f"| Total after-Pexo context | `{_format_number(summary['total_pexo_tokens'])}` tokens |",
-            f"| Overall reduction | `{summary['overall_reduction_factor']:.2f}x` |",
-            f"| Overall retained after Pexo | `{summary['overall_retained_pct']:.4f}%` |",
-            f"| Exact-match accuracy across all workloads | `{summary['overall_accuracy_pct']:.2f}%` |",
+            "| Metric | Before Pexo | After Pexo |",
+            "| :--- | :--- | :--- |",
+            f"| Corpus handled | `{_format_number(summary['total_corpus_bytes'])}` bytes | `{_format_number(summary['total_corpus_bytes'])}` bytes |",
+            f"| Active context | `{_format_number(summary['total_direct_tokens'])}` tokens | `{_format_number(summary['total_pexo_tokens'])}` tokens |",
+            f"| Total wall time | `{format_seconds(total_direct_wall)}` | `{format_seconds(total_pexo_wall)}` |",
+            f"| Recollection quality | direct baseline replay | `{summary['overall_accuracy_pct']:.2f}%` exact-match accuracy |",
+            f"| Net effect | full corpus replay every time | `{summary['overall_reduction_factor']:.2f}x` reduction, `{summary['overall_retained_pct']:.4f}%` retained |",
             "",
         ]
     )
