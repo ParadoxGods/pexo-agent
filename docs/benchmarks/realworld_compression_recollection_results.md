@@ -27,13 +27,13 @@ Raw benchmark artifacts:
 | Memory backend | `keyword` |
 | Benchmark execution mode | `checkout` |
 
-### Summary
+### At A Glance
 
-| Suite | Before Pexo | After Pexo |
-| :--- | :--- | :--- |
-| Massive Repo Retrieval | Large noisy codebase retrieval.<br>`35,387,023` bytes corpus<br>`6` workloads<br>`53,080,530` tokens<br>`0.336` direct time | `17,004` tokens<br>`3121.65x` reduction<br>`100.00%` accuracy<br>`2.707` Pexo time |
-| Massive Timeline Recollection | Latest-state recollection across long histories.<br>`6,528,210` bytes corpus<br>`6` workloads<br>`9,792,312` tokens<br>`0.065` direct time | `18,703` tokens<br>`523.57x` reduction<br>`100.00%` accuracy<br>`1.826` Pexo time |
-| Massive Handoff Reconstruction | Cross-client continuity and current-state reconstruction.<br>`9,472,788` bytes corpus<br>`6` workloads<br>`14,209,182` tokens<br>`0.100` direct time | `19,333` tokens<br>`734.97x` reduction<br>`100.00%` accuracy<br>`2.330` Pexo time |
+| Suite | Before Pexo | After Pexo | Reduction | Accuracy |
+| :--- | :--- | :--- | :--- | :--- |
+| Massive Repo Retrieval | `53,080,530` tokens<br>`0.336` direct time | `17,004` tokens<br>`2.707` Pexo time | `3121.65x` | `100.00%` |
+| Massive Timeline Recollection | `9,792,312` tokens<br>`0.065` direct time | `18,703` tokens<br>`1.826` Pexo time | `523.57x` | `100.00%` |
+| Massive Handoff Reconstruction | `14,209,182` tokens<br>`0.100` direct time | `19,333` tokens<br>`2.330` Pexo time | `734.97x` | `100.00%` |
 
 ### Combined Totals
 
@@ -49,13 +49,19 @@ Raw benchmark artifacts:
 
 A real repo corpus plus heavy surrounding noise. The baseline rereads the whole corpus for every question; the Pexo path ingests once and recalls only the needed material.
 
-- What it tests: Large noisy codebase retrieval.
-- Corpus size: `35,387,023` bytes
-- Workloads: `6`
-- Direct replay context: `53,080,530` tokens
-- Pexo session context: `17,004` tokens
-- Reduction: `3121.65x`
-- Exact-match accuracy: `100.00%`
+| Metric | Before Pexo | After Pexo |
+| :--- | :--- | :--- |
+| What it tests | Large noisy codebase retrieval. | Large noisy codebase retrieval. |
+| Corpus handled | `35,387,023` bytes | `35,387,023` bytes |
+| Workloads | `6` | `6` |
+| Active context | `53,080,530` tokens | `17,004` tokens |
+| Wall time | `0.336` | `2.707` |
+| CPU time | `0.328` | `2.141` |
+| Peak RSS | `142.79 MB` | `116.43 MB` |
+| Retrieval outcome | full direct replay | `3121.65x` reduction, `100.00%` accuracy |
+| Local state footprint | none | `44.22 MB` |
+
+Recollection checks:
 
 | Workload | Expected | Direct | Pexo | Match |
 | :--- | :--- | :--- | :--- | :--- |
@@ -66,25 +72,28 @@ A real repo corpus plus heavy surrounding noise. The baseline rereads the whole 
 | Checkout mutable state directory | `.pexo` | `.pexo` | `.pexo` | yes |
 | Default memory backend | `SQLite` | `SQLite` | `SQLite` | yes |
 
-| Metric | Direct | Pexo Setup | Pexo Query | Pexo Total |
-| :--- | ---: | ---: | ---: | ---: |
-| Wall time | `0.336` | `1.957` | `0.750` | `2.707` |
-| CPU time | `0.328` | `1.453` | `0.688` | `2.141` |
-| Peak RSS | `142.79 MB` | `110.51 MB` | `116.43 MB` | `116.43 MB` |
-
-Pexo state footprint after this suite: `44.22 MB`.
+| Pexo timing breakdown | Value |
+| :--- | :--- |
+| Setup phase | `1.957` wall, `1.453` CPU |
+| Query phase | `0.750` wall, `0.688` CPU |
 
 ### Massive Timeline Recollection
 
 A long sequence of large decision logs with changing accepted defaults over time. The job is to recall the final accepted state, not just find an old mention.
 
-- What it tests: Latest-state recollection across long histories.
-- Corpus size: `6,528,210` bytes
-- Workloads: `6`
-- Direct replay context: `9,792,312` tokens
-- Pexo session context: `18,703` tokens
-- Reduction: `523.57x`
-- Exact-match accuracy: `100.00%`
+| Metric | Before Pexo | After Pexo |
+| :--- | :--- | :--- |
+| What it tests | Latest-state recollection across long histories. | Latest-state recollection across long histories. |
+| Corpus handled | `6,528,210` bytes | `6,528,210` bytes |
+| Workloads | `6` | `6` |
+| Active context | `9,792,312` tokens | `18,703` tokens |
+| Wall time | `0.065` | `1.826` |
+| CPU time | `0.078` | `1.359` |
+| Peak RSS | `117.02 MB` | `116.33 MB` |
+| Retrieval outcome | full direct replay | `523.57x` reduction, `100.00%` accuracy |
+| Local state footprint | none | `20.69 MB` |
+
+Recollection checks:
 
 | Workload | Expected | Direct | Pexo | Match |
 | :--- | :--- | :--- | :--- | :--- |
@@ -95,25 +104,28 @@ A long sequence of large decision logs with changing accepted defaults over time
 | Rejected default option | `vector_by_default` | `vector_by_default` | `vector_by_default` | yes |
 | Combined latest product direction | `nextjs_app_router | release_bundle | operator-control` | `nextjs_app_router | release_bundle | operator-control` | `nextjs_app_router | release_bundle | operator-control` | yes |
 
-| Metric | Direct | Pexo Setup | Pexo Query | Pexo Total |
-| :--- | ---: | ---: | ---: | ---: |
-| Wall time | `0.065` | `1.303` | `0.523` | `1.826` |
-| CPU time | `0.078` | `0.875` | `0.484` | `1.359` |
-| Peak RSS | `117.02 MB` | `114.38 MB` | `116.33 MB` | `116.33 MB` |
-
-Pexo state footprint after this suite: `20.69 MB`.
+| Pexo timing breakdown | Value |
+| :--- | :--- |
+| Setup phase | `1.303` wall, `0.875` CPU |
+| Query phase | `0.523` wall, `0.484` CPU |
 
 ### Massive Handoff Reconstruction
 
 A multi-client handoff history where the active issue, next gate, deploy target, and fallback client evolve over many batches.
 
-- What it tests: Cross-client continuity and current-state reconstruction.
-- Corpus size: `9,472,788` bytes
-- Workloads: `6`
-- Direct replay context: `14,209,182` tokens
-- Pexo session context: `19,333` tokens
-- Reduction: `734.97x`
-- Exact-match accuracy: `100.00%`
+| Metric | Before Pexo | After Pexo |
+| :--- | :--- | :--- |
+| What it tests | Cross-client continuity and current-state reconstruction. | Cross-client continuity and current-state reconstruction. |
+| Corpus handled | `9,472,788` bytes | `9,472,788` bytes |
+| Workloads | `6` | `6` |
+| Active context | `14,209,182` tokens | `19,333` tokens |
+| Wall time | `0.100` | `2.330` |
+| CPU time | `0.094` | `1.969` |
+| Peak RSS | `114.96 MB` | `117.46 MB` |
+| Retrieval outcome | full direct replay | `734.97x` reduction, `100.00%` accuracy |
+| Local state footprint | none | `29.19 MB` |
+
+Recollection checks:
 
 | Workload | Expected | Direct | Pexo | Match |
 | :--- | :--- | :--- | :--- | :--- |
@@ -124,13 +136,10 @@ A multi-client handoff history where the active issue, next gate, deploy target,
 | Current owner mode after handoff | `operator-control` | `operator-control` | `operator-control` | yes |
 | Combined current handoff state | `mcp_stability | Quality Assurance Manager | packaged_release | gemini` | `mcp_stability | Quality Assurance Manager | packaged_release | gemini` | `mcp_stability | Quality Assurance Manager | packaged_release | gemini` | yes |
 
-| Metric | Direct | Pexo Setup | Pexo Query | Pexo Total |
-| :--- | ---: | ---: | ---: | ---: |
-| Wall time | `0.100` | `1.681` | `0.649` | `2.330` |
-| CPU time | `0.094` | `1.406` | `0.562` | `1.969` |
-| Peak RSS | `114.96 MB` | `114.80 MB` | `117.46 MB` | `117.46 MB` |
-
-Pexo state footprint after this suite: `29.19 MB`.
+| Pexo timing breakdown | Value |
+| :--- | :--- |
+| Setup phase | `1.681` wall, `1.406` CPU |
+| Query phase | `0.649` wall, `0.562` CPU |
 
 How to read this:
 - Direct replay can still be faster for one-off local scans because it skips ingestion and retrieval work.

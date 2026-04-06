@@ -593,13 +593,19 @@ def suite_markdown(suite: dict) -> list[str]:
         "",
         f"{suite['description']}",
         "",
-        f"- What it tests: {suite['what_it_tests']}",
-        f"- Corpus size: `{_format_number(suite['corpus_bytes'])}` bytes",
-        f"- Workloads: `{suite['workload_count']}`",
-        f"- Direct replay context: `{_format_number(suite['direct_tokens'])}` tokens",
-        f"- Pexo session context: `{_format_number(suite['pexo_tokens'])}` tokens",
-        f"- Reduction: `{suite['reduction_factor']:.2f}x`",
-        f"- Exact-match accuracy: `{suite['exact_match_accuracy_pct']:.2f}%`",
+        "| Metric | Before Pexo | After Pexo |",
+        "| :--- | :--- | :--- |",
+        f"| What it tests | {suite['what_it_tests']} | {suite['what_it_tests']} |",
+        f"| Corpus handled | `{_format_number(suite['corpus_bytes'])}` bytes | `{_format_number(suite['corpus_bytes'])}` bytes |",
+        f"| Workloads | `{suite['workload_count']}` | `{suite['workload_count']}` |",
+        f"| Active context | `{_format_number(suite['direct_tokens'])}` tokens | `{_format_number(suite['pexo_tokens'])}` tokens |",
+        f"| Wall time | `{format_seconds(suite['direct_metrics']['wall_seconds'])}` | `{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` |",
+        f"| CPU time | `{format_seconds(suite['direct_metrics']['cpu_seconds'])}` | `{format_seconds(suite['pexo_total_metrics']['cpu_seconds'])}` |",
+        f"| Peak RSS | `{suite['direct_metrics']['peak_rss_mb']:.2f} MB` | `{suite['pexo_total_metrics']['peak_rss_mb']:.2f} MB` |",
+        f"| Retrieval outcome | full direct replay | `{suite['reduction_factor']:.2f}x` reduction, `{suite['exact_match_accuracy_pct']:.2f}%` accuracy |",
+        f"| Local state footprint | none | `{suite['pexo_state_mb']:.2f} MB` |",
+        "",
+        "Recollection checks:",
         "",
         "| Workload | Expected | Direct | Pexo | Match |",
         "| :--- | :--- | :--- | :--- | :--- |",
@@ -611,13 +617,10 @@ def suite_markdown(suite: dict) -> list[str]:
     lines.extend(
         [
             "",
-            "| Metric | Direct | Pexo Setup | Pexo Query | Pexo Total |",
-            "| :--- | ---: | ---: | ---: | ---: |",
-            f"| Wall time | `{format_seconds(suite['direct_metrics']['wall_seconds'])}` | `{format_seconds(suite['pexo_setup_metrics']['wall_seconds'])}` | `{format_seconds(suite['pexo_query_metrics']['wall_seconds'])}` | `{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` |",
-            f"| CPU time | `{format_seconds(suite['direct_metrics']['cpu_seconds'])}` | `{format_seconds(suite['pexo_setup_metrics']['cpu_seconds'])}` | `{format_seconds(suite['pexo_query_metrics']['cpu_seconds'])}` | `{format_seconds(suite['pexo_total_metrics']['cpu_seconds'])}` |",
-            f"| Peak RSS | `{suite['direct_metrics']['peak_rss_mb']:.2f} MB` | `{suite['pexo_setup_metrics']['peak_rss_mb']:.2f} MB` | `{suite['pexo_query_metrics']['peak_rss_mb']:.2f} MB` | `{suite['pexo_total_metrics']['peak_rss_mb']:.2f} MB` |",
-            "",
-            f"Pexo state footprint after this suite: `{suite['pexo_state_mb']:.2f} MB`.",
+            "| Pexo timing breakdown | Value |",
+            "| :--- | :--- |",
+            f"| Setup phase | `{format_seconds(suite['pexo_setup_metrics']['wall_seconds'])}` wall, `{format_seconds(suite['pexo_setup_metrics']['cpu_seconds'])}` CPU |",
+            f"| Query phase | `{format_seconds(suite['pexo_query_metrics']['wall_seconds'])}` wall, `{format_seconds(suite['pexo_query_metrics']['cpu_seconds'])}` CPU |",
             "",
         ]
     )
@@ -631,27 +634,6 @@ def build_markdown(results: dict) -> str:
     summary = results["summary"]
     total_direct_wall = sum(float(suite["direct_metrics"]["wall_seconds"]) for suite in suites)
     total_pexo_wall = sum(float(suite["pexo_total_metrics"]["wall_seconds"]) for suite in suites)
-
-    def before_cell(suite: dict) -> str:
-        return "<br>".join(
-            [
-                suite["what_it_tests"],
-                f"`{_format_number(suite['corpus_bytes'])}` bytes corpus",
-                f"`{suite['workload_count']}` workloads",
-                f"`{_format_number(suite['direct_tokens'])}` tokens",
-                f"`{format_seconds(suite['direct_metrics']['wall_seconds'])}` direct time",
-            ]
-        )
-
-    def after_cell(suite: dict) -> str:
-        return "<br>".join(
-            [
-                f"`{_format_number(suite['pexo_tokens'])}` tokens",
-                f"`{suite['reduction_factor']:.2f}x` reduction",
-                f"`{suite['exact_match_accuracy_pct']:.2f}%` accuracy",
-                f"`{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` Pexo time",
-            ]
-        )
 
     lines = [
         "## Benchmark Snapshot",
@@ -683,14 +665,16 @@ def build_markdown(results: dict) -> str:
         f"| Memory backend | `{runtime['memory_backend']}` |",
         f"| Benchmark execution mode | `{runtime['install_mode']}` |",
         "",
-        "### Summary",
+        "### At A Glance",
         "",
-        "| Suite | Before Pexo | After Pexo |",
-        "| :--- | :--- | :--- |",
+        "| Suite | Before Pexo | After Pexo | Reduction | Accuracy |",
+        "| :--- | :--- | :--- | :--- | :--- |",
     ]
     for suite in suites:
         lines.append(
-            f"| {suite['title']} | {before_cell(suite)} | {after_cell(suite)} |"
+            f"| {suite['title']} | `{_format_number(suite['direct_tokens'])}` tokens<br>`{format_seconds(suite['direct_metrics']['wall_seconds'])}` direct time | "
+            f"`{_format_number(suite['pexo_tokens'])}` tokens<br>`{format_seconds(suite['pexo_total_metrics']['wall_seconds'])}` Pexo time | "
+            f"`{suite['reduction_factor']:.2f}x` | `{suite['exact_match_accuracy_pct']:.2f}%` |"
         )
     lines.extend(
         [
@@ -715,6 +699,73 @@ def build_markdown(results: dict) -> str:
             "- Direct replay can still be faster for one-off local scans because it skips ingestion and retrieval work.",
             "- Pexo wins when the same project state needs to be carried across repeated questions, interruptions, or client handoffs without replaying the whole corpus.",
             "- These suites are intentionally large enough to make both the context savings and the recollection accuracy visible in one place.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_readme_markdown(results: dict) -> str:
+    host = results["host"]
+    runtime = results["runtime"]
+    suites = results["suites"]
+    summary = results["summary"]
+    total_direct_wall = sum(float(suite["direct_metrics"]["wall_seconds"]) for suite in suites)
+    total_pexo_wall = sum(float(suite["pexo_total_metrics"]["wall_seconds"]) for suite in suites)
+
+    lines = [
+        "## Benchmark Snapshot",
+        "",
+        "These are three isolated real-world benchmark suites for **compression and recollection**.",
+        "They compare naive full-corpus replay against the same workloads routed through Pexo's MCP surfaces.",
+        "",
+        "How to read this:",
+        "- **Before Pexo** is the naive context you would carry if you replayed the full corpus for every question.",
+        "- **After Pexo** is the measured `context_size_tokens` recorded by the Pexo-managed sessions.",
+        "- **Accuracy** is exact-match against the expected answer for every workload in the suite.",
+        "",
+        "Full benchmark detail lives in:",
+        "- `docs/benchmarks/realworld_compression_recollection_results.md`",
+        "- `docs/benchmarks/realworld_compression_recollection_results.json`",
+        "- `scripts/run_realworld_compression_recollection_benchmarks.py`",
+        "",
+        "### Host System",
+        "",
+        "| Metric | Value |",
+        "| :--- | :--- |",
+        f"| CPU | `{host['cpu']}` |",
+        f"| RAM | `{host['total_ram_gb']} GB` |",
+        f"| Python | `{host['python']}` |",
+        f"| Pexo version | `{host['pexo_version']}` |",
+        f"| Memory backend | `{runtime['memory_backend']}` |",
+        "",
+        "### At A Glance",
+        "",
+        "| Suite | Before Pexo | After Pexo | Reduction | Accuracy |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+    ]
+    for suite in suites:
+        lines.append(
+            f"| {suite['title']} | `{_format_number(suite['direct_tokens'])}` tokens | "
+            f"`{_format_number(suite['pexo_tokens'])}` tokens | "
+            f"`{suite['reduction_factor']:.2f}x` | `{suite['exact_match_accuracy_pct']:.2f}%` |"
+        )
+    lines.extend(
+        [
+            "",
+            "### Combined Totals",
+            "",
+            "| Metric | Before Pexo | After Pexo |",
+            "| :--- | :--- | :--- |",
+            f"| Corpus handled | `{_format_number(summary['total_corpus_bytes'])}` bytes | `{_format_number(summary['total_corpus_bytes'])}` bytes |",
+            f"| Active context | `{_format_number(summary['total_direct_tokens'])}` tokens | `{_format_number(summary['total_pexo_tokens'])}` tokens |",
+            f"| Total wall time | `{format_seconds(total_direct_wall)}` | `{format_seconds(total_pexo_wall)}` |",
+            f"| Accuracy | direct baseline replay | `{summary['overall_accuracy_pct']:.2f}%` exact-match accuracy |",
+            f"| Net effect | full corpus replay every time | `{summary['overall_reduction_factor']:.2f}x` reduction, `{summary['overall_retained_pct']:.4f}%` retained |",
+            "",
+            "What this means:",
+            "- Direct replay can still be faster for one-off local scans because it skips ingestion and retrieval work.",
+            "- Pexo wins when the same project state needs to survive repeated questions, interruptions, and client handoffs without replaying the whole corpus.",
+            "- The table above is the GitHub summary. The full per-suite breakdown stays in `docs/benchmarks/realworld_compression_recollection_results.md`.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -804,9 +855,13 @@ def main() -> int:
     }
 
     markdown = build_markdown(payload)
+    readme_markdown = build_readme_markdown(payload)
     RESULTS_JSON.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     RESULTS_MD.write_text(markdown, encoding="utf-8")
-    README_PATH.write_text(replace_readme_section(README_PATH.read_text(encoding="utf-8"), markdown), encoding="utf-8")
+    README_PATH.write_text(
+        replace_readme_section(README_PATH.read_text(encoding="utf-8"), readme_markdown),
+        encoding="utf-8",
+    )
     shutil.rmtree(SUITE_ROOT, ignore_errors=True)
     return 0
 
