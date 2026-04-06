@@ -5,23 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PEXO | Control Plane</title>
   <style>
-    :root{--bg:#0d131c;--panel:#141d29;--panel2:#1a2433;--line:rgba(255,255,255,.09);--text:#eef4fb;--muted:#98a7bb;--accent:#3cb7ff;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--r:0;--fade:.125s ease;--mono:"Cascadia Code","JetBrains Mono",monospace;--sans:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif}
-    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:linear-gradient(180deg,#111927 0%,var(--bg) 100%);color:var(--text);font-family:var(--sans)}body{padding:24px}
-    button,input,select,textarea{font:inherit}button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:var(--r);padding:11px 14px;cursor:pointer;transition:all var(--fade)}button:hover:not(:disabled){border-color:rgba(255,255,255,.18)}button.primary{background:linear-gradient(180deg,#2499e6,#1a79c8);border-color:#2499e6;color:#fff}button.danger{background:linear-gradient(180deg,#d55c5c,#bf4040);border-color:#d55c5c;color:#fff}button:disabled{opacity:.5;cursor:not-allowed}
-    input,select,textarea{width:100%;padding:12px 14px;border-radius:var(--r);border:1px solid var(--line);background:#101722;color:var(--text)}textarea{min-height:120px;resize:vertical}label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-    .app{max-width:1480px;margin:0 auto;display:flex;flex-direction:column;gap:18px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.top h1{margin:0;font-size:30px;letter-spacing:.08em}.top p{margin:8px 0 0;max-width:760px;color:var(--muted);line-height:1.55}
-    .actions,.toolbar,.meta{display:flex;gap:10px;flex-wrap:wrap}.pill,.badge{display:inline-flex;align-items:center;border-radius:var(--r);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.pill{padding:9px 12px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}.badge{padding:4px 8px}.info{background:rgba(60,183,255,.12);color:#98ddff}.success{background:rgba(34,197,94,.15);color:#9bf4b8}.warn{background:rgba(245,158,11,.15);color:#f8d07d}.danger{background:rgba(239,68,68,.15);color:#ffb3b3}
-    .shell{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px}.nav{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px;height:fit-content;position:sticky;top:24px}.nav button{background:transparent;border-color:transparent;text-align:left;color:var(--muted)}.nav button strong{display:block;font-size:14px;color:inherit}.nav button span{display:block;margin-top:4px;font-size:12px;line-height:1.35}.nav button.active,.nav button:hover{background:rgba(60,183,255,.10);border-color:rgba(60,183,255,.28);color:var(--text)}
-    .main,.panel,.list,.stack{display:flex;flex-direction:column;gap:18px}.panel{display:none}.panel.active{display:flex}.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}.title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}.title h2,.title h3,.item h4{margin:0}.title p,.item p,.empty{margin:5px 0 0;color:var(--muted);line-height:1.5}
-    .hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:18px}.hero h2{margin:0 0 10px;font-size:34px;line-height:1.05}.stats,.grid2,.split{display:grid;gap:18px}.stats,.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:320px minmax(0,1fr)}.stat,.item,.record,details.block{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r)}.stat{padding:16px}.stat span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.stat strong{display:block;margin-top:8px;font-size:24px}.stat small{display:block;margin-top:6px;color:var(--muted)}
-    .item{padding:14px}.item-grid{display:grid;grid-template-columns:160px minmax(0,1fr);gap:14px;align-items:start}.item-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.summary{margin:8px 0 0;color:var(--text);line-height:1.45}.record{padding:16px;display:flex;flex-direction:column;gap:12px}.record-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.record-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.record-meta{padding:10px 12px;border:1px solid var(--line);background:#121a26}.record-meta span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.record-meta strong{display:block;margin-top:4px;font-size:13px;line-height:1.4}.code{font-family:var(--mono);min-height:240px}
-    details.block{padding:0}details.block summary{cursor:pointer;list-style:none;padding:16px 18px;font-weight:700}details.block summary::-webkit-details-marker{display:none}.body{padding:0 18px 18px}.notice{position:fixed;right:24px;bottom:24px;display:none;max-width:420px;padding:14px 18px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)}.notice.show{display:block}
-    @media (max-width:1180px){body{padding:16px}.shell,.hero,.stats,.grid2,.split{grid-template-columns:1fr}.nav{position:static}}
+    :root{--bg:#0d1218;--panel:#121922;--panel2:#17202b;--panel3:#0f151d;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);--text:#eef5fb;--muted:#8d9cae;--soft:#bac7d5;--r:0;--shadow:0 16px 34px rgba(0,0,0,.22);--sans:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;--mono:"Cascadia Code","JetBrains Mono",monospace}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:var(--sans)}body{padding:24px}
+    button,input,select,textarea{font:inherit}button{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:11px 14px;border-radius:var(--r);cursor:pointer}button:hover:not(:disabled){border-color:var(--line2);background:#1d2734}button.primary{background:#1d6fb8;border-color:#1d6fb8}button.danger{background:#9e4343;border-color:#9e4343}button.ghost{background:transparent}button:disabled{opacity:.5;cursor:not-allowed}
+    input,select,textarea{width:100%;padding:12px 14px;border:1px solid var(--line);background:var(--panel3);color:var(--text);border-radius:var(--r)}textarea{min-height:160px;resize:vertical}
+    label{display:flex;flex-direction:column;gap:8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+    .app{max-width:1480px;margin:0 auto;display:flex;flex-direction:column;gap:18px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.top h1{margin:0;font-size:30px;letter-spacing:.12em}.top p{margin:8px 0 0;max-width:760px;color:var(--muted);line-height:1.55}
+    .actions,.row,.meta,.filters{display:flex;gap:10px;flex-wrap:wrap}.pill,.badge{display:inline-flex;align-items:center;padding:8px 11px;border:1px solid var(--line);font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:var(--panel)}.badge{padding:4px 8px}.info{background:rgba(110,183,255,.10);color:#a7d4ff}.success{background:rgba(49,199,106,.12);color:#acf2c1}.warn{background:rgba(244,177,61,.12);color:#f7d59a}.danger{background:rgba(239,98,98,.12);color:#ffc0c0}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--line);background:var(--panel);box-shadow:var(--shadow)}.tabs button{min-width:150px;background:transparent;color:var(--muted)}.tabs button strong{display:block;font-size:13px;color:inherit}.tabs button span{display:block;margin-top:4px;font-size:12px;line-height:1.35;text-transform:none;letter-spacing:0}.tabs button.active{background:var(--panel2);border-color:var(--line2);color:var(--text)}
+    .panel{display:none;flex-direction:column;gap:18px}.panel.active{display:flex}.card{background:var(--panel);border:1px solid var(--line);padding:20px;box-shadow:var(--shadow)}.soft{background:var(--panel2)}.title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}.title h2,.title h3,.item h4{margin:0}.title p,.summary,.empty,.lead{margin:6px 0 0;color:var(--muted);line-height:1.5}
+    .hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:18px}.hero h2{margin:0 0 8px;font-size:30px;line-height:1.05}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{background:var(--panel2);border:1px solid var(--line);padding:16px}.stat span{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.stat strong{display:block;margin-top:8px;font-size:24px}.stat small{display:block;margin-top:8px;color:var(--muted);line-height:1.45}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split{display:grid;grid-template-columns:minmax(0,370px) minmax(0,1fr);gap:18px}
+    .list{display:flex;flex-direction:column;gap:10px}.item,.memory-row,.artifact-row,.session-row,.client-row{border:1px solid var(--line);background:var(--panel2);padding:14px}.memory-row,.artifact-row{cursor:pointer}.memory-row:hover,.artifact-row:hover,.memory-row.active,.artifact-row.active{border-color:var(--line2);background:#1d2734}.eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.summary{color:var(--soft)}.meta{margin-top:10px}.meta span{color:var(--muted);font-size:12px}.mono{font-family:var(--mono)}
+    .detail{display:flex;flex-direction:column;gap:16px;min-height:560px}.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.detail-meta{padding:12px;border:1px solid var(--line);background:var(--panel3)}.detail-meta span{display:block;font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}.detail-meta strong{display:block;margin-top:6px;font-size:13px;line-height:1.45}.surface{padding:14px;border:1px solid var(--line);background:var(--panel3);white-space:pre-wrap;line-height:1.55;color:var(--soft)}.surface.code{font-family:var(--mono);max-height:420px;overflow:auto}
+    details.block{border:1px solid var(--line);background:var(--panel2)}details.block summary{cursor:pointer;list-style:none;padding:16px 18px;font-weight:700}details.block summary::-webkit-details-marker{display:none}.body{padding:0 18px 18px}
+    .notice{position:fixed;right:24px;bottom:24px;display:none;max-width:420px;padding:14px 18px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}.notice.show{display:block}.empty{padding:16px;border:1px dashed var(--line);background:var(--panel2)}
+    @media (max-width:1180px){body{padding:16px}.hero,.stats,.grid2,.split{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="top">
+    <header class="top">
       <div>
         <h1>PEXO</h1>
         <p>A simpler control plane for local memory, context, connected clients, and workflow state. This page is for operating Pexo, not chatting with it.</p>
@@ -30,79 +34,68 @@
         <div id="runtimeBadge" class="pill">Loading</div>
         <button onclick="refreshAll()">Refresh</button>
       </div>
-    </div>
-    <div class="shell">
-      <aside class="nav">
-        <button class="active" data-tab="dashboard"><strong>Dashboard</strong><span>Status, recent memory, clients, sessions.</span></button>
-        <button data-tab="performance"><strong>Performance Hit</strong><span>Estimated before and after install impact.</span></button>
-        <button data-tab="memory"><strong>Memory</strong><span>Search and edit what Pexo knows.</span></button>
-        <button data-tab="context"><strong>Context</strong><span>Attach files and inspect artifacts.</span></button>
-        <button data-tab="system"><strong>System</strong><span>Clients, runtime, profile, agents, tools.</span></button>
-      </aside>
-      <main class="main">
-        <section class="panel active" id="panel-dashboard">
-          <section class="card hero">
-            <div>
-              <h2>Readable state first.</h2>
-              <p>The default screen should answer four questions quickly: is Pexo healthy, what clients are connected, what memory matters now, and what sessions are active or waiting.</p>
-            </div>
-            <div id="heroStats" class="stats"></div>
-          </section>
-          <div class="grid2">
-            <section class="card">
-              <div class="title"><div><h2>Recent Memory</h2><p>Visible immediately without leaving the dashboard.</p></div><button onclick="openTab('memory')">Open Memory</button></div>
-              <div id="dashboardMemory" class="list"></div>
-            </section>
-            <section class="card">
-              <div class="title"><div><h2>Workflow Sessions</h2><p>Recent orchestration state in plain language.</p></div></div>
-              <div id="dashboardSessions" class="list"></div>
-            </section>
+    </header>
+
+    <nav class="tabs">
+      <button class="active" data-tab="dashboard"><strong>Dashboard</strong><span>Status, recent memory, clients, sessions.</span></button>
+      <button data-tab="memory"><strong>Memory</strong><span>Search, filter, edit, and pin stored memory.</span></button>
+      <button data-tab="context"><strong>Context</strong><span>Attach files, store notes, and inspect artifacts.</span></button>
+      <button data-tab="performance"><strong>Performance Hit</strong><span>Estimated before and after install impact.</span></button>
+      <button data-tab="system"><strong>System</strong><span>Clients, runtime, profile, agents, tools.</span></button>
+    </nav>
+
+    <main>
+      <section class="panel active" id="panel-dashboard">
+        <section class="card hero">
+          <div>
+            <h2>Readable state first.</h2>
+            <p class="lead">The default screen should answer four questions quickly: is Pexo healthy, what memory matters now, what context changed recently, and what work is active or waiting.</p>
           </div>
-          <div class="grid2">
-            <section class="card">
-              <div class="title"><div><h2>Client Fleet</h2><p>Connected local clients and MCP status.</p></div><div class="actions"><button onclick="repairClients('all')">Repair All</button></div></div>
-              <div id="dashboardClients" class="list"></div>
-            </section>
-            <section class="card">
-              <div class="title"><div><h2>Recent Context</h2><p>Latest artifact and note activity.</p></div><button onclick="openTab('context')">Open Context</button></div>
-              <div id="dashboardArtifacts" class="list"></div>
-            </section>
+          <div id="heroStats" class="stats"></div>
+        </section>
+        <div class="grid2">
+          <section class="card">
+            <div class="title"><div><h2>Recent Memory</h2><p>Visible immediately without leaving the dashboard.</p></div><button onclick="openTab('memory')">Open Memory</button></div>
+            <div id="dashboardMemory" class="list"></div>
+          </section>
+          <section class="card">
+            <div class="title"><div><h2>Workflow Sessions</h2><p>Recent orchestration state in plain language.</p></div></div>
+            <div id="dashboardSessions" class="list"></div>
+          </section>
+        </div>
+        <div class="grid2">
+          <section class="card">
+            <div class="title"><div><h2>Client Fleet</h2><p>Connected local clients and MCP status.</p></div><button onclick="repairClients('all')">Repair All</button></div>
+            <div id="dashboardClients" class="list"></div>
+          </section>
+          <section class="card">
+            <div class="title"><div><h2>Recent Context</h2><p>The latest artifacts and notes.</p></div><button onclick="openTab('context')">Open Context</button></div>
+            <div id="dashboardArtifacts" class="list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-memory">
+        <section class="card">
+          <div class="title"><div><h2>Memory Console</h2><p>Search and edit the stored memory layer directly.</p></div><div class="actions"><button onclick="loadRecentMemories()">Recent</button><button onclick="runMemoryMaintenance()">Maintenance</button></div></div>
+          <div class="filters">
+            <input id="memoryQuery" placeholder="Search memories, preferences, or task context">
+            <select id="memoryStateFilter" onchange="applyMemoryFilters()"><option value="all">All states</option><option value="pinned">Pinned</option><option value="active">Active</option><option value="archived">Archived</option><option value="compacted">Compacted</option></select>
+            <input id="memoryTaskFilter" placeholder="Filter by task context" oninput="applyMemoryFilters()">
+            <input id="memorySessionFilter" placeholder="Filter by session id" oninput="applyMemoryFilters()">
+            <button class="primary" onclick="searchMemory()">Search</button>
+            <button class="ghost" onclick="resetMemoryFilters()">Reset</button>
           </div>
         </section>
-        <section class="panel" id="panel-performance">
-          <section class="card">
-            <div class="title">
-              <div>
-                <h2>Estimated Performance Hit</h2>
-                <p>Honest local heuristics, not fake benchmarking. Pexo is mostly disk footprint plus one local process when it is running.</p>
-              </div>
-            </div>
-            <div id="performanceOverview" class="stats"></div>
-          </section>
-          <div class="grid2">
-            <section class="card">
-              <div class="title"><div><h2>Before and After</h2><p>The practical difference between not having Pexo, having it installed, and actively running it.</p></div></div>
-              <div id="performanceComparisons" class="list"></div>
-            </section>
-            <section class="card">
-              <div class="title"><div><h2>Profile Ladder</h2><p>Why the overhead changes as you move from core to MCP, full, and vector.</p></div></div>
-              <div id="performanceProfiles" class="list"></div>
-            </section>
-          </div>
-          <section class="card">
-            <div class="title"><div><h2>What This Means</h2><p>Use this as a planning guide for ordinary machines, not as a synthetic benchmark.</p></div></div>
-            <div id="performanceNotes" class="list"></div>
-          </section>
+        <section class="card soft"><div id="memoryStats" class="stats"></div></section>
+        <section class="split">
+          <section class="card"><div class="title"><div><h3>Memory History</h3><p>Choose a record to inspect or edit.</p></div></div><div id="memoryList" class="list"></div></section>
+          <section class="card"><div class="title"><div><h2>Memory Detail</h2><p>Readable metadata and one focused edit surface.</p></div></div><div id="memoryDetail" class="detail"></div></section>
         </section>
-        <section class="panel" id="panel-memory">
-          <section class="card">
-            <div class="title"><div><h2>Memory Console</h2><p>Search and edit the stored memory layer directly.</p></div><div class="actions"><button onclick="loadRecentMemories()">Recent</button><button onclick="runMemoryMaintenance()">Maintenance</button></div></div>
-            <div class="toolbar"><input id="memoryQuery" placeholder="Search memories, preferences, or task context"><button class="primary" onclick="searchMemory()">Search</button></div>
-            <div id="memoryList" class="list"></div>
-          </section>
-        </section>
-        <section class="panel" id="panel-context">
-          <div class="grid2">
+      </section>
+      <section class="panel" id="panel-context">
+        <section class="split">
+          <div class="row" style="display:flex;flex-direction:column;gap:18px">
             <section class="card">
               <div class="title"><div><h2>Add Context</h2><p>Attach a path or store a durable note.</p></div></div>
               <div class="grid2">
@@ -116,114 +109,126 @@
               <button class="primary" onclick="attachText()">Store Note</button>
             </section>
             <section class="card">
-              <div class="title"><div><h2>Artifact Vault</h2><p>Files and previews stored by Pexo.</p></div></div>
+              <div class="title"><div><h2>Context History</h2><p>Search and filter stored artifacts.</p></div></div>
+              <div class="filters">
+                <input id="artifactQuery" placeholder="Search artifact names, paths, or extracted text">
+                <input id="artifactTaskFilter" placeholder="Filter by task context">
+                <input id="artifactSessionFilter" placeholder="Filter by session id">
+                <button class="primary" onclick="loadArtifacts()">Search</button>
+                <button class="ghost" onclick="resetArtifactFilters()">Reset</button>
+              </div>
               <div id="artifactList" class="list"></div>
             </section>
           </div>
+          <section class="card"><div class="title"><div><h2>Context Detail</h2><p>Inspect the selected artifact, note, or file preview.</p></div></div><div id="artifactDetail" class="detail"></div></section>
         </section>
-        <section class="panel" id="panel-system">
-          <details class="block" open>
-            <summary>Clients and Runtime</summary>
-            <div class="body grid2">
-              <section class="card">
-                <div class="title"><div><h3>Client Connections</h3><p>Installed CLIs and MCP targets.</p></div><button onclick="repairClients('all')">Repair All</button></div>
-                <div id="systemClients" class="list"></div>
-              </section>
-              <section class="card">
-                <div class="title"><div><h3>Runtime</h3><p>Profile status and optional upgrades.</p></div></div>
-                <div id="runtimeSummary" class="stack"></div>
-              </section>
-            </div>
-          </details>
-          <details class="block">
-            <summary>Profile Defaults</summary>
-            <div class="body card">
-              <div class="title"><div><h3>Persistent Preferences</h3><p>Defaults Pexo should carry across clients.</p></div><button class="primary" onclick="saveProfile()">Save Profile</button></div>
-              <div id="personalityFields" class="grid2"></div>
-              <div id="scriptingFields" class="grid2"></div>
-              <label>Backup Path<input id="backupPath" placeholder="D:\PexoBackups"></label>
-            </div>
-          </details>
-          <details class="block">
-            <summary>Agents</summary>
-            <div class="body split">
-              <section class="card">
-                <div class="title"><div><h3>Agent Registry</h3><p>Built-in and custom workers.</p></div><button onclick="newAgent()">New</button></div>
-                <div id="agentList" class="list"></div>
-              </section>
-              <section class="card">
-                <div class="title"><div><h3>Agent Editor</h3><p>Edit the selected worker.</p></div></div>
-                <div class="grid2"><label>Name<input id="agentName"></label><label>Role<input id="agentRole"></label></div>
-                <label>Capabilities<input id="agentCaps" placeholder="read, write, execute"></label>
-                <label>System Prompt<textarea id="agentPrompt" class="code"></textarea></label>
-                <div class="actions"><button class="primary" onclick="saveAgent()">Save Agent</button><button id="deleteAgentButton" class="danger" onclick="deleteAgent()">Delete</button></div>
-              </section>
-            </div>
-          </details>
-          <details class="block">
-            <summary>Tools</summary>
-            <div class="body split">
-              <section class="card">
-                <div class="title"><div><h3>Tool Registry</h3><p>Installed Genesis tools.</p></div><button onclick="newTool()">New</button></div>
-                <div id="toolList" class="list"></div>
-              </section>
-              <section class="card">
-                <div class="title"><div><h3>Tool Editor</h3><p>Edit the selected tool.</p></div></div>
-                <label>Name<input id="toolName"></label>
-                <label>Description<input id="toolDescription"></label>
-                <label>Python Source<textarea id="toolCode" class="code"></textarea></label>
-                <div class="actions"><button class="primary" onclick="saveTool()">Save Tool</button><button class="danger" onclick="deleteTool()">Delete</button></div>
-              </section>
-            </div>
-          </details>
+      </section>
+
+      <section class="panel" id="panel-performance">
+        <section class="card">
+          <div class="title"><div><h2>Estimated Performance Hit</h2><p>Honest local heuristics, not fake benchmarking. Pexo is mostly disk footprint plus one local process when it is running.</p></div></div>
+          <div id="performanceOverview" class="stats"></div>
         </section>
-      </main>
-    </div>
+        <div class="grid2">
+          <section class="card"><div class="title"><div><h2>Before and After</h2><p>The practical difference between not having Pexo, having it installed, and actively running it.</p></div></div><div id="performanceComparisons" class="list"></div></section>
+          <section class="card"><div class="title"><div><h2>Profile Ladder</h2><p>Why the overhead changes as you move from core to MCP, full, and vector.</p></div></div><div id="performanceProfiles" class="list"></div></section>
+        </div>
+        <section class="card"><div class="title"><div><h2>What This Means</h2><p>Use this as a planning guide for ordinary machines, not as a synthetic benchmark.</p></div></div><div id="performanceNotes" class="list"></div></section>
+      </section>
+
+      <section class="panel" id="panel-system">
+        <div class="grid2">
+          <section class="card">
+            <div class="title"><div><h2>Clients and Runtime</h2><p>Connected CLIs, runtime mode, and trust state.</p></div><div class="actions"><button onclick="repairClients('all')">Repair All</button><button onclick="promote('full')">Repair Full Runtime</button></div></div>
+            <div id="systemClients" class="list"></div>
+            <div id="runtimeSummary" class="list" style="margin-top:14px"></div>
+          </section>
+          <section class="card">
+            <div class="title"><div><h2>Profile Defaults</h2><p>Persistent preferences Pexo should carry across clients.</p></div><button class="primary" onclick="saveProfile()">Save Profile</button></div>
+            <div id="personalityFields" class="grid2"></div>
+            <div id="scriptingFields" class="grid2" style="margin-top:18px"></div>
+            <label style="margin-top:18px">Backup Path<input id="backupPath" placeholder="D:\PexoBackups"></label>
+          </section>
+        </div>
+        <details class="block">
+          <summary>Advanced: Agents</summary>
+          <div class="body split">
+            <section class="card"><div class="title"><div><h3>Agent Registry</h3><p>Built-in and custom workers.</p></div><button onclick="newAgent()">New</button></div><div id="agentList" class="list"></div></section>
+            <section class="card">
+              <div class="title"><div><h3>Agent Editor</h3><p>Edit the selected worker.</p></div></div>
+              <div class="grid2"><label>Name<input id="agentName"></label><label>Role<input id="agentRole"></label></div>
+              <label>Capabilities<input id="agentCaps" placeholder="read, write, execute"></label>
+              <label>System Prompt<textarea id="agentPrompt"></textarea></label>
+              <div class="actions"><button class="primary" onclick="saveAgent()">Save Agent</button><button id="deleteAgentButton" class="danger" onclick="deleteAgent()">Delete</button></div>
+            </section>
+          </div>
+        </details>
+        <details class="block">
+          <summary>Advanced: Tools</summary>
+          <div class="body split">
+            <section class="card"><div class="title"><div><h3>Tool Registry</h3><p>Installed Genesis tools.</p></div><button onclick="newTool()">New</button></div><div id="toolList" class="list"></div></section>
+            <section class="card">
+              <div class="title"><div><h3>Tool Editor</h3><p>Edit the selected tool.</p></div></div>
+              <label>Name<input id="toolName"></label>
+              <label>Description<input id="toolDescription"></label>
+              <label>Python Source<textarea id="toolCode" class="mono"></textarea></label>
+              <div class="actions"><button class="primary" onclick="saveTool()">Save Tool</button><button class="danger" onclick="deleteTool()">Delete</button></div>
+            </section>
+          </div>
+        </details>
+      </section>
+    </main>
   </div>
   <div id="notice" class="notice"></div>
   <script>
-    const state={snapshot:null,questions:null,memoryItems:[],selectedAgentId:null,selectedToolName:null,activeTab:"dashboard"};
+    const state={snapshot:null,questions:null,allMemoryItems:[],memoryItems:[],selectedMemoryId:null,artifactItems:[],selectedArtifactId:null,selectedArtifact:null,selectedAgentId:null,selectedToolName:null,activeTab:"dashboard"};
     const $=s=>document.querySelector(s),$$=s=>Array.from(document.querySelectorAll(s));
     const esc=v=>String(v??"").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     async function api(path,options={}){const r=await fetch(path,{headers:{"Content-Type":"application/json",...(options.headers||{})},...options});const t=await r.text();if(!r.ok)throw new Error(t||r.statusText);return t?JSON.parse(t):null}
     function when(v){if(!v)return"Unknown";const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString()}
-    function tone(v){v=String(v||"").toLowerCase();if(v.includes("success")||v.includes("complete"))return"success";if(v.includes("warn")||v.includes("running")||v.includes("clarification")||v.includes("started"))return"warn";if(v.includes("error")||v.includes("fail"))return"danger";return"info"}
+    function tone(v){v=String(v||"").toLowerCase();if(v.includes("success")||v.includes("complete")||v.includes("ready"))return"success";if(v.includes("warn")||v.includes("running")||v.includes("clarification")||v.includes("started"))return"warn";if(v.includes("error")||v.includes("fail")||v.includes("missing"))return"danger";return"info"}
     function note(msg,kind="success"){const n=$("#notice");n.textContent=msg;n.className=`notice show ${kind}`;clearTimeout(note.t);note.t=setTimeout(()=>n.className="notice",2600)}
-    function openTab(name){state.activeTab=name;$$(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));$$(".panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${name}`))}
-    function renderQs(section,target,answers){const qs=state.questions?.[section]||[];$(target).innerHTML=qs.map(q=>`<label>${esc(q.text)}<select data-section="${esc(section)}" data-id="${esc(q.id)}">${Object.entries(q.options||{}).map(([k,v])=>`<option value="${esc(k)}"${answers?.[q.id]===k?" selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")}
-    function summaryText(text, limit=150){const clean=String(text||"").replace(/\s+/g," ").trim();if(!clean)return"";const sentence=clean.match(/^(.{0,150}?[.!?])(\s|$)/);if(sentence&&sentence[1].length>40)return sentence[1];return clean.length>limit?`${clean.slice(0,limit).trim()}...`:clean}
+    function summaryText(text,limit=150){const clean=String(text||"").replace(/\s+/g," ").trim();if(!clean)return"";return clean.length>limit?`${clean.slice(0,limit).trim()}...`:clean}
     function clientReady(client){const status=String(client?.status||"").toLowerCase();return !!client?.available||["connected","available","configured","enabled","updated","success","ok"].includes(status)}
-    function renderItems(target,items,kind){$(target).innerHTML=(items||[]).map(item=>{if(kind==="client")return`<div class="item"><div class="item-grid"><div><div class="item-label">Client</div><h4>${esc(item.client)}</h4></div><div><div class="summary">${esc(item.message||"Client detected.")}</div><div class="meta"><span class="badge ${tone(item.status)}">${esc(item.status)}</span>${item.target_command?`<span class="mono">${esc(item.target_command)}</span>`:""}</div></div></div></div>`;if(kind==="memory")return`<div class="item"><div class="item-grid"><div><div class="item-label">Context</div><h4>${esc(item.task_context||"general")}</h4></div><div><div class="summary">${esc(summaryText(item.content))}</div><div class="meta">${item.is_pinned?'<span class="badge info">Pinned</span>':""}${item.is_archived?'<span class="badge warn">Archived</span>':""}<span>${esc(when(item.updated_at||item.created_at))}</span></div></div></div></div>`;if(kind==="artifact")return`<div class="item"><div class="item-grid"><div><div class="item-label">Artifact</div><h4>${esc(item.name||`Artifact ${item.id}`)}</h4></div><div><div class="summary">${esc(summaryText(item.preview||"Binary artifact.",170))}</div><div class="meta"><span>${esc(item.task_context||"general")}</span><span>${esc(item.source_type||"artifact")}</span><span>${esc(when(item.updated_at||item.created_at))}</span></div><div class="actions" style="margin-top:12px"><a href="/artifacts/${item.id}/download" target="_blank"><button type="button">Download</button></a><button class="danger" type="button" onclick="deleteArtifact(${item.id})">Delete</button></div></div></div></div>`;return`<div class="item"><div class="item-grid"><div><div class="item-label">Session</div><h4>${esc(item.title||`Session ${item.short_id||""}`)}</h4></div><div><div class="summary">${esc(summaryText(item.summary||"No summary available.",170))}</div><div class="meta"><span class="badge ${esc(item.status_tone||"info")}">${esc(item.status_label||item.last_status||"unknown")}</span><span>${esc(item.last_agent_label||"Unknown")}</span><span>${esc(when(item.last_activity_at))}</span></div></div></div></div>`}).join("")||'<div class="empty">Nothing to show.</div>'}
-    function renderDashboard(){const s=state.snapshot||{},rt=s.runtime||{},st=s.stats||{},results=s.clients?.results||[],ready=results.filter(clientReady),missing=results.filter(r=>String(r.status||"").toLowerCase()==="missing");const version=s.version||s.install_metadata?.version||"?" ;$("#runtimeBadge").textContent=`v${version} | ${rt.active_profile||"unknown"} runtime`;$("#heroStats").innerHTML=[{l:"Version",v:`v${version}`,m:rt.install_mode||"unknown"},{l:"Clients Ready",v:String(ready.length),m:missing.length?`${missing.length} missing`:(ready.length?ready.map(c=>c.client).join(", "):"none")},{l:"Memory",v:String(st.memory_count||0),m:`${st.pinned_memory_count||0} pinned`},{l:"Artifacts",v:String(st.artifact_count||0),m:`${st.chat_count||0} chat sessions`}].map(x=>`<div class="stat"><span>${esc(x.l)}</span><strong>${esc(x.v)}</strong><small>${esc(x.m)}</small></div>`).join("");renderItems("#dashboardMemory",(s.recent_memories||[]).slice(0,5),"memory");renderItems("#dashboardSessions",(s.telemetry?.recent_sessions||[]).slice(0,5),"session");renderItems("#dashboardClients",results,"client");renderItems("#dashboardArtifacts",(s.recent_artifacts||[]).slice(0,5),"artifact")}
-    function renderPerformance(){const perf=state.snapshot?.runtime?.performance||{},current=perf.current_runtime||{},before=perf.before_install||{},after=perf.after_install||{},profiles=perf.profile_matrix||[],notes=perf.notes||[];$("#performanceOverview").innerHTML=[{l:"Current Hit",v:current.impact_label||"Unknown",m:current.profile?`${current.profile} profile`:"No profile"},{l:"Idle RAM",v:current.idle_ram_mb!=null?`${current.idle_ram_mb} MB`:"Unknown",m:"Estimated while Pexo is running"},{l:"Idle CPU",v:current.idle_cpu_pct||"Unknown",m:"Estimated steady-state overhead"},{l:"Install Footprint",v:after.disk_mb!=null?`${after.disk_mb} MB`:"Unknown",m:"Observed local disk use"}].map(x=>`<div class="stat"><span>${esc(x.l)}</span><strong>${esc(x.v)}</strong><small>${esc(x.m)}</small></div>`).join("");$("#performanceComparisons").innerHTML=[before,after,current].map(item=>`<div class="record"><div class="record-head"><div><h3>${esc(item.label||"Unknown state")}</h3><p class="summary">${esc(item.summary||"")}</p></div><span class="badge ${tone(item.impact_label||"info")}">${esc(item.impact_label||"Estimated")}</span></div><div class="record-grid"><div class="record-meta"><span>Disk</span><strong>${item.disk_mb!=null?esc(`${item.disk_mb} MB`):"N/A"}</strong></div><div class="record-meta"><span>Idle RAM</span><strong>${item.idle_ram_mb!=null?esc(`${item.idle_ram_mb} MB`):"N/A"}</strong></div><div class="record-meta"><span>Idle CPU</span><strong>${esc(item.idle_cpu_pct||"N/A")}</strong></div></div><div class="record-grid"><div class="record-meta"><span>Processes</span><strong>${item.background_processes!=null?esc(String(item.background_processes)):"N/A"}</strong></div>${item.startup_seconds?`<div class="record-meta"><span>Startup</span><strong>${esc(item.startup_seconds)}</strong></div>`:""}${item.memory_backend?`<div class="record-meta"><span>Memory Backend</span><strong>${esc(item.memory_backend)}</strong></div>`:""}</div></div>`).join("")||'<div class="empty">No performance data available.</div>';$("#performanceProfiles").innerHTML=profiles.map(item=>`<div class="item"><div class="item-grid"><div><div class="item-label">Profile</div><h4>${esc(item.profile)}</h4></div><div><div class="summary">${esc(item.use_case||"")}</div><div class="meta"><span class="badge ${item.available?"success":"info"}">${item.available?"Installed":"Not installed"}</span><span>${esc(item.impact_label||"Estimated")}</span><span>${esc(`${item.idle_ram_mb} MB RAM`)}</span><span>${esc(item.idle_cpu_pct||"")}</span><span>${esc(item.startup_seconds||"")}</span></div></div></div></div>`).join("")||'<div class="empty">No profile data available.</div>';$("#performanceNotes").innerHTML=[perf.summary, ...notes].filter(Boolean).map(text=>`<div class="item"><p class="summary">${esc(text)}</p></div>`).join("")||'<div class="empty">No guidance available.</div>'}
-    function renderMemory(){const items=state.memoryItems||[];$("#memoryList").innerHTML=items.map(m=>`<div class="record"><div class="record-head"><div><h3>${esc(m.task_context||"general")}</h3><div class="meta">${m.is_pinned?'<span class="badge info">Pinned</span>':""}${m.is_archived?'<span class="badge warn">Archived</span>':""}${m.is_compacted?'<span class="badge success">Compacted</span>':""}<span>${esc(when(m.updated_at||m.created_at))}</span></div><p class="summary">${esc(summaryText(m.content,220))}</p></div></div><div class="record-grid"><div class="record-meta"><span>Session</span><strong>${esc(m.session_id||"general")}</strong></div><div class="record-meta"><span>Context</span><strong>${esc(m.task_context||"general")}</strong></div><div class="record-meta"><span>State</span><strong>${m.is_archived?"Archived":"Active"}${m.is_pinned?" / Pinned":""}</strong></div></div><details class="block"><summary>Edit Memory</summary><div class="body"><textarea id="mem-content-${m.id}">${esc(m.content||"")}</textarea><div class="grid2"><label>Task Context<input id="mem-context-${m.id}" value="${esc(m.task_context||"")}"></label><label>State<select id="mem-state-${m.id}"><option value="active"${m.is_archived?"":" selected"}>Active</option><option value="archived"${m.is_archived?" selected":""}>Archived</option></select></label></div><div class="actions" style="margin-top:12px"><button class="primary" onclick="saveMemory(${m.id})">Save Memory</button><button onclick="togglePinned(${m.id},${m.is_pinned?"false":"true"})">${m.is_pinned?"Unpin":"Pin"}</button><button class="danger" onclick="deleteMemory(${m.id})">Delete</button></div></div></details></div>`).join("")||'<div class="empty">No memory records.</div>'}
-    function renderContext(){renderItems("#artifactList",state.snapshot?.recent_artifacts||[],"artifact")}
-    function renderAgents(){const agents=state.snapshot?.agents||[],sel=agents.find(a=>a.id===state.selectedAgentId)||agents[0]||null;if(sel)state.selectedAgentId=sel.id;$("#agentList").innerHTML=agents.map(a=>`<div class="item ${a.id===state.selectedAgentId?"active":""}" onclick="loadAgent(${a.id})"><h4>${esc(a.name)}</h4><p>${esc(a.role)}</p><div class="meta">${a.is_core?'<span class="badge info">Core</span>':'<span class="badge success">Custom</span>'}</div></div>`).join("")||'<div class="empty">No agents registered.</div>';$("#agentName").value=sel?.name||"";$("#agentRole").value=sel?.role||"";$("#agentCaps").value=(sel?.capabilities||[]).join(", ");$("#agentPrompt").value=sel?.system_prompt||"";$("#deleteAgentButton").disabled=!sel||!!sel.is_core}
-    async function renderTools(){const tools=state.snapshot?.tools||[],name=state.selectedToolName||tools[0]?.name||null;state.selectedToolName=name;$("#toolList").innerHTML=tools.map(t=>`<div class="item ${t.name===name?"active":""}" onclick="loadTool(${JSON.stringify(t.name)})"><h4>${esc(t.name)}</h4><p>${esc(t.description||"No description")}</p></div>`).join("")||'<div class="empty">No tools registered.</div>';if(!name){$("#toolName").value="";$("#toolDescription").value="";$("#toolCode").value="";return}const tool=await api(`/tools/${encodeURIComponent(name)}`);$("#toolName").value=tool.name||"";$("#toolDescription").value=tool.description||"";$("#toolCode").value=tool.python_code||""}
-    function renderSystem(){const s=state.snapshot||{},a=s.profile_answers||{personality_answers:{},scripting_answers:{}};const gp=s.runtime?.genesis_policy||{};renderItems("#systemClients",s.clients?.results||[],"client");$("#runtimeSummary").innerHTML=`<div class="item"><h4>Active Profile</h4><p>${esc(s.runtime?.active_profile||"unknown")}</p></div><div class="item"><h4>Install Mode</h4><p>${esc(s.runtime?.install_mode||"unknown")}</p></div><div class="item"><h4>Memory Backend</h4><p>${esc(s.runtime?.memory_backend||"unknown")}</p></div><div class="item"><h4>Genesis Trust</h4><p>${esc(gp.mode||"unknown")}</p><div class="meta">${esc((gp.approved_tools||[]).join(", ")||"No pre-approved tools")}</div></div><div class="actions"><button onclick="promote('mcp')">Promote MCP</button><button onclick="promote('full')">Repair Full Runtime</button></div>`;renderQs("personality","#personalityFields",a.personality_answers);renderQs("scripting","#scriptingFields",a.scripting_answers);$("#backupPath").value=s.profile?.backup_path||"";renderAgents();renderTools().catch(e=>note(e.message,"danger"))}
-    async function loadAll(){const [snapshot,questions]=await Promise.all([api("/admin/snapshot"),api("/profile/questions")]);state.snapshot=snapshot;state.questions=questions;state.memoryItems=snapshot.recent_memories||[];if(!state.selectedAgentId&&(snapshot.agents||[])[0])state.selectedAgentId=snapshot.agents[0].id;if(!state.selectedToolName&&(snapshot.tools||[])[0])state.selectedToolName=snapshot.tools[0].name;renderDashboard();renderPerformance();renderMemory();renderContext();renderSystem();openTab(state.activeTab)}
+    function openTab(name){state.activeTab=name;$$(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));$$(".panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${name}`))}
+    function renderQs(section,target,answers){const qs=state.questions?.[section]||[];$(target).innerHTML=qs.map(q=>`<label>${esc(q.text)}<select data-section="${esc(section)}" data-id="${esc(q.id)}">${Object.entries(q.options||{}).map(([k,v])=>`<option value="${esc(k)}"${answers?.[q.id]===k?" selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")}
+    function renderSimpleList(target,items,kind){$(target).innerHTML=(items||[]).map(item=>{if(kind==="client")return`<div class="client-row"><div class="eyebrow">Client</div><h4>${esc(item.client)}</h4><p class="summary">${esc(item.message||"Client detected.")}</p><div class="meta"><span class="badge ${tone(item.status)}">${esc(item.status)}</span>${item.target_command?`<span class="mono">${esc(item.target_command)}</span>`:""}</div></div>`;if(kind==="memory")return`<div class="item"><div class="eyebrow">${esc(item.task_context||"general")}</div><h4>${esc(item.session_id||"general")}</h4><p class="summary">${esc(summaryText(item.content,150))}</p><div class="meta">${item.is_pinned?'<span class="badge info">Pinned</span>':""}${item.is_archived?'<span class="badge warn">Archived</span>':""}<span>${esc(when(item.updated_at||item.created_at))}</span></div></div>`;if(kind==="artifact")return`<div class="item"><div class="eyebrow">${esc(item.task_context||"general")}</div><h4>${esc(item.name||`Artifact ${item.id}`)}</h4><p class="summary">${esc(summaryText(item.preview||"Binary artifact.",170))}</p><div class="meta"><span>${esc(item.source_type||"artifact")}</span><span>${esc(when(item.updated_at||item.created_at))}</span></div></div>`;return`<div class="session-row"><div class="eyebrow">Session</div><h4>${esc(item.title||`Session ${item.short_id||""}`)}</h4><p class="summary">${esc(summaryText(item.summary||"No summary available.",170))}</p><div class="meta"><span class="badge ${esc(item.status_tone||"info")}">${esc(item.status_label||item.last_status||"unknown")}</span><span>${esc(item.last_agent_label||"Unknown")}</span><span>${esc(when(item.last_activity_at))}</span></div></div>`}).join("")||'<div class="empty">Nothing to show.</div>'}
+    function renderDashboard(){const s=state.snapshot||{},rt=s.runtime||{},st=s.stats||{},clients=s.clients?.results||[],ready=clients.filter(clientReady),missing=clients.filter(c=>String(c.status||"").toLowerCase()==="missing"),version=s.version||s.install_metadata?.version||"?";const pinned=state.allMemoryItems.filter(m=>m.is_pinned),recent=[...pinned,...state.allMemoryItems.filter(m=>!m.is_pinned)].slice(0,5);$("#runtimeBadge").textContent=`v${version} | ${rt.active_profile||"unknown"} runtime`;$("#heroStats").innerHTML=[{l:"Version",v:`v${version}`,m:rt.install_mode||"unknown"},{l:"Clients Ready",v:String(ready.length),m:missing.length?`${missing.length} missing`:(ready.map(c=>c.client).join(", ")||"none")},{l:"Memory",v:String(st.memory_count||0),m:`${st.pinned_memory_count||0} pinned / ${st.archived_memory_count||0} archived`},{l:"Artifacts",v:String(st.artifact_count||0),m:`${state.artifactItems.length||0} visible in current history`}].map(x=>`<div class="stat"><span>${esc(x.l)}</span><strong>${esc(x.v)}</strong><small>${esc(x.m)}</small></div>`).join("");renderSimpleList("#dashboardMemory",recent,"memory");renderSimpleList("#dashboardSessions",(s.telemetry?.recent_sessions||[]).slice(0,5),"session");renderSimpleList("#dashboardClients",clients,"client");renderSimpleList("#dashboardArtifacts",state.artifactItems.slice(0,5),"artifact")}
+    function renderPerformance(){const perf=state.snapshot?.runtime?.performance||{},current=perf.current_runtime||{},before=perf.before_install||{},after=perf.after_install||{},profiles=perf.profile_matrix||[],notes=perf.notes||[];$("#performanceOverview").innerHTML=[{l:"Current Hit",v:current.impact_label||"Unknown",m:current.profile?`${current.profile} profile`:"No profile"},{l:"Idle RAM",v:current.idle_ram_mb!=null?`${current.idle_ram_mb} MB`:"Unknown",m:"Estimated while Pexo is running"},{l:"Idle CPU",v:current.idle_cpu_pct||"Unknown",m:"Estimated steady-state overhead"},{l:"Install Footprint",v:after.disk_mb!=null?`${after.disk_mb} MB`:"Unknown",m:"Observed local disk use"}].map(x=>`<div class="stat"><span>${esc(x.l)}</span><strong>${esc(x.v)}</strong><small>${esc(x.m)}</small></div>`).join("");$("#performanceComparisons").innerHTML=[before,after,current].map(item=>`<div class="item"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="eyebrow">${esc(item.label||"Unknown state")}</div><p class="summary">${esc(item.summary||"")}</p></div><span class="badge ${tone(item.impact_label||"info")}">${esc(item.impact_label||"Estimated")}</span></div><div class="meta"><span>Disk ${item.disk_mb!=null?esc(`${item.disk_mb} MB`):"N/A"}</span><span>RAM ${item.idle_ram_mb!=null?esc(`${item.idle_ram_mb} MB`):"N/A"}</span><span>CPU ${esc(item.idle_cpu_pct||"N/A")}</span></div></div>`).join("")||'<div class="empty">No performance data available.</div>';$("#performanceProfiles").innerHTML=profiles.map(item=>`<div class="item"><div class="eyebrow">Profile</div><h4>${esc(item.profile)}</h4><p class="summary">${esc(item.use_case||"")}</p><div class="meta"><span class="badge ${item.available?"success":"info"}">${item.available?"Installed":"Not installed"}</span><span>${esc(item.impact_label||"Estimated")}</span><span>${esc(`${item.idle_ram_mb} MB RAM`)}</span></div></div>`).join("")||'<div class="empty">No profile data available.</div>';$("#performanceNotes").innerHTML=[perf.summary,...notes].filter(Boolean).map(text=>`<div class="item"><p class="summary">${esc(text)}</p></div>`).join("")||'<div class="empty">No guidance available.</div>'}
+    function applyMemoryFilters(){const q=$("#memoryQuery").value.trim().toLowerCase(),sf=$("#memoryStateFilter").value,tf=$("#memoryTaskFilter").value.trim().toLowerCase(),ss=$("#memorySessionFilter").value.trim().toLowerCase();state.memoryItems=state.allMemoryItems.filter(item=>{const blob=`${item.content||""} ${item.task_context||""} ${item.session_id||""}`.toLowerCase();if(q&&!blob.includes(q))return false;if(tf&&!String(item.task_context||"").toLowerCase().includes(tf))return false;if(ss&&!String(item.session_id||"").toLowerCase().includes(ss))return false;if(sf==="pinned"&&!item.is_pinned)return false;if(sf==="active"&&item.is_archived)return false;if(sf==="archived"&&!item.is_archived)return false;if(sf==="compacted"&&!item.is_compacted)return false;return true});if(!state.memoryItems.find(item=>item.id===state.selectedMemoryId))state.selectedMemoryId=state.memoryItems[0]?.id||null;renderMemory()}
+    function renderMemory(){const all=state.allMemoryItems,visible=state.memoryItems;$("#memoryStats").innerHTML=[{l:"Visible",v:String(visible.length),m:"Current filtered results"},{l:"Pinned",v:String(all.filter(i=>i.is_pinned).length),m:"High-priority memory"},{l:"Archived",v:String(all.filter(i=>i.is_archived).length),m:"Out of active circulation"},{l:"Compacted",v:String(all.filter(i=>i.is_compacted).length),m:"Merged or summarized"}].map(x=>`<div class="stat"><span>${esc(x.l)}</span><strong>${esc(x.v)}</strong><small>${esc(x.m)}</small></div>`).join("");$("#memoryList").innerHTML=visible.map(m=>`<div class="memory-row ${m.id===state.selectedMemoryId?"active":""}" onclick="selectMemory(${m.id})"><div class="eyebrow">${esc(m.task_context||"general")}</div><h4>${esc(summaryText(m.content,72)||"Untitled memory")}</h4><p class="summary">${esc(summaryText(m.content,165))}</p><div class="meta">${m.is_pinned?'<span class="badge info">Pinned</span>':""}${m.is_archived?'<span class="badge warn">Archived</span>':'<span class="badge success">Active</span>'}${m.is_compacted?'<span class="badge info">Compacted</span>':""}<span>${esc(m.session_id||"general")}</span><span>${esc(when(m.updated_at||m.created_at))}</span></div></div>`).join("")||'<div class="empty">No memory records match the current filters.</div>';const selected=visible.find(i=>i.id===state.selectedMemoryId)||visible[0]||null;state.selectedMemoryId=selected?.id||null;$("#memoryDetail").innerHTML=selected?`<div><div class="eyebrow">Memory Record</div><h3>${esc(summaryText(selected.content,84)||"Untitled memory")}</h3><p class="summary">Readable metadata and one focused edit surface.</p></div><div class="detail-grid"><div class="detail-meta"><span>Session</span><strong>${esc(selected.session_id||"general")}</strong></div><div class="detail-meta"><span>Task Context</span><strong>${esc(selected.task_context||"general")}</strong></div><div class="detail-meta"><span>Updated</span><strong>${esc(when(selected.updated_at||selected.created_at))}</strong></div></div><div class="meta">${selected.is_pinned?'<span class="badge info">Pinned</span>':""}${selected.is_archived?'<span class="badge warn">Archived</span>':'<span class="badge success">Active</span>'}${selected.is_compacted?'<span class="badge info">Compacted</span>':""}</div><label>Task Context<input id="memoryDetailContext" value="${esc(selected.task_context||"")}"></label><label>State<select id="memoryDetailState"><option value="active"${selected.is_archived?"":" selected"}>Active</option><option value="archived"${selected.is_archived?" selected":""}>Archived</option></select></label><label>Content<textarea id="memoryDetailContent">${esc(selected.content||"")}</textarea></label><div class="actions"><button class="primary" onclick="saveMemory(${selected.id})">Save Memory</button><button onclick="togglePinned(${selected.id},${selected.is_pinned?"false":"true"})">${selected.is_pinned?"Unpin":"Pin"}</button><button class="danger" onclick="deleteMemory(${selected.id})">Delete</button></div>`:'<div class="empty">Select a memory record to inspect it.</div>'}
+    async function selectMemory(id){state.selectedMemoryId=id;renderMemory()}
+    function renderContext(){const items=state.artifactItems;$("#artifactList").innerHTML=items.map(a=>`<div class="artifact-row ${a.id===state.selectedArtifactId?"active":""}" onclick="selectArtifact(${a.id})"><div class="eyebrow">${esc(a.task_context||"general")}</div><h4>${esc(a.name||`Artifact ${a.id}`)}</h4><p class="summary">${esc(summaryText(a.preview||a.source_uri||"Binary artifact.",170))}</p><div class="meta"><span>${esc(a.session_id||"artifact_session")}</span><span>${esc(a.source_type||"artifact")}</span><span>${esc(when(a.updated_at||a.created_at))}</span></div></div>`).join("")||'<div class="empty">No context artifacts match the current filters.</div>';const a=state.selectedArtifact;$("#artifactDetail").innerHTML=a?`<div><div class="eyebrow">Artifact</div><h3>${esc(a.name||`Artifact ${a.id}`)}</h3><p class="summary">${esc(a.source_uri||"Stored inside the local Pexo artifact vault.")}</p></div><div class="detail-grid"><div class="detail-meta"><span>Task Context</span><strong>${esc(a.task_context||"general")}</strong></div><div class="detail-meta"><span>Session</span><strong>${esc(a.session_id||"artifact_session")}</strong></div><div class="detail-meta"><span>Type</span><strong>${esc(a.source_type||"artifact")}</strong></div><div class="detail-meta"><span>Size</span><strong>${a.size_bytes!=null?esc(`${a.size_bytes} bytes`):"Unknown"}</strong></div><div class="detail-meta"><span>Text Status</span><strong>${esc(a.text_extraction_status||"unknown")}</strong></div><div class="detail-meta"><span>Updated</span><strong>${esc(when(a.updated_at||a.created_at))}</strong></div></div><div class="actions"><a href="/artifacts/${a.id}/download" target="_blank"><button type="button">Download</button></a><button class="danger" onclick="deleteArtifact(${a.id})">Delete</button></div><div><div class="eyebrow" style="margin-bottom:8px">Preview</div><div class="surface code">${esc(a.extracted_text||a.preview||"No text preview available for this artifact.")}</div></div>`:'<div class="empty">Select a context artifact to inspect it.</div>'}
+    async function selectArtifact(id){state.selectedArtifactId=id;state.selectedArtifact=await api(`/artifacts/${id}`);renderContext()}
+    function renderAgents(){const agents=state.snapshot?.agents||[],sel=agents.find(a=>a.id===state.selectedAgentId)||agents[0]||null;if(sel)state.selectedAgentId=sel.id;$("#agentList").innerHTML=agents.map(a=>`<div class="item ${a.id===state.selectedAgentId?"active":""}" onclick="loadAgent(${a.id})"><div class="eyebrow">${a.is_core?"Core agent":"Custom agent"}</div><h4>${esc(a.name)}</h4><p class="summary">${esc(a.role)}</p></div>`).join("")||'<div class="empty">No agents registered.</div>';$("#agentName").value=sel?.name||"";$("#agentRole").value=sel?.role||"";$("#agentCaps").value=(sel?.capabilities||[]).join(", ");$("#agentPrompt").value=sel?.system_prompt||"";$("#deleteAgentButton").disabled=!sel||!!sel.is_core}
+    async function renderTools(){const tools=state.snapshot?.tools||[],name=state.selectedToolName||tools[0]?.name||null;state.selectedToolName=name;$("#toolList").innerHTML=tools.map(t=>`<div class="item ${t.name===name?"active":""}" onclick="loadTool(${JSON.stringify(t.name)})"><div class="eyebrow">Tool</div><h4>${esc(t.name)}</h4><p class="summary">${esc(t.description||"No description")}</p></div>`).join("")||'<div class="empty">No tools registered.</div>';if(!name){$("#toolName").value="";$("#toolDescription").value="";$("#toolCode").value="";return}const tool=await api(`/tools/${encodeURIComponent(name)}`);$("#toolName").value=tool.name||"";$("#toolDescription").value=tool.description||"";$("#toolCode").value=tool.python_code||""}
+    function renderSystem(){const s=state.snapshot||{},a=s.profile_answers||{personality_answers:{},scripting_answers:{}},gp=s.runtime?.genesis_policy||{};renderSimpleList("#systemClients",s.clients?.results||[],"client");$("#runtimeSummary").innerHTML=`<div class="item"><div class="eyebrow">Active Profile</div><h4>${esc(s.runtime?.active_profile||"unknown")}</h4></div><div class="item"><div class="eyebrow">Install Mode</div><h4>${esc(s.runtime?.install_mode||"unknown")}</h4></div><div class="item"><div class="eyebrow">Memory Backend</div><h4>${esc(s.runtime?.memory_backend||"unknown")}</h4></div><div class="item"><div class="eyebrow">Genesis Trust</div><h4>${esc(gp.mode||"unknown")}</h4><p class="summary">${esc((gp.approved_tools||[]).join(", ")||"No pre-approved tools")}</p></div>`;renderQs("personality","#personalityFields",a.personality_answers);renderQs("scripting","#scriptingFields",a.scripting_answers);$("#backupPath").value=s.profile?.backup_path||"";renderAgents();renderTools().catch(e=>note(e.message,"danger"))}
+    async function loadAll(){const [snapshot,questions,recentMemories,artifacts]=await Promise.all([api("/admin/snapshot"),api("/profile/questions"),api("/memory/recent?limit=60&include_archived=true"),api("/artifacts/?limit=60")]);state.snapshot=snapshot;state.questions=questions;state.allMemoryItems=recentMemories.memories||[];state.memoryItems=[...state.allMemoryItems];state.artifactItems=artifacts.artifacts||[];if(!state.selectedMemoryId||!state.memoryItems.find(i=>i.id===state.selectedMemoryId))state.selectedMemoryId=state.memoryItems[0]?.id||null;if(!state.selectedArtifactId||!state.artifactItems.find(i=>i.id===state.selectedArtifactId))state.selectedArtifactId=state.artifactItems[0]?.id||null;state.selectedArtifact=state.selectedArtifactId?await api(`/artifacts/${state.selectedArtifactId}`).catch(()=>null):null;if(!state.selectedAgentId&&(snapshot.agents||[])[0])state.selectedAgentId=snapshot.agents[0].id;if(!state.selectedToolName&&(snapshot.tools||[])[0])state.selectedToolName=snapshot.tools[0].name;renderDashboard();renderPerformance();applyMemoryFilters();renderContext();renderSystem();openTab(state.activeTab)}
     async function refreshAll(){try{await loadAll();note("Dashboard refreshed.")}catch(e){note(e.message,"danger")}}
     async function saveProfile(){try{const personality={},scripting={};$$("[data-section='personality']").forEach(f=>personality[f.dataset.id]=f.value);$$("[data-section='scripting']").forEach(f=>scripting[f.dataset.id]=f.value);await api("/profile/",{method:"POST",body:JSON.stringify({name:"default_user",personality_answers:personality,scripting_answers:scripting,backup_path:$("#backupPath").value||"",clear_backup_path:false})});await loadAll();note("Profile saved.")}catch(e){note(e.message,"danger")}}
     async function repairClients(target){try{await api(`/admin/connect/${encodeURIComponent(target)}?scope=user`,{method:"POST"});await loadAll();note("Client fleet updated.")}catch(e){note(e.message,"danger")}}
     async function promote(profile){try{const r=await api(`/runtime/promote/${encodeURIComponent(profile)}`,{method:"POST"});await loadAll();note(r.message||`Runtime promoted to ${profile}.`)}catch(e){note(e.message,"danger")}}
-    async function searchMemory(){const query=$("#memoryQuery").value.trim();try{if(!query)return loadRecentMemories();const r=await api("/memory/search",{method:"POST",body:JSON.stringify({query,n_results:16})});state.memoryItems=r.results||[];renderMemory()}catch(e){note(e.message,"danger")}}
-    async function loadRecentMemories(){try{const r=await api("/memory/recent?limit=20&include_archived=true");state.memoryItems=r.memories||[];renderMemory()}catch(e){note(e.message,"danger")}}
-    async function saveMemory(id){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({content:$(`#mem-content-${id}`).value,task_context:$(`#mem-context-${id}`).value,is_archived:$(`#mem-state-${id}`).value==="archived"})});await loadAll();note("Memory saved.")}catch(e){note(e.message,"danger")}}
-    async function togglePinned(id,next){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({is_pinned:next})});await loadAll();note("Memory priority updated.")}catch(e){note(e.message,"danger")}}
-    async function deleteMemory(id){try{await api(`/memory/${id}`,{method:"DELETE"});await loadAll();note("Memory deleted.")}catch(e){note(e.message,"danger")}}
-    async function runMemoryMaintenance(){try{await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await loadAll();note("Memory maintenance completed.")}catch(e){note(e.message,"danger")}}
-    async function attachPath(){const path=$("#contextPath").value.trim();if(!path)return;try{await api("/artifacts/register-path",{method:"POST",body:JSON.stringify({path,session_id:$("#contextSession").value.trim()||"general_context",task_context:$("#contextTask").value.trim()||"general",name:null})});$("#contextPath").value="";await loadAll();note("Path attached.")}catch(e){note(e.message,"danger")}}
-    async function attachText(){const content=$("#contextNote").value.trim();if(!content)return;try{await api("/artifacts/register-text",{method:"POST",body:JSON.stringify({name:$("#contextNoteName").value.trim()||"context-note.txt",content,session_id:$("#contextSession").value.trim()||"general_context",task_context:$("#contextTask").value.trim()||"general",source_uri:null,content_type:"text/plain"})});$("#contextNoteName").value="";$("#contextNote").value="";await loadAll();note("Note stored.")}catch(e){note(e.message,"danger")}}
-    async function deleteArtifact(id){try{await api(`/artifacts/${id}`,{method:"DELETE"});await loadAll();note("Artifact deleted.")}catch(e){note(e.message,"danger")}}
+    async function searchMemory(){try{const query=$("#memoryQuery").value.trim();if(query){const r=await api("/memory/search",{method:"POST",body:JSON.stringify({query,n_results:60})});state.allMemoryItems=r.results||[];applyMemoryFilters()}else await loadRecentMemories()}catch(e){note(e.message,"danger")}}
+    async function loadRecentMemories(){try{const r=await api("/memory/recent?limit=60&include_archived=true");state.allMemoryItems=r.memories||[];applyMemoryFilters()}catch(e){note(e.message,"danger")}}
+    function resetMemoryFilters(){$("#memoryQuery").value="";$("#memoryStateFilter").value="all";$("#memoryTaskFilter").value="";$("#memorySessionFilter").value="";loadRecentMemories().catch(e=>note(e.message,"danger"))}
+    async function saveMemory(id){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({content:$("#memoryDetailContent").value,task_context:$("#memoryDetailContext").value,is_archived:$("#memoryDetailState").value==="archived"})});await loadRecentMemories();await refreshAll();note("Memory saved.")}catch(e){note(e.message,"danger")}}
+    async function togglePinned(id,next){try{await api(`/memory/${id}`,{method:"PUT",body:JSON.stringify({is_pinned:next})});await loadRecentMemories();await refreshAll();note("Memory priority updated.")}catch(e){note(e.message,"danger")}}
+    async function deleteMemory(id){try{await api(`/memory/${id}`,{method:"DELETE"});await loadRecentMemories();await refreshAll();note("Memory deleted.")}catch(e){note(e.message,"danger")}}
+    async function runMemoryMaintenance(){try{await api("/memory/maintenance",{method:"POST",body:JSON.stringify({task_context:null})});await refreshAll();note("Memory maintenance completed.")}catch(e){note(e.message,"danger")}}
+    async function loadArtifacts(){try{const params=new URLSearchParams({limit:"60"}),q=$("#artifactQuery").value.trim(),t=$("#artifactTaskFilter").value.trim(),s=$("#artifactSessionFilter").value.trim();if(q)params.set("query",q);if(t)params.set("task_context",t);if(s)params.set("session_id",s);const r=await api(`/artifacts/?${params.toString()}`);state.artifactItems=r.artifacts||[];if(!state.artifactItems.find(a=>a.id===state.selectedArtifactId))state.selectedArtifactId=state.artifactItems[0]?.id||null;state.selectedArtifact=state.selectedArtifactId?await api(`/artifacts/${state.selectedArtifactId}`):null;renderContext()}catch(e){note(e.message,"danger")}}
+    function resetArtifactFilters(){$("#artifactQuery").value="";$("#artifactTaskFilter").value="";$("#artifactSessionFilter").value="";loadArtifacts().catch(e=>note(e.message,"danger"))}
+    async function attachPath(){const path=$("#contextPath").value.trim();if(!path)return;try{await api("/artifacts/register-path",{method:"POST",body:JSON.stringify({path,session_id:$("#contextSession").value.trim()||"general_context",task_context:$("#contextTask").value.trim()||"general",name:null})});$("#contextPath").value="";await loadArtifacts();await refreshAll();note("Path attached.")}catch(e){note(e.message,"danger")}}
+    async function attachText(){const content=$("#contextNote").value.trim();if(!content)return;try{await api("/artifacts/register-text",{method:"POST",body:JSON.stringify({name:$("#contextNoteName").value.trim()||"context-note.txt",content,session_id:$("#contextSession").value.trim()||"general_context",task_context:$("#contextTask").value.trim()||"general",source_uri:null,content_type:"text/plain"})});$("#contextNoteName").value="";$("#contextNote").value="";await loadArtifacts();await refreshAll();note("Note stored.")}catch(e){note(e.message,"danger")}}
+    async function deleteArtifact(id){try{await api(`/artifacts/${id}`,{method:"DELETE"});await loadArtifacts();await refreshAll();note("Artifact deleted.")}catch(e){note(e.message,"danger")}}
     function loadAgent(id){state.selectedAgentId=id;renderAgents()} function newAgent(){state.selectedAgentId=null;$("#agentName").value="";$("#agentRole").value="";$("#agentCaps").value="";$("#agentPrompt").value="";$("#deleteAgentButton").disabled=true}
-    async function saveAgent(){const payload={name:$("#agentName").value.trim(),role:$("#agentRole").value.trim(),system_prompt:$("#agentPrompt").value.trim(),capabilities:$("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean)};if(!payload.name||!payload.role||!payload.system_prompt)return note("Agent name, role, and system prompt are required.","warn");try{if(state.selectedAgentId){await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify(payload)})}else{await api("/agents/",{method:"POST",body:JSON.stringify(payload)})}await loadAll();note("Agent saved.")}catch(e){note(e.message,"danger")}}
-    async function deleteAgent(){if(!state.selectedAgentId)return;try{await api(`/agents/${state.selectedAgentId}`,{method:"DELETE"});state.selectedAgentId=null;await loadAll();note("Agent deleted.")}catch(e){note(e.message,"danger")}}
-    function newTool(){state.selectedToolName=null;$("#toolName").value="";$("#toolDescription").value="";$("#toolCode").value="def run(**kwargs):\\n    return kwargs\\n";renderTools().catch(e=>note(e.message,"danger"))}
+    async function saveAgent(){const payload={name:$("#agentName").value.trim(),role:$("#agentRole").value.trim(),system_prompt:$("#agentPrompt").value.trim(),capabilities:$("#agentCaps").value.split(",").map(v=>v.trim()).filter(Boolean)};if(!payload.name||!payload.role||!payload.system_prompt)return note("Agent name, role, and system prompt are required.","warn");try{if(state.selectedAgentId)await api(`/agents/${state.selectedAgentId}`,{method:"PUT",body:JSON.stringify(payload)});else await api("/agents/",{method:"POST",body:JSON.stringify(payload)});await refreshAll();note("Agent saved.")}catch(e){note(e.message,"danger")}}
+    async function deleteAgent(){if(!state.selectedAgentId)return;try{await api(`/agents/${state.selectedAgentId}`,{method:"DELETE"});state.selectedAgentId=null;await refreshAll();note("Agent deleted.")}catch(e){note(e.message,"danger")}}
+    function newTool(){state.selectedToolName=null;$("#toolName").value="";$("#toolDescription").value="";$("#toolCode").value="def run(**kwargs):\n    return kwargs\n";renderTools().catch(e=>note(e.message,"danger"))}
     function loadTool(name){state.selectedToolName=name;renderTools().catch(e=>note(e.message,"danger"))}
-    async function saveTool(){const name=$("#toolName").value.trim(),description=$("#toolDescription").value.trim(),python_code=$("#toolCode").value;if(!name||!python_code.trim())return note("Tool name and code are required.","warn");try{if(state.selectedToolName){await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})})}else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await loadAll();note("Tool saved.")}catch(e){note(e.message,"danger")}}
-    async function deleteTool(){if(!state.selectedToolName)return;try{await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"DELETE"});state.selectedToolName=null;await loadAll();note("Tool deleted.")}catch(e){note(e.message,"danger")}}
-    window.openTab=openTab;window.refreshAll=refreshAll;window.saveProfile=saveProfile;window.repairClients=repairClients;window.promote=promote;window.searchMemory=searchMemory;window.loadRecentMemories=loadRecentMemories;window.saveMemory=saveMemory;window.togglePinned=togglePinned;window.deleteMemory=deleteMemory;window.runMemoryMaintenance=runMemoryMaintenance;window.attachPath=attachPath;window.attachText=attachText;window.deleteArtifact=deleteArtifact;window.loadAgent=loadAgent;window.newAgent=newAgent;window.saveAgent=saveAgent;window.deleteAgent=deleteAgent;window.newTool=newTool;window.loadTool=loadTool;window.saveTool=saveTool;window.deleteTool=deleteTool;
-    $$(".nav button").forEach(b=>b.addEventListener("click",()=>openTab(b.dataset.tab)));loadAll().catch(e=>note(e.message,"danger"));setInterval(()=>{if(document.visibilityState==="visible")loadAll().catch(()=>{})},15000);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll().catch(()=>{})});
+    async function saveTool(){const name=$("#toolName").value.trim(),description=$("#toolDescription").value.trim(),python_code=$("#toolCode").value;if(!name||!python_code.trim())return note("Tool name and code are required.","warn");try{if(state.selectedToolName)await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"PUT",body:JSON.stringify({description,python_code})});else{await api("/tools/register",{method:"POST",body:JSON.stringify({name,description,python_code})});state.selectedToolName=name}await refreshAll();note("Tool saved.")}catch(e){note(e.message,"danger")}}
+    async function deleteTool(){if(!state.selectedToolName)return;try{await api(`/tools/${encodeURIComponent(state.selectedToolName)}`,{method:"DELETE"});state.selectedToolName=null;await refreshAll();note("Tool deleted.")}catch(e){note(e.message,"danger")}}
+    window.openTab=openTab;window.refreshAll=refreshAll;window.saveProfile=saveProfile;window.repairClients=repairClients;window.promote=promote;window.searchMemory=searchMemory;window.loadRecentMemories=loadRecentMemories;window.resetMemoryFilters=resetMemoryFilters;window.selectMemory=selectMemory;window.saveMemory=saveMemory;window.togglePinned=togglePinned;window.deleteMemory=deleteMemory;window.runMemoryMaintenance=runMemoryMaintenance;window.attachPath=attachPath;window.attachText=attachText;window.loadArtifacts=loadArtifacts;window.resetArtifactFilters=resetArtifactFilters;window.selectArtifact=selectArtifact;window.deleteArtifact=deleteArtifact;window.loadAgent=loadAgent;window.newAgent=newAgent;window.saveAgent=saveAgent;window.deleteAgent=deleteAgent;window.newTool=newTool;window.loadTool=loadTool;window.saveTool=saveTool;window.deleteTool=deleteTool;
+    $$(".tabs button").forEach(b=>b.addEventListener("click",()=>openTab(b.dataset.tab)));loadAll().catch(e=>note(e.message,"danger"));setInterval(()=>{if(document.visibilityState==="visible")loadAll().catch(()=>{})},15000);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll().catch(()=>{})});
   </script>
 </body>
 </html>
