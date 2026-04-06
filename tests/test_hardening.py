@@ -1058,6 +1058,55 @@ class HardeningTests(unittest.TestCase):
         mock_run_gemini.assert_called_once()
         self.assertEqual(mock_run_gemini.call_args.kwargs["model_override"], "gemini-2.5-flash")
 
+    @patch("app.direct_chat._run_command_with_timeout")
+    def test_run_gemini_turn_uses_stdin_instead_of_long_prompt_argv(self, mock_run_command):
+        mock_run_command.return_value = subprocess.CompletedProcess(
+            ["cmd.exe", "/c", "gemini.cmd"],
+            0,
+            "ok",
+            "",
+        )
+        plan = {"invoker": r"C:\Users\dustin\AppData\Roaming\npm\gemini.cmd"}
+
+        result = direct_chat_module._run_gemini_turn(
+            plan,
+            "x" * 20000,
+            str(PROJECT_ROOT),
+            timeout_seconds=10,
+            mode="conversation",
+        )
+
+        self.assertEqual(result, "ok")
+        command = mock_run_command.call_args.args[0]
+        self.assertIn("--prompt", command)
+        prompt_index = command.index("--prompt")
+        self.assertEqual(command[prompt_index + 1], "")
+        self.assertEqual(mock_run_command.call_args.kwargs["cwd"], str(PROJECT_ROOT))
+        self.assertEqual(mock_run_command.call_args.kwargs["input_text"], "x" * 20000)
+
+    @patch("app.direct_chat._run_command_with_timeout")
+    def test_run_codex_turn_uses_stdin_instead_of_long_prompt_argv(self, mock_run_command):
+        mock_run_command.return_value = subprocess.CompletedProcess(
+            ["cmd.exe", "/c", "codex.cmd"],
+            0,
+            "",
+            "",
+        )
+        plan = {"invoker": r"C:\Users\dustin\AppData\Roaming\npm\codex.cmd"}
+
+        result = direct_chat_module._run_codex_turn(
+            plan,
+            "y" * 20000,
+            str(PROJECT_ROOT),
+            timeout_seconds=10,
+            mode="conversation",
+        )
+
+        self.assertEqual(result, "")
+        command = mock_run_command.call_args.args[0]
+        self.assertEqual(command[-1], "-")
+        self.assertEqual(mock_run_command.call_args.kwargs["input_text"], "y" * 20000)
+
     @patch("app.direct_chat._run_gemini_turn")
     @patch("app.direct_chat.build_client_connection_plan")
     def test_run_direct_chat_backend_does_not_retry_model_after_timeout(self, mock_plan, mock_run_gemini):

@@ -2976,6 +2976,7 @@ def _run_command_with_timeout(
     cwd: str | None = None,
     timeout_seconds: int,
     progress_callback: Any | None = None,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     popen_kwargs: dict[str, Any] = {
         "cwd": cwd,
@@ -2985,6 +2986,8 @@ def _run_command_with_timeout(
         "encoding": "utf-8",
         "errors": "replace",
     }
+    if input_text is not None:
+        popen_kwargs["stdin"] = subprocess.PIPE
     if os.name == "nt":
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     process = subprocess.Popen(command, **popen_kwargs)
@@ -3008,6 +3011,16 @@ def _run_command_with_timeout(
     t2 = threading.Thread(target=_read_stderr, daemon=True)
     t1.start()
     t2.start()
+
+    if input_text is not None and process.stdin is not None:
+        try:
+            process.stdin.write(input_text)
+            process.stdin.close()
+        except Exception:
+            try:
+                process.stdin.close()
+            except Exception:
+                pass
 
     try:
         process.wait(timeout=timeout_seconds)
@@ -3258,7 +3271,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
         args.extend(["-m", model_override])
     if workspace_path and _backend_needs_workspace(mode):
         args.extend(["-C", workspace_path])
-    args.extend(["-o", str(output_path), prompt])
+    args.extend(["-o", str(output_path), "-"])
     command = _wrap_command(plan["invoker"], args)
     try:
         try:
@@ -3267,6 +3280,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
                 cwd=workspace_path if workspace_path else None,
                 timeout_seconds=timeout_seconds,
                 progress_callback=progress_callback,
+                input_text=prompt,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -3286,7 +3300,7 @@ def _run_codex_turn(plan: dict, prompt: str, workspace_path: str, timeout_second
 def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
     args = [
         "--prompt",
-        prompt,
+        "",
         "--output-format",
         "text",
     ]
@@ -3302,8 +3316,10 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     try:
         completed = _run_command_with_timeout(
             command,
+            cwd=workspace_path if workspace_path else None,
             timeout_seconds=timeout_seconds,
             progress_callback=progress_callback,
+            input_text=prompt,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -3314,17 +3330,19 @@ def _run_gemini_turn(plan: dict, prompt: str, workspace_path: str, timeout_secon
     return (completed.stdout or "").strip()
 
 
-def _run_claude_turn(plan: dict, prompt: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
+def _run_claude_turn(plan: dict, prompt: str, workspace_path: str, timeout_seconds: int, model_override: str | None = None, *, mode: str = "task", progress_callback: Any | None = None) -> str:
     args = []
     if model_override:
         args.extend(["--model", model_override])
-    args.extend(["-p", prompt])
+    args.extend(["-p", ""])
     command = _wrap_command(plan["invoker"], args)
     try:
         completed = _run_command_with_timeout(
             command,
+            cwd=workspace_path if workspace_path else None,
             timeout_seconds=timeout_seconds,
             progress_callback=progress_callback,
+            input_text=prompt,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -3364,10 +3382,10 @@ def run_direct_chat_backend(
             raise
     if backend_name == "claude":
         try:
-            return _run_claude_turn(plan, prompt, timeout_seconds, model_override=model_override, mode=mode, progress_callback=progress_callback)
+            return _run_claude_turn(plan, prompt, workspace_path, timeout_seconds, model_override=model_override, mode=mode, progress_callback=progress_callback)
         except RuntimeError as exc:
             if model_override and _should_retry_without_model(exc):
-                return _run_claude_turn(plan, prompt, timeout_seconds, model_override=None, mode=mode, progress_callback=progress_callback)
+                return _run_claude_turn(plan, prompt, workspace_path, timeout_seconds, model_override=None, mode=mode, progress_callback=progress_callback)
             raise
     raise RuntimeError(f"Unsupported backend '{backend_name}'.")
 
