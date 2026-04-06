@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from ..database import get_db
 from ..models import AgentState
 from ..agents.graph import PexoState, invoke_pexo_graph
 from ..cache import invalidate_telemetry_caches
+from ..context_metrics import annotate_context_metrics, measure_context_payload
 from ..orchestration_context import build_session_context_snapshot
 from ..search_index import upsert_memory_search_document
 from .memory import MemoryStoreRequest, store_memory_record
@@ -32,6 +35,11 @@ class ExecuteRequest(BaseModel):
 class TaskResult(BaseModel):
     session_id: str
     result_data: Any
+
+
+class ClaimRequest(BaseModel):
+    session_id: str
+    task_id: str | None = None
 
 
 class SimpleContinueRequest(BaseModel):
@@ -104,8 +112,7 @@ BROAD_CONTEXT_HINTS = (
 
 
 def estimate_context_tokens(payload: Any) -> int:
-    serialized = json.dumps(payload, default=str)
-    return max(1, len(serialized) // 4)
+    return int(measure_context_payload(payload)["token_estimate"])
 
 
 def build_output_preview(payload: Any, limit: int = 220) -> str:
@@ -150,6 +157,75 @@ def _build_initial_state(session_id: str, prompt: str, clarification_question: s
     }
 
 
+def _hydrate_orchestrator_state(raw_state: dict[str, Any] | None) -> PexoState:
+    hydrated = _build_initial_state("", "", "", "")
+    hydrated.update(dict(raw_state or {}))
+    return hydrated
+
+
+def _extract_task_id_from_instruction(instruction: str | None) -> str | None:
+    if not instruction:
+        return None
+    task_id_match = re.search(r"Task ID: ([a-zA-Z0-9\\-_]+)", instruction)
+    if task_id_match:
+        return task_id_match.group(1)
+    return None
+
+
+def _compact_task_entry(entry: dict[str, Any], *, preserve_full_result: bool) -> dict[str, Any]:
+    compacted = deepcopy(entry)
+    if preserve_full_result:
+        return compacted
+    if "result" in compacted:
+        compacted["result_preview"] = build_output_preview(compacted.get("result"), limit=320)
+        compacted["result_type"] = type(compacted.get("result")).__name__
+        compacted.pop("result", None)
+    if "review_result" in compacted:
+        compacted["review_result_preview"] = build_output_preview(compacted.get("review_result"), limit=320)
+        compacted["review_result_type"] = type(compacted.get("review_result")).__name__
+        compacted.pop("review_result", None)
+    return compacted
+
+
+def _compact_state_for_storage(state: PexoState) -> PexoState:
+    compacted = deepcopy(state)
+    compacted.pop("context_snapshot", None)
+    compacted.pop("user_profile", None)
+    compacted.pop("available_agents", None)
+    compacted.pop("available_tools", None)
+
+    reviewed_count = len(compacted.get("reviewed_tasks", []))
+    compacted["completed_tasks"] = [
+        _compact_task_entry(entry, preserve_full_result=index >= reviewed_count)
+        for index, entry in enumerate(compacted.get("completed_tasks", []))
+    ]
+    compacted["reviewed_tasks"] = [
+        _compact_task_entry(entry, preserve_full_result=False)
+        for entry in compacted.get("reviewed_tasks", [])
+    ]
+    return compacted
+
+
+def _persist_orchestrator_state(db_state: AgentState, state: PexoState, *, status: str | None = None) -> PexoState:
+    persisted_state = _compact_state_for_storage(state)
+    db_state.data = persisted_state
+    db_state.context_size_tokens = estimate_context_tokens(persisted_state)
+    if status is not None:
+        db_state.status = status
+    return persisted_state
+
+
+def _claim_task_id_in_state(state: PexoState, task_id: str | None) -> bool:
+    if not task_id:
+        return False
+    active = list(state.get("active_tasks", []))
+    if task_id in active:
+        return False
+    active.append(task_id)
+    state["active_tasks"] = active
+    return True
+
+
 def should_require_clarification(prompt: str) -> bool:
     normalized = " ".join((prompt or "").strip().lower().split())
     if not normalized:
@@ -174,13 +250,14 @@ def log_agent_state(
     status: str,
     data: dict[str, Any],
 ) -> None:
+    metrics = measure_context_payload(data)
     db.add(
         AgentState(
             session_id=session_id,
             agent_name=agent_name,
             status=status,
-            context_size_tokens=estimate_context_tokens(data),
-            data=data,
+            context_size_tokens=int(metrics["token_estimate"]),
+            data=annotate_context_metrics(data, data),
         )
     )
 
@@ -193,7 +270,7 @@ def _require_orchestrator_state(db: Session, session_id: str) -> tuple[AgentStat
     )
     if not db_state:
         raise HTTPException(status_code=404, detail="Session not found")
-    return db_state, db_state.data
+    return db_state, _hydrate_orchestrator_state(db_state.data)
 
 
 def build_simple_user_message(role: str | None) -> str:
@@ -236,6 +313,7 @@ def build_simple_task_payload(session_id: str, state: PexoState) -> dict:
     if state.get("waiting_for_ai"):
         role = state.get("current_agent")
         instruction = state.get("current_instruction")
+        task_id = _extract_task_id_from_instruction(instruction)
         user_message = build_simple_user_message(role)
         return {
             "status": "agent_action_required",
@@ -245,6 +323,8 @@ def build_simple_task_payload(session_id: str, state: PexoState) -> dict:
             "role": role,
             "instruction": instruction,
             "agent_instruction": instruction,
+            "task_id": task_id,
+            "is_claimed": bool(task_id and task_id in state.get("active_tasks", [])),
         }
 
     return {
@@ -271,13 +351,14 @@ def intake_prompt(request: PromptRequest, db: Session = Depends(get_db)):
         "",
     )
     initial_state["context_snapshot"] = build_session_context_snapshot(db, query=request.prompt)
+    persisted_initial_state = _compact_state_for_storage(initial_state)
     
     db_state = AgentState(
         session_id=session_id,
         agent_name="orchestrator",
         status="clarification_pending",
-        context_size_tokens=estimate_context_tokens(initial_state),
-        data=initial_state
+        context_size_tokens=estimate_context_tokens(persisted_initial_state),
+        data=persisted_initial_state,
     )
     db.add(db_state)
     db.commit()
@@ -294,9 +375,7 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
     # Run the graph to get the first pending task
     new_state = invoke_pexo_graph(state)
     
-    db_state.data = new_state
-    db_state.status = "running"
-    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    _persist_orchestrator_state(db_state, new_state, status="running")
     log_agent_state(
         db,
         request.session_id,
@@ -316,34 +395,71 @@ def execute_plan(request: ExecuteRequest, db: Session = Depends(get_db)):
 
 @router.get("/next")
 def get_next_task(session_id: str, db: Session = Depends(get_db)):
-    """External AI polls this to find out what role it needs to assume and what task to do."""
-    db_state, state = _require_orchestrator_state(db, session_id)
+    """Read-only task poll. Returns the next instruction without mutating session state."""
+    _, state = _require_orchestrator_state(db, session_id)
     if state.get("final_response"):
         return {"status": "complete", "message": state["final_response"]}
         
     if state.get("waiting_for_ai"):
         role = state.get("current_agent")
         instruction = state.get("current_instruction")
-        
-        # High-Performance Swarm: Track active tasks
-        import re
-        task_id_match = re.search(r"Task ID: ([a-zA-Z0-9\-_]+)", instruction)
-        if task_id_match:
-            task_id = task_id_match.group(1)
-            active = state.get("active_tasks", [])
-            if task_id not in active:
-                active.append(task_id)
-                state["active_tasks"] = active
-                db_state.data = state
-                db.commit()
-
+        task_id = _extract_task_id_from_instruction(instruction)
         return {
             "status": "pending_action",
             "role": role,
-            "instruction": instruction
+            "instruction": instruction,
+            "task_id": task_id,
+            "is_claimed": bool(task_id and task_id in state.get("active_tasks", [])),
         }
     
     return {"status": "processing", "message": "Graph is transitioning. Poll again."}
+
+
+@router.post("/claim")
+def claim_next_task(request: ClaimRequest, db: Session = Depends(get_db)):
+    """Explicitly claim the current waiting task so active-task tracking stays off the GET path."""
+    db_state, state = _require_orchestrator_state(db, request.session_id)
+    if state.get("final_response"):
+        return {"status": "complete", "message": state["final_response"]}
+    if not state.get("waiting_for_ai"):
+        return {"status": "processing", "message": "Graph is transitioning. Poll again."}
+
+    instruction = state.get("current_instruction")
+    role = state.get("current_agent")
+    current_task_id = _extract_task_id_from_instruction(instruction)
+    if request.task_id and current_task_id and request.task_id != current_task_id:
+        raise HTTPException(status_code=409, detail="Requested task_id does not match the current pending task.")
+    task_id = request.task_id or current_task_id
+    if not task_id:
+        return {
+            "status": "no_claimable_task",
+            "role": role,
+            "instruction": instruction,
+        }
+
+    claimed = _claim_task_id_in_state(state, task_id)
+    if claimed:
+        _persist_orchestrator_state(db_state, state)
+        log_agent_state(
+            db,
+            request.session_id,
+            "orchestrator",
+            "task_claimed",
+            {
+                "task_id": task_id,
+                "role": role,
+            },
+        )
+        db.commit()
+        invalidate_telemetry_caches()
+
+    return {
+        "status": "claimed" if claimed else "already_claimed",
+        "session_id": request.session_id,
+        "role": role,
+        "instruction": instruction,
+        "task_id": task_id,
+    }
 
 @router.post("/submit")
 def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
@@ -356,11 +472,9 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
     current_agent = state.get("current_agent")
 
     # High-Performance Swarm: Remove from active tasks
-    import re
     instruction = state.get("current_instruction", "")
-    task_id_match = re.search(r"Task ID: ([a-zA-Z0-9\-_]+)", instruction)
-    if task_id_match:
-        task_id = task_id_match.group(1)
+    task_id = _extract_task_id_from_instruction(instruction)
+    if task_id:
         active = state.get("active_tasks", [])
         if task_id in active:
             active.remove(task_id)
@@ -508,7 +622,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
         agent_name=current_agent,
         status="completed",
         context_size_tokens=estimate_context_tokens(result.result_data),
-        data={**telemetry_data, "output": result.result_data}
+        data=annotate_context_metrics(telemetry_data, result.result_data),
     )
     db.add(agent_log)
 
@@ -524,8 +638,7 @@ def submit_task_result(result: TaskResult, db: Session = Depends(get_db)):
             new_state["completed_tasks"] = [{"task": {"id": "paging-summary"}, "result": f"Context Paged. Summary ID: {compaction['summary_memory_id']}"}]
             new_state["reviewed_tasks"] = []
 
-    db_state.data = new_state
-    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    _persist_orchestrator_state(db_state, new_state)
     db.commit()
     invalidate_telemetry_caches()
     return {"status": "Result accepted. Graph advanced."}
@@ -551,20 +664,20 @@ def start_simple_task(request: PromptRequest, db: Session = Depends(get_db)):
         "No extra clarification required.",
     )
     initial_state["context_snapshot"] = build_session_context_snapshot(db, query=request.prompt)
+    persisted_initial_state = _compact_state_for_storage(initial_state)
 
     db_state = AgentState(
         session_id=session_id,
         agent_name="orchestrator",
         status="running",
-        context_size_tokens=estimate_context_tokens(initial_state),
-        data=initial_state,
+        context_size_tokens=estimate_context_tokens(persisted_initial_state),
+        data=persisted_initial_state,
     )
     db.add(db_state)
     db.flush()
 
     new_state = invoke_pexo_graph(initial_state)
-    db_state.data = new_state
-    db_state.context_size_tokens = estimate_context_tokens(new_state)
+    _persist_orchestrator_state(db_state, new_state)
     log_agent_state(
         db,
         session_id,

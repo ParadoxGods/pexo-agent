@@ -14,6 +14,10 @@ def open_browser():
     time.sleep(1.5)
     webbrowser.open("http://127.0.0.1:9999/ui/")
 
+
+def direct_chat_enabled() -> bool:
+    return os.environ.get("PEXO_ENABLE_DIRECT_CHAT", "1").strip().lower() not in {"0", "false", "no", "off"}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize local persistence before serving requests.
@@ -29,34 +33,39 @@ async def lifespan(app: FastAPI):
     finally:
         memory.stop_autonomous_memory_cogmachine()
 
-app = FastAPI(title="Pexo - Primary EXecution Operator", lifespan=lifespan)
+def create_app() -> FastAPI:
+    app = FastAPI(title="Pexo - Primary EXecution Operator", lifespan=lifespan)
 
-# Mount static files for the local web UI.
-app.mount("/ui", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    # Mount static files for the local web UI.
+    app.mount("/ui", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
-@app.get("/")
-def redirect_to_ui():
-    return RedirectResponse(url="/ui/")
+    @app.get("/")
+    def redirect_to_ui():
+        return RedirectResponse(url="/ui/")
 
-# Include dynamic agents CRUD endpoints
-app.include_router(agents.router, prefix="/agents", tags=["Agents"])
-# Include user profile and onboarding endpoints
-app.include_router(profile.router, prefix="/profile", tags=["Profile"])
-# Include the main orchestrator LangGraph API
-app.include_router(orchestrator.router, prefix="/orchestrator", tags=["Orchestrator"])
-# Include the True Vector Memory API
-app.include_router(memory.router, prefix="/memory", tags=["Global Memory"])
-# Include the Self-Evolving Agents API
-app.include_router(evolve.router, prefix="/evolve", tags=["Evolution"])
-# Include dynamic tool management.
-app.include_router(tools.router, prefix="/tools", tags=["Tools"])
-# Include Automated Backup API
-app.include_router(backup.router, prefix="/backup", tags=["System Backup"])
-# Include runtime status and promotion API
-app.include_router(runtime.router, prefix="/runtime", tags=["Runtime"])
-# Include local artifact/attachment API
-app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
-# Include admin dashboard snapshot API
-app.include_router(admin.router, prefix="/admin", tags=["Admin"])
-# Include direct chat API
-app.include_router(chat.router, prefix="/chat", tags=["Chat"])
+    # Include dynamic agents CRUD endpoints
+    app.include_router(agents.router, prefix="/agents", tags=["Agents"])
+    # Include user profile and onboarding endpoints
+    app.include_router(profile.router, prefix="/profile", tags=["Profile"])
+    # Include the main orchestrator LangGraph API
+    app.include_router(orchestrator.router, prefix="/orchestrator", tags=["Orchestrator"])
+    # Include the True Vector Memory API
+    app.include_router(memory.router, prefix="/memory", tags=["Global Memory"])
+    # Include the Self-Evolving Agents API
+    app.include_router(evolve.router, prefix="/evolve", tags=["Evolution"])
+    # Include dynamic tool management.
+    app.include_router(tools.router, prefix="/tools", tags=["Tools"])
+    # Include Automated Backup API
+    app.include_router(backup.router, prefix="/backup", tags=["System Backup"])
+    # Include runtime status and promotion API
+    app.include_router(runtime.router, prefix="/runtime", tags=["Runtime"])
+    # Include local artifact/attachment API
+    app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
+    # Include admin dashboard snapshot API
+    app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+    if direct_chat_enabled():
+        app.include_router(chat.router, prefix="/chat", tags=["Chat"])
+    return app
+
+
+app = create_app()

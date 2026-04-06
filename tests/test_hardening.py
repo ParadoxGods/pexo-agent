@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import importlib.util
 import json
 import os
@@ -25,6 +26,7 @@ import app.runtime as runtime_module
 import app.launcher as launcher_module
 import app.database as database_module
 import app.direct_chat as direct_chat_module
+import app.main as main_module
 from app.client_connect import build_client_connection_plan, connect_clients
 from app.cli import headless_setup, list_presets
 from app.agents.graph import FallbackPexoApp, invoke_pexo_graph
@@ -121,9 +123,12 @@ from app.routers.memory import (
     update_memory,
 )
 from app.routers.orchestrator import (
+    ClaimRequest,
     PromptRequest,
+    claim_next_task,
     SimpleContinueRequest,
     continue_simple_task,
+    get_next_task,
     start_simple_task,
     should_require_clarification,
     store_memory as store_orchestrator_memory,
@@ -1416,6 +1421,20 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("Pexo already appears to be running", stderr.getvalue())
         self.assertIn("If you just updated Pexo", stderr.getvalue())
         mock_uvicorn_run.assert_not_called()
+
+    def test_main_can_disable_direct_chat_routes_via_feature_flag(self):
+        original_value = os.environ.get("PEXO_ENABLE_DIRECT_CHAT")
+        try:
+            os.environ["PEXO_ENABLE_DIRECT_CHAT"] = "0"
+            reloaded = importlib.reload(main_module)
+            self.assertFalse(reloaded.direct_chat_enabled())
+            self.assertFalse(any(route.path.startswith("/chat") for route in reloaded.app.routes))
+        finally:
+            if original_value is None:
+                os.environ.pop("PEXO_ENABLE_DIRECT_CHAT", None)
+            else:
+                os.environ["PEXO_ENABLE_DIRECT_CHAT"] = original_value
+            importlib.reload(main_module)
 
     @patch("app.launcher._maybe_restart_existing_server", return_value="restarted")
     @patch("app.launcher._local_pexo_http_available", return_value=True)
@@ -3077,6 +3096,158 @@ class HardeningTests(unittest.TestCase):
     def test_start_simple_task_requires_clarification_for_vague_prompt(self):
         self.assertTrue(should_require_clarification("Fix it."))
         self.assertFalse(should_require_clarification("Design a modern landing page for my product with a clean premium look."))
+
+    def test_get_next_task_is_read_only_and_idempotent(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            started = start_simple_task(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Design a modern landing page for my product with a clean premium look.",
+                ),
+                db,
+            )
+            session_id = started["session_id"]
+            db.expire_all()
+            before = db.query(AgentState).filter(
+                AgentState.session_id == session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+            self.assertIsNotNone(before)
+            before_data = json.loads(json.dumps(before.data))
+
+            first = get_next_task(session_id, db)
+            second = get_next_task(session_id, db)
+
+            db.expire_all()
+            after = db.query(AgentState).filter(
+                AgentState.session_id == session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+
+            self.assertEqual(first["status"], "pending_action")
+            self.assertEqual(second["status"], "pending_action")
+            self.assertEqual(first["task_id"], second["task_id"])
+            self.assertEqual(after.data, before_data)
+            self.assertEqual(after.data.get("active_tasks"), [])
+        finally:
+            db.close()
+
+    def test_claim_next_task_moves_active_task_tracking_off_get_path(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            started = start_simple_task(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Design a modern landing page for my product with a clean premium look.",
+                ),
+                db,
+            )
+            session_id = started["session_id"]
+
+            continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data=[{"id": "task-1", "description": "Build the page", "assigned_agent": "Developer"}],
+                ),
+                db,
+            )
+
+            pending = get_next_task(session_id, db)
+            self.assertEqual(pending["role"], "Developer")
+            self.assertFalse(pending["is_claimed"])
+
+            claimed = claim_next_task(ClaimRequest(session_id=session_id), db)
+            self.assertEqual(claimed["status"], "claimed")
+            self.assertTrue(claimed["task_id"])
+
+            claimed_again = claim_next_task(ClaimRequest(session_id=session_id), db)
+            self.assertEqual(claimed_again["status"], "already_claimed")
+
+            db.expire_all()
+            state = db.query(AgentState).filter(
+                AgentState.session_id == session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+            self.assertEqual(state.data.get("active_tasks"), [claimed["task_id"]])
+
+            telemetry = build_telemetry_payload(db)
+            claim_activity = next(
+                item for item in telemetry["recent_activity"]
+                if item["session_id"] == session_id and item["status"] == "task_claimed"
+            )
+            self.assertTrue(claim_activity["context_size_is_estimate"])
+            self.assertEqual(claim_activity["context_size_method"], "payload_bytes_div_4_estimate")
+            self.assertEqual(claim_activity["context_size_token_estimate"], claim_activity["context_size_tokens"])
+            self.assertGreater(claim_activity["context_payload_bytes"], 0)
+        finally:
+            db.close()
+
+    def test_orchestrator_persistence_drops_heavy_context_and_compacts_reviewed_results(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            started = start_simple_task(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Design a modern landing page for my product with a clean premium look.",
+                ),
+                db,
+            )
+            session_id = started["session_id"]
+
+            continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data=[{"id": "task-1", "description": "Build the page", "assigned_agent": "Developer"}],
+                ),
+                db,
+            )
+            continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data="Built the landing page structure.",
+                ),
+                db,
+            )
+
+            db.expire_all()
+            pre_review_state = db.query(AgentState).filter(
+                AgentState.session_id == session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+            self.assertNotIn("context_snapshot", pre_review_state.data)
+            self.assertNotIn("available_agents", pre_review_state.data)
+            self.assertIn("result", pre_review_state.data["completed_tasks"][0])
+
+            continue_simple_task(
+                SimpleContinueRequest(
+                    session_id=session_id,
+                    result_data="PASS",
+                ),
+                db,
+            )
+
+            db.expire_all()
+            reviewed_state = db.query(AgentState).filter(
+                AgentState.session_id == session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+            completed_entry = reviewed_state.data["completed_tasks"][0]
+            reviewed_entry = reviewed_state.data["reviewed_tasks"][0]
+            self.assertNotIn("context_snapshot", reviewed_state.data)
+            self.assertNotIn("available_tools", reviewed_state.data)
+            self.assertNotIn("result", completed_entry)
+            self.assertIn("result_preview", completed_entry)
+            self.assertNotIn("review_result", reviewed_entry)
+            self.assertIn("review_result_preview", reviewed_entry)
+        finally:
+            db.close()
 
     def test_submit_task_result_uses_manager_output_as_final_response(self):
         os.environ["PEXO_NO_BROWSER"] = "1"

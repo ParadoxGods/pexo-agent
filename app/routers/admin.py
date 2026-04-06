@@ -20,6 +20,7 @@ STATUS_LABELS = {
     "clarification_pending": "Needs Clarification",
     "graph_started": "Planning Started",
     "running": "Running",
+    "task_claimed": "Claimed",
     "completed": "Completed",
     "session_complete": "Complete",
     "processing": "Processing",
@@ -31,6 +32,7 @@ STATUS_TONES = {
     "clarification_pending": "warn",
     "graph_started": "warn",
     "running": "warn",
+    "task_claimed": "warn",
     "completed": "success",
     "session_complete": "success",
     "error": "danger",
@@ -136,17 +138,16 @@ def serialize_agent(agent: AgentProfile) -> dict:
 def serialize_agent_state(state: AgentState) -> dict:
     data = state.data or {}
     output_preview = data.get("output_preview")
-    if output_preview is None and "output" in data:
-        raw_output = data["output"]
-        output_preview = str(raw_output)
-        if len(output_preview) > 220:
-            output_preview = f"{output_preview[:220].rstrip()}..."
     return {
         "id": state.id,
         "session_id": state.session_id,
         "agent_name": state.agent_name,
         "status": state.status,
         "context_size_tokens": state.context_size_tokens,
+        "context_size_token_estimate": data.get("context_size_token_estimate", state.context_size_tokens),
+        "context_payload_bytes": data.get("context_payload_bytes"),
+        "context_size_method": data.get("context_size_method", "payload_bytes_div_4_estimate"),
+        "context_size_is_estimate": data.get("context_size_is_estimate", True),
         "created_at": state.created_at.isoformat() if state.created_at else None,
         "task_id": data.get("task_id"),
         "task_description": data.get("task_description"),
@@ -232,6 +233,7 @@ def _build_telemetry_payload(db: Session) -> dict:
             "actions_last_day": actions_last_day,
             "avg_actions_per_session": round(total_actions / total_sessions, 2) if total_sessions else 0,
             "estimated_tokens_observed": int(total_tokens),
+            "context_size_method": "payload_bytes_div_4_estimate",
             "status_breakdown": status_breakdown,
         },
         "recent_sessions": normalized_sessions,

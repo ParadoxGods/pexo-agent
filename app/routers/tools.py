@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..cache import invalidate_surface_caches, invalidate_telemetry_caches
+from ..context_metrics import annotate_context_metrics, measure_context_payload
 from ..database import get_db
 from ..models import AgentState, DynamicTool, SystemSetting
 from ..orchestration_context import invalidate_session_context_snapshot
@@ -254,13 +255,14 @@ def _log_tool_execution(
     error_detail: dict | None = None,
     policy: dict | None = None,
 ) -> None:
+    metrics = measure_context_payload(kwargs)
     db.add(
         AgentState(
             session_id=session_id,
             agent_name=f"Genesis:{tool_name}",
             status=status,
-            context_size_tokens=max(1, len(json.dumps(kwargs, default=str)) // 4),
-            data={
+            context_size_tokens=int(metrics["token_estimate"]),
+            data=annotate_context_metrics({
                 "tool_name": tool_name,
                 "execution_mode": "subprocess",
                 "timeout_seconds": timeout_seconds,
@@ -272,7 +274,7 @@ def _log_tool_execution(
                 "result_preview": _truncate_payload(result) if result is not None else None,
                 "error_detail": error_detail,
                 "genesis_policy": policy,
-            },
+            }, kwargs),
         )
     )
     db.commit()

@@ -45,10 +45,12 @@ from .routers.memory import (
     update_memory,
 )
 from .routers.orchestrator import (
+    ClaimRequest,
     ExecuteRequest,
     PromptRequest,
     SimpleContinueRequest,
     TaskResult,
+    claim_next_task,
     continue_simple_task,
     execute_plan,
     get_next_task,
@@ -1505,6 +1507,12 @@ def pexo_continue_task(
 def pexo_get_next_task(session_id: str) -> dict:
     """Returns the next pending orchestration instruction or session completion state."""
     return _with_db(lambda db: get_next_task(session_id=session_id, db=db))
+
+
+@mcp.tool()
+def pexo_claim_next_task(session_id: str, task_id: str | None = None) -> dict:
+    """Explicitly claims the current pending task so active-task tracking stays off the read-only poll path."""
+    return _with_db(lambda db: claim_next_task(ClaimRequest(session_id=session_id, task_id=task_id), db=db))
 
 
 @mcp.tool()
