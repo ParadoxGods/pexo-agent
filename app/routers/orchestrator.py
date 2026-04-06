@@ -187,12 +187,19 @@ def _compact_task_entry(entry: dict[str, Any], *, preserve_full_result: bool) ->
     return compacted
 
 
+def _compact_context_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    if not snapshot:
+        return {}
+    compacted = dict(snapshot)
+    compacted.pop("lessons_learned_text", None)
+    return compacted
+
+
 def _compact_state_for_storage(state: PexoState) -> PexoState:
     compacted = deepcopy(state)
-    compacted.pop("context_snapshot", None)
-    compacted.pop("user_profile", None)
     compacted.pop("available_agents", None)
     compacted.pop("available_tools", None)
+    compacted["context_snapshot"] = _compact_context_snapshot(compacted.get("context_snapshot"))
 
     reviewed_count = len(compacted.get("reviewed_tasks", []))
     compacted["completed_tasks"] = [

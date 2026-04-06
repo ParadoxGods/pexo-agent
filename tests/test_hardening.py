@@ -124,11 +124,14 @@ from app.routers.memory import (
 )
 from app.routers.orchestrator import (
     ClaimRequest,
+    ExecuteRequest,
     PromptRequest,
     claim_next_task,
     SimpleContinueRequest,
     continue_simple_task,
+    execute_plan,
     get_next_task,
+    intake_prompt,
     start_simple_task,
     should_require_clarification,
     store_memory as store_orchestrator_memory,
@@ -3187,7 +3190,7 @@ class HardeningTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_orchestrator_persistence_drops_heavy_context_and_compacts_reviewed_results(self):
+    def test_orchestrator_persistence_keeps_execution_context_and_compacts_reviewed_results(self):
         os.environ["PEXO_NO_BROWSER"] = "1"
         init_db()
         db = SessionLocal()
@@ -3221,7 +3224,10 @@ class HardeningTests(unittest.TestCase):
                 AgentState.session_id == session_id,
                 AgentState.agent_name == "orchestrator",
             ).first()
-            self.assertNotIn("context_snapshot", pre_review_state.data)
+            self.assertIn("context_snapshot", pre_review_state.data)
+            self.assertTrue(pre_review_state.data["context_snapshot"].get("relevant_context_text"))
+            self.assertNotIn("lessons_learned_text", pre_review_state.data["context_snapshot"])
+            self.assertTrue(pre_review_state.data.get("user_profile"))
             self.assertNotIn("available_agents", pre_review_state.data)
             self.assertIn("result", pre_review_state.data["completed_tasks"][0])
 
@@ -3240,12 +3246,50 @@ class HardeningTests(unittest.TestCase):
             ).first()
             completed_entry = reviewed_state.data["completed_tasks"][0]
             reviewed_entry = reviewed_state.data["reviewed_tasks"][0]
-            self.assertNotIn("context_snapshot", reviewed_state.data)
+            self.assertIn("context_snapshot", reviewed_state.data)
+            self.assertTrue(reviewed_state.data["context_snapshot"].get("relevant_context_text"))
+            self.assertTrue(reviewed_state.data.get("user_profile"))
             self.assertNotIn("available_tools", reviewed_state.data)
             self.assertNotIn("result", completed_entry)
             self.assertIn("result_preview", completed_entry)
             self.assertNotIn("review_result", reviewed_entry)
             self.assertIn("review_result_preview", reviewed_entry)
+        finally:
+            db.close()
+
+    def test_execute_plan_preserves_prompt_specific_context_snapshot_after_clarification(self):
+        os.environ["PEXO_NO_BROWSER"] = "1"
+        init_db()
+        db = SessionLocal()
+        try:
+            store_memory(
+                MemoryStoreRequest(
+                    session_id="context-regression",
+                    content="The alpha benchmark requires flat workspace layout and pexo-specific context retention.",
+                    task_context="context-regression",
+                ),
+                background_tasks=BackgroundTasks(),
+                db=db,
+            )
+
+            intake = intake_prompt(
+                PromptRequest(
+                    user_id="default_user",
+                    prompt="Build the alpha benchmark workflow.",
+                ),
+                db,
+            )
+            execute_plan(ExecuteRequest(session_id=intake.session_id, clarification_answer="Use the flat workspace layout."), db)
+
+            db.expire_all()
+            state = db.query(AgentState).filter(
+                AgentState.session_id == intake.session_id,
+                AgentState.agent_name == "orchestrator",
+            ).first()
+            snapshot = state.data.get("context_snapshot") or {}
+
+            self.assertIn("alpha benchmark", snapshot.get("relevant_context_text", "").lower())
+            self.assertTrue(state.data.get("user_profile"))
         finally:
             db.close()
 
