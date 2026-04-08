@@ -51,6 +51,7 @@ from app.mcp_server import (
     pexo_get_artifact,
     pexo_find_artifact,
     pexo_find_memory,
+    pexo_find_memory_batch,
     pexo_get_memory,
     pexo_get_next_task,
     pexo_get_profile,
@@ -4012,6 +4013,81 @@ class HardeningTests(unittest.TestCase):
         resource_text = "\n".join(getattr(item, "text", str(item)) for item in resource_items)
         self.assertIn("`pexo`", resource_text)
         self.assertIn("pexo_recall_context", resource_text)
+
+    def test_mcp_exact_memory_lookup_is_scoped_structured_and_batchable(self):
+        init_db()
+        exact_content = "lookup_key::PEXO_MEMORY_007 value::PEXO_VALUE_007 artifact_token::ARTIFACT_007"
+        pexo_store_memory(exact_content, task_context="exact-lookup", session_id="older-exact-session")
+        pexo_store_memory(exact_content, task_context="exact-lookup", session_id="current-exact-session")
+        pexo_store_memory(exact_content, task_context="exact-lookup", session_id="current-exact-session")
+        pexo_store_memory(
+            "Engineering note unrelated to the exact lookup benchmark.",
+            task_context="engineering-pass",
+            session_id="other-session",
+        )
+
+        lookup = pexo_find_memory(
+            'Find the memory that says "PEXO_MEMORY_007"',
+            session_id="current-exact-session",
+            task_context="exact-lookup",
+        )
+
+        self.assertEqual(lookup["status"], "success")
+        self.assertEqual(lookup["best_match"]["session_id"], "current-exact-session")
+        self.assertEqual(lookup["best_match"]["task_context"], "exact-lookup")
+        self.assertEqual(lookup["best_match"]["lookup_key"], "PEXO_MEMORY_007")
+        self.assertEqual(lookup["best_match"]["value"], "PEXO_VALUE_007")
+        self.assertEqual(lookup["best_match"]["artifact_token"], "ARTIFACT_007")
+        self.assertEqual(lookup["best_match"]["duplicate_count"], 1)
+        self.assertTrue(all(item["session_id"] == "current-exact-session" for item in lookup["results"]))
+        self.assertTrue(all(item["task_context"] == "exact-lookup" for item in lookup["results"]))
+
+        batch = pexo_find_memory_batch(
+            ["PEXO_MEMORY_007", "PEXO_VALUE_007", "MISSING_PEXO_VALUE_007"],
+            session_id="current-exact-session",
+            task_context="exact-lookup",
+        )
+        self.assertEqual(batch["status"], "success")
+        self.assertEqual(batch["items"][0]["best_match"]["value"], "PEXO_VALUE_007")
+        self.assertEqual(batch["items"][1]["best_match"]["lookup_key"], "PEXO_MEMORY_007")
+        self.assertIsNone(batch["items"][2]["best_match"])
+
+    def test_lookup_only_exchange_and_recall_stay_compact_and_scoped(self):
+        init_db()
+        pexo_store_memory(
+            "lookup_key::PEXO_EXCHANGE_001 value::CURRENT_SESSION_VALUE",
+            task_context="exchange-lookup",
+            session_id="exchange-session",
+        )
+        pexo_store_memory(
+            "lookup_key::PEXO_EXCHANGE_001 value::STALE_VALUE",
+            task_context="exchange-lookup",
+            session_id="older-exchange-session",
+        )
+        pexo_register_artifact_text(
+            name="unrelated.txt",
+            content="This artifact should not leak into an exact memory lookup.",
+            session_id="artifact-noise-session",
+            task_context="engineering",
+        )
+
+        exchange_lookup = pexo_exchange(
+            message='Find the memory that says "PEXO_EXCHANGE_001"',
+            session_id="exchange-session",
+            task_context="exchange-lookup",
+        )
+        self.assertEqual(exchange_lookup["status"], "context_ready")
+        self.assertNotIn("brain", exchange_lookup)
+        self.assertEqual(exchange_lookup["memory"]["results"][0]["value"], "CURRENT_SESSION_VALUE")
+        self.assertEqual(exchange_lookup["artifacts"]["results"], [])
+
+        recall_lookup = pexo_recall_context(
+            'Find the memory that says "PEXO_EXCHANGE_001"',
+            session_id="exchange-session",
+            task_context="exchange-lookup",
+        )
+        self.assertEqual(recall_lookup["memory"]["results"][0]["value"], "CURRENT_SESSION_VALUE")
+        self.assertEqual(recall_lookup["artifacts"]["results"], [])
 
     def test_mcp_genesis_tool_lifecycle(self):
         init_db()
