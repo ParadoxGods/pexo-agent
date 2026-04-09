@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException
+from sqlalchemy import func, or_
 
 from mcp.server.fastmcp import FastMCP
 
@@ -268,6 +269,7 @@ def _brain_usage_rules() -> list[str]:
         "Pexo is a local control plane for context, memory, artifacts, preferences, and task state. Prefer 'pexo' as the default one-call surface when it is connected.",
         "When you call 'pexo' with a message, Pexo should gather local context first, keep the current session state, and only escalate to task execution when the request actually needs it.",
         "For exact note, token, key, or file lookups, prefer 'pexo_find_memory' or 'pexo_find_artifact' instead of broad bootstrap surfaces.",
+        "For exact key -> artifact resolution in one turn, prefer 'pexo_resolve_artifact_for_key' instead of manually chaining broad lookups.",
         "For multiple exact note or key lookups in one turn, prefer 'pexo_find_memory_batch'.",
         "When handing a task to another model or client, prefer 'pexo_get_handoff_packet' to summarize the active session.",
         "Reuse the returned 'session_id' to carry context, provide clarification, continue work, or submit agent results.",
@@ -415,9 +417,11 @@ def _compact_memory_result(payload: dict) -> dict:
 
 
 def _compact_artifact_result(payload: dict) -> dict:
-    return {
+    compact = {
         "id": payload.get("id"),
         "name": payload.get("name"),
+        "lookup_token": payload.get("lookup_token"),
+        "canonical_name": payload.get("canonical_name"),
         "session_id": payload.get("session_id"),
         "task_context": payload.get("task_context"),
         "source_type": payload.get("source_type"),
@@ -425,6 +429,52 @@ def _compact_artifact_result(payload: dict) -> dict:
         "preview": _truncate(payload.get("preview"), limit=240),
         "has_text": bool(payload.get("has_text")),
     }
+    fields = {}
+    if payload.get("lookup_token"):
+        fields["lookup_token"] = payload.get("lookup_token")
+    if payload.get("canonical_name"):
+        fields["canonical_name"] = payload.get("canonical_name")
+    if fields:
+        compact["fields"] = fields
+    return compact
+
+
+def _exact_artifact_results(
+    db,
+    *,
+    query: str,
+    limit: int,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> list[dict]:
+    probes = _extract_lookup_probes(query)
+    if not probes:
+        return []
+
+    scoped_task_context = task_context if task_context and task_context != "general" else None
+
+    def fetch(probe_session_id: str | None, probe_task_context: str | None) -> list[dict]:
+        lower_probe_values = [probe.casefold() for probe in probes]
+        artifact_query = db.query(Artifact)
+        if probe_session_id:
+            artifact_query = artifact_query.filter(Artifact.session_id == probe_session_id)
+        if probe_task_context:
+            artifact_query = artifact_query.filter(Artifact.task_context == probe_task_context)
+        artifact_query = artifact_query.filter(
+            or_(
+                func.lower(func.coalesce(Artifact.lookup_token, "")).in_(lower_probe_values),
+                func.lower(func.coalesce(Artifact.canonical_name, "")).in_(lower_probe_values),
+                func.lower(func.coalesce(Artifact.name, "")).in_(lower_probe_values),
+            )
+        )
+        recency_order = func.coalesce(Artifact.updated_at, Artifact.created_at)
+        artifacts = artifact_query.order_by(recency_order.desc(), Artifact.id.desc()).limit(max(1, min(limit, 20))).all()
+        return [serialize_artifact(artifact) for artifact in artifacts]
+
+    exact = fetch(session_id, scoped_task_context)
+    if exact or not (session_id or scoped_task_context):
+        return exact
+    return fetch(None, None)
 
 
 def _select_scoped_results(
@@ -493,6 +543,8 @@ def _score_result_against_query(result: dict, query: str) -> int:
         _normalize_lookup_probe(result.get("preview")),
         _normalize_lookup_probe(result.get("session_id")),
         _normalize_lookup_probe(result.get("task_context")),
+        _normalize_lookup_probe(result.get("lookup_token")),
+        _normalize_lookup_probe(result.get("canonical_name")),
     ]
     haystacks.extend(_normalize_lookup_probe(str(value)) for value in fields.values())
     score = 0
@@ -1618,7 +1670,7 @@ def pexo_find_memory(
     task_context: str | None = None,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Exact/narrow memory lookup surface. Prefer this over bootstrap for specific stored notes, tokens, keys, or values."""
+    """Exact/narrow memory lookup surface. Prefer this over bootstrap for specific stored notes, tokens, keys, or values. Pass both session_id and task_context whenever you know them; omitting scope widens the search and can increase payload size."""
 
     def operation(db):
         payload = search_memory(
@@ -1634,9 +1686,9 @@ def pexo_find_memory(
         results = _compact_memory_lookup_results(
             payload,
             query=query,
-                session_id=session_id,
-                task_context=task_context,
-            )
+            session_id=session_id,
+            task_context=task_context,
+        )
         if not results and (session_id or (task_context and task_context != "general")):
             payload = search_memory(
                 MemorySearchRequest(
@@ -1672,7 +1724,7 @@ def pexo_find_memory_batch(
     task_context: str | None = None,
     auto_promote_vector: bool = False,
 ) -> dict:
-    """Batch exact memory lookup surface. Use this when the user wants multiple exact stored values in one turn."""
+    """Batch exact memory lookup surface. Use this when the user wants multiple exact stored values in one turn. Pass both session_id and task_context whenever you know them; omitting scope widens the search and can increase payload size."""
 
     def operation(db):
         request_queries = [query.strip() for query in queries if (query or "").strip()]
@@ -2041,25 +2093,35 @@ def pexo_find_artifact(
     session_id: str | None = None,
     task_context: str | None = None,
 ) -> dict:
-    """Exact/narrow artifact lookup surface. Prefer this over bootstrap for specific files, paths, or stored artifacts."""
+    """Exact/narrow artifact lookup surface. Prefer this over bootstrap for specific files, tokens, paths, or stored artifacts. Pass both session_id and task_context whenever you know them; omitting scope widens the search and can increase payload size."""
 
     def operation(db):
         scoped_task_context = task_context if task_context and task_context != "general" else None
-        payload = list_artifacts(
-            limit=max(1, min(limit, 20)),
-            query=query,
-            session_id=session_id,
-            task_context=scoped_task_context,
-            db=db,
-        )
-        if not payload.get("artifacts") and (session_id or scoped_task_context):
+        payload = {
+            "artifacts": _exact_artifact_results(
+                db,
+                query=query,
+                limit=max(1, min(limit, 20)),
+                session_id=session_id,
+                task_context=scoped_task_context,
+            )
+        }
+        if not payload.get("artifacts"):
             payload = list_artifacts(
                 limit=max(1, min(limit, 20)),
                 query=query,
-                session_id=None,
-                task_context=None,
+                session_id=session_id,
+                task_context=scoped_task_context,
                 db=db,
             )
+            if not payload.get("artifacts") and (session_id or scoped_task_context):
+                payload = list_artifacts(
+                    limit=max(1, min(limit, 20)),
+                    query=query,
+                    session_id=None,
+                    task_context=None,
+                    db=db,
+                )
         results = _compact_artifact_lookup_results(
             payload,
             query=query,
@@ -2090,7 +2152,7 @@ def pexo_find_artifact_batch(
     session_id: str | None = None,
     task_context: str | None = None,
 ) -> dict:
-    """Batch exact artifact lookup surface. Use this when the user wants multiple exact files or paths in one turn."""
+    """Batch exact artifact lookup surface. Use this when the user wants multiple exact files, tokens, or paths in one turn. Pass both session_id and task_context whenever you know them; omitting scope widens the search and can increase payload size."""
 
     def operation(db):
         request_queries = [query.strip() for query in queries if (query or "").strip()]
@@ -2100,13 +2162,23 @@ def pexo_find_artifact_batch(
         items = []
         for query in request_queries[:20]:
             scoped_task_context = task_context if task_context and task_context != "general" else None
-            payload = list_artifacts(
-                limit=max(1, min(limit_per_query, 20)),
-                query=query,
-                session_id=session_id,
-                task_context=scoped_task_context,
-                db=db,
-            )
+            payload = {
+                "artifacts": _exact_artifact_results(
+                    db,
+                    query=query,
+                    limit=max(1, min(limit_per_query, 20)),
+                    session_id=session_id,
+                    task_context=scoped_task_context,
+                )
+            }
+            if not payload.get("artifacts"):
+                payload = list_artifacts(
+                    limit=max(1, min(limit_per_query, 20)),
+                    query=query,
+                    session_id=session_id,
+                    task_context=scoped_task_context,
+                    db=db,
+                )
             results = _compact_artifact_lookup_results(
                 payload,
                 query=query,
@@ -2141,6 +2213,114 @@ def pexo_find_artifact_batch(
             "user_message": f"Pexo searched artifacts for {len(items)} exact lookup request(s).",
             "queries": request_queries[:20],
             "items": items,
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
+def pexo_resolve_artifact_for_key(
+    key: str,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> dict:
+    """One-call exact key-to-artifact resolver. Use this when a key maps to an artifact token in memory and you want the final artifact basename without manually chaining multiple broad retrieval calls. Pass both session_id and task_context whenever you know them."""
+
+    def operation(db):
+        memory_payload = search_memory(
+            MemorySearchRequest(
+                query=key,
+                n_results=5,
+                session_id=session_id,
+                task_context=task_context,
+                auto_promote_vector=False,
+            ),
+            db,
+        )
+        memory_results = _compact_memory_lookup_results(
+            memory_payload,
+            query=key,
+            session_id=session_id,
+            task_context=task_context,
+        )
+        if not memory_results and (session_id or (task_context and task_context != "general")):
+            memory_payload = search_memory(
+                MemorySearchRequest(
+                    query=key,
+                    n_results=5,
+                    auto_promote_vector=False,
+                ),
+                db,
+            )
+            memory_results = _compact_memory_lookup_results(memory_payload, query=key)
+
+        memory_match = next((item for item in memory_results if item.get("artifact_token")), None)
+        artifact_token = memory_match.get("artifact_token") if memory_match else None
+        artifact_results: list[dict] = []
+        if artifact_token:
+            artifact_payload = {
+                "artifacts": _exact_artifact_results(
+                    db,
+                    query=artifact_token,
+                    limit=5,
+                    session_id=session_id,
+                    task_context=task_context,
+                )
+            }
+            if not artifact_payload.get("artifacts"):
+                scoped_task_context = task_context if task_context and task_context != "general" else None
+                artifact_payload = list_artifacts(
+                    limit=5,
+                    query=artifact_token,
+                    session_id=session_id,
+                    task_context=scoped_task_context,
+                    db=db,
+                )
+                if not artifact_payload.get("artifacts") and (session_id or scoped_task_context):
+                    artifact_payload = list_artifacts(
+                        limit=5,
+                        query=artifact_token,
+                        session_id=None,
+                        task_context=None,
+                        db=db,
+                    )
+            artifact_results = _compact_artifact_lookup_results(
+                artifact_payload,
+                query=artifact_token,
+                session_id=session_id,
+                task_context=task_context,
+            )
+
+        best_artifact = artifact_results[0] if artifact_results else None
+        return {
+            "status": "success",
+            "user_message": f"Pexo resolved artifact context for key '{key}'.",
+            "key": key,
+            "artifact_token": artifact_token,
+            "memory_match": memory_match,
+            "artifact_match": best_artifact,
+            "artifact_results": artifact_results,
+            "metrics": {
+                "memory_exact_hit_count": _build_retrieval_metrics(
+                    key,
+                    memory_results,
+                    session_id=session_id,
+                    task_context=task_context,
+                )["exact_hit_count"],
+                "artifact_exact_hit_count": _build_retrieval_metrics(
+                    artifact_token or "",
+                    artifact_results,
+                    session_id=session_id,
+                    task_context=task_context,
+                )["exact_hit_count"] if artifact_token else 0,
+                "estimated_payload_bytes": _estimated_payload_bytes(
+                    {
+                        "memory_match": memory_match,
+                        "artifact_token": artifact_token,
+                        "artifact_match": best_artifact,
+                    }
+                ),
+            },
         }
 
     return _with_db(operation)

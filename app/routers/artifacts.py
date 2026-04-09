@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -59,6 +60,50 @@ class ArtifactPathRequest(BaseModel):
     session_id: str = "artifact_session"
     task_context: str = "general"
     name: str | None = None
+
+
+def _normalize_artifact_probe(value: str | None) -> str:
+    return " ".join((value or "").strip().split()).strip(" .,:;!?")
+
+
+def _extract_artifact_fields(text: str | None, *, fallback_name: str | None = None) -> dict[str, str]:
+    raw_text = (text or "").strip()
+    fields: dict[str, str] = {}
+    if raw_text:
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip().casefold()
+            value = _normalize_artifact_probe(value)
+            if not value:
+                continue
+            if key == "token" and "lookup_token" not in fields:
+                fields["lookup_token"] = value
+            elif key == "canonical_name" and "canonical_name" not in fields:
+                fields["canonical_name"] = value
+
+        packed_matches = list(
+            re.finditer(
+                r"([A-Za-z][A-Za-z0-9_-]*)::(.*?)(?=(?:\s+[A-Za-z][A-Za-z0-9_-]*::)|$)",
+                raw_text,
+                re.DOTALL,
+            )
+        )
+        for match in packed_matches:
+            key = match.group(1).strip().casefold()
+            value = _normalize_artifact_probe(match.group(2))
+            if not value:
+                continue
+            if key in {"artifact_lookup", "token"} and "lookup_token" not in fields:
+                fields["lookup_token"] = value
+            elif key in {"artifact_name", "canonical_name"} and "canonical_name" not in fields:
+                fields["canonical_name"] = value
+
+    if fallback_name and "canonical_name" not in fields:
+        fields["canonical_name"] = fallback_name
+    return fields
 
 
 def _safe_filename(name: str) -> str:
@@ -124,6 +169,12 @@ def _materialize_artifact_text(artifact: Artifact, db: Session) -> Artifact:
 
     artifact.extracted_text = _extract_text(artifact_path, content_type=artifact.content_type)
     artifact.text_extraction_status = "ready"
+    extracted_fields = _extract_artifact_fields(artifact.extracted_text, fallback_name=artifact.name)
+    details = dict(artifact.details or {})
+    details.update(extracted_fields)
+    artifact.details = details
+    artifact.lookup_token = extracted_fields.get("lookup_token")
+    artifact.canonical_name = extracted_fields.get("canonical_name")
     db.commit()
     db.refresh(artifact)
     upsert_artifact_search_document(
@@ -142,6 +193,8 @@ def serialize_artifact(artifact: Artifact, include_text: bool = False) -> dict:
     payload = {
         "id": artifact.id,
         "name": artifact.name,
+        "lookup_token": artifact.lookup_token,
+        "canonical_name": artifact.canonical_name,
         "source_type": artifact.source_type,
         "source_uri": artifact.source_uri,
         "content_type": artifact.content_type,
@@ -198,8 +251,11 @@ def _persist_artifact(
         return existing
 
     extracted_text, extraction_status = _extract_text_with_status(stored_path, content_type=content_type)
+    extracted_fields = _extract_artifact_fields(extracted_text, fallback_name=name)
     artifact = Artifact(
         name=name,
+        lookup_token=extracted_fields.get("lookup_token"),
+        canonical_name=extracted_fields.get("canonical_name"),
         source_type=source_type,
         source_uri=source_uri,
         content_type=content_type,
@@ -213,6 +269,7 @@ def _persist_artifact(
         details={
             "filename": stored_path.name,
             "suffix": stored_path.suffix.lower(),
+            **extracted_fields,
         },
     )
     db.add(artifact)

@@ -67,6 +67,8 @@ MEMORY_TABLE_MIGRATIONS = {
 
 ARTIFACT_TABLE_MIGRATIONS = {
     "text_extraction_status": "ALTER TABLE artifacts ADD COLUMN text_extraction_status VARCHAR DEFAULT 'ready'",
+    "lookup_token": "ALTER TABLE artifacts ADD COLUMN lookup_token VARCHAR",
+    "canonical_name": "ALTER TABLE artifacts ADD COLUMN canonical_name VARCHAR",
 }
 
 

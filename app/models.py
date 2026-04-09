@@ -68,6 +68,8 @@ class Artifact(Base):
     __tablename__ = "artifacts"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    lookup_token = Column(String, index=True, nullable=True)
+    canonical_name = Column(String, index=True, nullable=True)
     source_type = Column(String, index=True)  # text, upload, local_path
     source_uri = Column(String, nullable=True)
     content_type = Column(String, nullable=True)

@@ -78,6 +78,7 @@ from app.mcp_server import (
     pexo_register_artifact_text,
     pexo_register_tool,
     pexo_promote_runtime,
+    pexo_resolve_artifact_for_key,
     pexo_run_memory_maintenance,
     pexo_start_task,
     pexo_store_memory,
@@ -286,10 +287,10 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(fake_db.added, [tracked])
         mock_sleep.assert_called_once()
 
-    def test_init_db_adds_memory_lifecycle_columns(self):
+    def test_init_db_adds_runtime_lookup_columns(self):
         init_db()
         inspector = inspect(engine)
-        columns = {column["name"] for column in inspector.get_columns("memories")}
+        memory_columns = {column["name"] for column in inspector.get_columns("memories")}
         self.assertTrue(
             {
                 "is_pinned",
@@ -300,8 +301,10 @@ class HardeningTests(unittest.TestCase):
                 "lookup_key",
                 "lookup_value",
                 "artifact_token",
-            }.issubset(columns)
+            }.issubset(memory_columns)
         )
+        artifact_columns = {column["name"] for column in inspector.get_columns("artifacts")}
+        self.assertTrue({"text_extraction_status", "lookup_token", "canonical_name"}.issubset(artifact_columns))
 
     def test_resolve_tool_path_rejects_path_traversal(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -4144,13 +4147,13 @@ class HardeningTests(unittest.TestCase):
         init_db()
         pexo_register_artifact_text(
             name="alpha-note.txt",
-            content="Artifact alpha benchmark body.",
+            content="TOKEN: ALPHA-TOKEN-001\nCANONICAL_NAME: alpha-note.txt\nArtifact alpha benchmark body.",
             session_id="handoff-session",
             task_context="handoff",
         )
         pexo_register_artifact_text(
             name="beta-note.txt",
-            content="Artifact beta benchmark body.",
+            content="TOKEN: BETA-TOKEN-001\nCANONICAL_NAME: beta-note.txt\nArtifact beta benchmark body.",
             session_id="handoff-session",
             task_context="handoff",
         )
@@ -4164,6 +4167,18 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(handoff["task"]["status"], started["status"])
         self.assertGreaterEqual(len(handoff["handoff_summary"]["recent_activity"]), 1)
 
+        exact = pexo_find_artifact(
+            "ALPHA-TOKEN-001",
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        self.assertEqual(exact["status"], "success")
+        self.assertEqual(exact["best_match"]["name"], "alpha-note.txt")
+        self.assertEqual(exact["best_match"]["lookup_token"], "ALPHA-TOKEN-001")
+        self.assertEqual(exact["best_match"]["canonical_name"], "alpha-note.txt")
+        self.assertGreaterEqual(exact["metrics"]["exact_hit_count"], 1)
+        self.assertTrue(exact["metrics"]["used_scope"])
+
         batch = pexo_find_artifact_batch(
             ["alpha-note", "beta-note"],
             session_id="handoff-session",
@@ -4173,6 +4188,28 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(batch["items"][0]["best_match"]["name"], "alpha-note.txt")
         self.assertEqual(batch["items"][1]["best_match"]["name"], "beta-note.txt")
         self.assertTrue(batch["items"][0]["metrics"]["used_scope"])
+
+        token_batch = pexo_find_artifact_batch(
+            ["ALPHA-TOKEN-001", "BETA-TOKEN-001"],
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        self.assertEqual(token_batch["items"][0]["best_match"]["name"], "alpha-note.txt")
+        self.assertEqual(token_batch["items"][1]["best_match"]["name"], "beta-note.txt")
+
+        pexo_store_memory(
+            "lookup_key::ALPHA_KEY_001 value::ready artifact_token::ALPHA-TOKEN-001",
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        resolved = pexo_resolve_artifact_for_key(
+            "ALPHA_KEY_001",
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        self.assertEqual(resolved["status"], "success")
+        self.assertEqual(resolved["artifact_token"], "ALPHA-TOKEN-001")
+        self.assertEqual(resolved["artifact_match"]["name"], "alpha-note.txt")
 
     def test_mcp_genesis_tool_lifecycle(self):
         init_db()
