@@ -53,6 +53,10 @@ class Memory(Base):
     # This table now acts as the relational metadata map for the vector store.
     chroma_id = Column(String, index=True) 
     task_context = Column(String, index=True) # Tracks which task/agent created this memory
+    memory_fields = Column(JSON, nullable=True)
+    lookup_key = Column(String, index=True, nullable=True)
+    lookup_value = Column(String, index=True, nullable=True)
+    artifact_token = Column(String, index=True, nullable=True)
     is_compacted = Column(Boolean, default=False) # True if this memory is a high-level summary/compaction
     is_pinned = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)

@@ -88,6 +88,10 @@ def serialize_memory(memory: Memory) -> dict:
         "session_id": memory.session_id,
         "content": memory.content,
         "task_context": memory.task_context,
+        "memory_fields": memory.memory_fields or {},
+        "lookup_key": memory.lookup_key,
+        "lookup_value": memory.lookup_value,
+        "artifact_token": memory.artifact_token,
         "chroma_id": memory.chroma_id,
         "is_compacted": bool(memory.is_compacted),
         "is_pinned": bool(memory.is_pinned),
@@ -167,6 +171,10 @@ def _format_memory_search_results(memories: list[Memory], *, distance_by_id: dic
             {
                 "memory_id": memory.id,
                 "content": memory.content,
+                "memory_fields": memory.memory_fields or {},
+                "lookup_key": memory.lookup_key,
+                "lookup_value": memory.lookup_value,
+                "artifact_token": memory.artifact_token,
                 "metadata": (metadata_by_id or {}).get(memory.id) or {
                     "session_id": memory.session_id,
                     "task_context": memory.task_context,
@@ -242,6 +250,43 @@ def _extract_memory_query_probes(query: str) -> list[str]:
     return probes
 
 
+def _normalize_memory_field_value(value: str | None) -> str:
+    return " ".join((value or "").strip().split()).strip(" .,:;!?")
+
+
+def extract_memory_fields(content: str | None) -> dict[str, str]:
+    text = (content or "").strip()
+    if "::" not in text:
+        return {}
+
+    matches = list(
+        re.finditer(
+            r"([A-Za-z][A-Za-z0-9_-]*)::(.*?)(?=(?:\s+[A-Za-z][A-Za-z0-9_-]*::)|$)",
+            text,
+            re.DOTALL,
+        )
+    )
+    if not matches:
+        return {}
+
+    fields: dict[str, str] = {}
+    for match in matches:
+        key = match.group(1).strip()
+        value = _normalize_memory_field_value(match.group(2))
+        if not key or not value:
+            continue
+        fields[key] = value
+    return fields
+
+
+def _sync_memory_structured_fields(memory: Memory) -> None:
+    fields = extract_memory_fields(memory.content)
+    memory.memory_fields = fields or None
+    memory.lookup_key = fields.get("lookup_key") if fields else None
+    memory.lookup_value = fields.get("value") if fields else None
+    memory.artifact_token = fields.get("artifact_token") if fields else None
+
+
 def _search_exact_memory_matches(request: "MemorySearchRequest", db: Session) -> dict | None:
     probes = _extract_memory_query_probes(request.query)
     if not probes:
@@ -250,17 +295,37 @@ def _search_exact_memory_matches(request: "MemorySearchRequest", db: Session) ->
     recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
     scored_matches: list[tuple[int, datetime | None, Memory]] = []
     seen_ids: set[int] = set()
+    scoped_task_context = request.task_context if request.task_context and request.task_context != "general" else None
+
+    def scoped_query():
+        query = db.query(Memory).filter(Memory.is_archived.is_(False))
+        if request.session_id:
+            query = query.filter(Memory.session_id == request.session_id)
+        if scoped_task_context:
+            query = query.filter(Memory.task_context == scoped_task_context)
+        return query
 
     for probe in probes[:6]:
         pattern = f"%{probe.lower()}%"
         candidates = (
-            db.query(Memory)
-            .filter(Memory.is_archived.is_(False))
-            .filter(func.lower(Memory.content).like(pattern))
+            scoped_query()
+            .filter(
+                (func.lower(Memory.lookup_key) == probe.lower())
+                | (func.lower(Memory.lookup_value) == probe.lower())
+                | (func.lower(Memory.artifact_token) == probe.lower())
+            )
             .order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc())
             .limit(max(5, min(request.n_results * 4, 40)))
             .all()
         )
+        if not candidates:
+            candidates = (
+                scoped_query()
+                .filter(func.lower(Memory.content).like(pattern))
+                .order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc())
+                .limit(max(5, min(request.n_results * 4, 40)))
+                .all()
+            )
         for memory in candidates:
             if memory.id in seen_ids:
                 continue
@@ -269,6 +334,12 @@ def _search_exact_memory_matches(request: "MemorySearchRequest", db: Session) ->
             content_folded = content.casefold()
             probe_folded = probe.casefold()
             score = 30 if content_folded == probe_folded else 20
+            if probe_folded == (memory.lookup_key or "").casefold():
+                score += 20
+            if probe_folded == (memory.lookup_value or "").casefold():
+                score += 18
+            if probe_folded == (memory.artifact_token or "").casefold():
+                score += 18
             if probe_folded in content_folded:
                 score += 5
             if memory.is_pinned:
@@ -745,6 +816,8 @@ class MemoryStoreRequest(BaseModel):
 class MemorySearchRequest(BaseModel):
     query: str
     n_results: int = 3
+    session_id: str | None = None
+    task_context: str | None = None
     auto_promote_vector: bool = False
 
 
@@ -788,6 +861,7 @@ def store_memory_record(
             content=request.content,
             task_context=request.task_context,
         )
+        _sync_memory_structured_fields(new_memory)
         db.add(new_memory)
         db.flush()
 
@@ -885,10 +959,15 @@ def search_memory(request: MemorySearchRequest, db: Session = Depends(get_db)):
         matched_records: list[Memory] = []
         distance_by_id: dict[int, float | None] = {}
         metadata_by_id: dict[int, dict] = {}
+        scoped_task_context = request.task_context if request.task_context and request.task_context != "general" else None
         for index, document in enumerate(documents[0]):
             chroma_id = chroma_ids[index] if index < len(chroma_ids) else None
             memory_record = memory_map.get(chroma_id)
             if memory_record is None:
+                continue
+            if request.session_id and memory_record.session_id != request.session_id:
+                continue
+            if scoped_task_context and memory_record.task_context != scoped_task_context:
                 continue
             memory_record.content = document
             matched_records.append(memory_record)
@@ -970,6 +1049,7 @@ def update_memory(memory_id: int, request: MemoryUpdateRequest, db: Session = De
             memory.is_pinned = request.is_pinned
         if request.is_archived is not None:
             memory.is_archived = request.is_archived
+        _sync_memory_structured_fields(memory)
 
         try:
             if memory.is_archived:
@@ -1023,3 +1103,22 @@ def delete_memory(memory_id: int, db: Session = Depends(get_db)):
     finally:
         if owns_db:
             db.close()
+
+
+def build_memory_handoff_packet(
+    db: Session,
+    *,
+    session_id: str | None = None,
+    task_context: str | None = None,
+    limit: int = 5,
+) -> dict:
+    safe_limit = max(1, min(limit, 20))
+    scoped_task_context = task_context if task_context and task_context != "general" else None
+    query = db.query(Memory).filter(Memory.is_archived.is_(False))
+    if session_id:
+        query = query.filter(Memory.session_id == session_id)
+    if scoped_task_context:
+        query = query.filter(Memory.task_context == scoped_task_context)
+    recency_order = func.coalesce(Memory.updated_at, Memory.created_at)
+    memories = query.order_by(Memory.is_pinned.desc(), recency_order.desc(), Memory.id.desc()).limit(safe_limit).all()
+    return {"memories": [serialize_memory(memory) for memory in memories]}

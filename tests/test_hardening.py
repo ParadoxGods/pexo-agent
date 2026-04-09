@@ -50,8 +50,10 @@ from app.mcp_server import (
     pexo_get_admin_snapshot,
     pexo_get_artifact,
     pexo_find_artifact,
+    pexo_find_artifact_batch,
     pexo_find_memory,
     pexo_find_memory_batch,
+    pexo_get_handoff_packet,
     pexo_get_memory,
     pexo_get_next_task,
     pexo_get_profile,
@@ -115,7 +117,9 @@ from app.routers.memory import (
     MemorySearchRequest,
     MemoryStoreRequest,
     MemoryUpdateRequest,
+    extract_memory_fields,
     delete_memory,
+    build_memory_handoff_packet,
     get_memory,
     list_recent_memories,
     maintain_memory_health,
@@ -286,7 +290,18 @@ class HardeningTests(unittest.TestCase):
         init_db()
         inspector = inspect(engine)
         columns = {column["name"] for column in inspector.get_columns("memories")}
-        self.assertTrue({"is_pinned", "is_archived", "compacted_into_id", "updated_at"}.issubset(columns))
+        self.assertTrue(
+            {
+                "is_pinned",
+                "is_archived",
+                "compacted_into_id",
+                "updated_at",
+                "memory_fields",
+                "lookup_key",
+                "lookup_value",
+                "artifact_token",
+            }.issubset(columns)
+        )
 
     def test_resolve_tool_path_rejects_path_traversal(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -4051,6 +4066,40 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(batch["items"][0]["best_match"]["value"], "PEXO_VALUE_007")
         self.assertEqual(batch["items"][1]["best_match"]["lookup_key"], "PEXO_MEMORY_007")
         self.assertIsNone(batch["items"][2]["best_match"])
+        self.assertGreater(batch["items"][0]["metrics"]["exact_hit_count"], 0)
+        self.assertTrue(batch["items"][0]["metrics"]["used_scope"])
+
+    def test_memory_store_persists_structured_fields_and_search_can_use_scope(self):
+        init_db()
+        stored = pexo_store_memory(
+            "lookup_key::KEY_SCOPE_1 value::VALUE_SCOPE_1 artifact_token::TOKEN_SCOPE_1",
+            task_context="scope-a",
+            session_id="session-a",
+        )
+        memory_payload = pexo_get_memory(stored["memory_id"])
+        self.assertEqual(memory_payload["lookup_key"], "KEY_SCOPE_1")
+        self.assertEqual(memory_payload["lookup_value"], "VALUE_SCOPE_1")
+        self.assertEqual(memory_payload["artifact_token"], "TOKEN_SCOPE_1")
+        self.assertEqual(memory_payload["memory_fields"]["lookup_key"], "KEY_SCOPE_1")
+
+        init_db()
+        db = SessionLocal()
+        try:
+            packet = build_memory_handoff_packet(db, session_id="session-a", task_context="scope-a", limit=3)
+            self.assertEqual(packet["memories"][0]["lookup_key"], "KEY_SCOPE_1")
+
+            scoped = memory_router.search_memory(
+                MemorySearchRequest(
+                    query="KEY_SCOPE_1",
+                    n_results=3,
+                    session_id="session-a",
+                    task_context="scope-a",
+                ),
+                db,
+            )
+            self.assertEqual(scoped["results"][0]["lookup_key"], "KEY_SCOPE_1")
+        finally:
+            db.close()
 
     def test_lookup_only_exchange_and_recall_stay_compact_and_scoped(self):
         init_db()
@@ -4088,6 +4137,42 @@ class HardeningTests(unittest.TestCase):
         )
         self.assertEqual(recall_lookup["memory"]["results"][0]["value"], "CURRENT_SESSION_VALUE")
         self.assertEqual(recall_lookup["artifacts"]["results"], [])
+        self.assertGreaterEqual(recall_lookup["memory"]["metrics"]["exact_hit_count"], 1)
+        self.assertTrue(recall_lookup["memory"]["metrics"]["used_scope"])
+
+    def test_mcp_exact_artifact_batch_lookup_and_handoff_packet(self):
+        init_db()
+        pexo_register_artifact_text(
+            name="alpha-note.txt",
+            content="Artifact alpha benchmark body.",
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        pexo_register_artifact_text(
+            name="beta-note.txt",
+            content="Artifact beta benchmark body.",
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        started = pexo_start_task(
+            "Review this repo and store the top issues in memory.",
+            session_id="handoff-session",
+        )
+        handoff = pexo_get_handoff_packet("handoff-session", task_context="handoff")
+        self.assertEqual(handoff["status"], "success")
+        self.assertEqual(handoff["session_id"], "handoff-session")
+        self.assertEqual(handoff["task"]["status"], started["status"])
+        self.assertGreaterEqual(len(handoff["handoff_summary"]["recent_activity"]), 1)
+
+        batch = pexo_find_artifact_batch(
+            ["alpha-note", "beta-note"],
+            session_id="handoff-session",
+            task_context="handoff",
+        )
+        self.assertEqual(batch["status"], "success")
+        self.assertEqual(batch["items"][0]["best_match"]["name"], "alpha-note.txt")
+        self.assertEqual(batch["items"][1]["best_match"]["name"], "beta-note.txt")
+        self.assertTrue(batch["items"][0]["metrics"]["used_scope"])
 
     def test_mcp_genesis_tool_lifecycle(self):
         init_db()

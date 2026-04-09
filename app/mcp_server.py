@@ -34,6 +34,7 @@ from .routers.memory import (
     MemorySearchRequest,
     MemoryStoreRequest,
     MemoryUpdateRequest,
+    build_memory_handoff_packet,
     delete_memory,
     get_memory,
     list_recent_memories,
@@ -167,6 +168,94 @@ def _get_session_activity(db, session_id: str, limit: int = 50) -> list[dict]:
     return [serialize_agent_state(state) for state in states]
 
 
+def _summarize_handoff_activity(activity: list[dict], limit: int = 6) -> list[dict]:
+    summarized = []
+    for item in activity[: max(1, min(limit, 20))]:
+        summarized.append(
+            {
+                "agent_name": item.get("agent_name"),
+                "status": item.get("status"),
+                "task_id": item.get("task_id"),
+                "task_description": _truncate(item.get("task_description"), 140),
+                "output_preview": _truncate(item.get("output_preview"), 160),
+                "created_at": item.get("created_at"),
+            }
+        )
+    return summarized
+
+
+def _build_handoff_packet(
+    db,
+    *,
+    session_id: str,
+    task_context: str | None = None,
+    memory_limit: int = 5,
+    artifact_limit: int = 5,
+) -> dict:
+    task_status = get_simple_task_status(session_id=session_id, db=db)
+    activity = _get_session_activity(db, session_id=session_id, limit=20)
+    memory_packet = build_memory_handoff_packet(
+        db,
+        session_id=session_id,
+        task_context=task_context,
+        limit=memory_limit,
+    )
+    scoped_task_context = task_context if task_context and task_context != "general" else None
+    artifact_payload = list_artifacts(
+        limit=max(1, min(artifact_limit, 20)),
+        query=None,
+        session_id=session_id,
+        task_context=scoped_task_context,
+        db=db,
+    )
+    artifacts = _compact_artifact_lookup_results(
+        artifact_payload,
+        query=session_id,
+        session_id=session_id,
+        task_context=task_context,
+    )
+    key_memories = [_compact_memory_result(memory) for memory in memory_packet.get("memories", [])]
+    next_action = task_status.get("next_action") or "reply_to_user"
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "task_context": task_context,
+        "task": {
+            "status": task_status.get("status"),
+            "role": task_status.get("role"),
+            "user_message": task_status.get("user_message"),
+            "question": task_status.get("question"),
+            "instruction": task_status.get("instruction"),
+            "agent_instruction": task_status.get("agent_instruction"),
+            "final_response": task_status.get("final_response"),
+            "next_action": next_action,
+        },
+        "handoff_summary": {
+            "recent_activity": _summarize_handoff_activity(activity),
+            "key_memories": key_memories,
+            "artifacts": artifacts,
+        },
+        "user_message": (
+            "Pexo built a handoff packet for the next client."
+            if activity or key_memories or artifacts
+            else "Pexo found little prior session state, but built a minimal handoff packet."
+        ),
+        "metrics": {
+            "memory_count": len(key_memories),
+            "artifact_count": len(artifacts),
+            "activity_count": len(activity),
+            "estimated_payload_bytes": _estimated_payload_bytes(
+                {
+                    "task": task_status,
+                    "recent_activity": activity[:6],
+                    "key_memories": key_memories,
+                    "artifacts": artifacts,
+                }
+            ),
+        },
+    }
+
+
 def _require_artifact(db, artifact_id: int) -> Artifact:
     artifact = db.query(Artifact).filter(Artifact.id == artifact_id).first()
     if artifact is None:
@@ -180,6 +269,7 @@ def _brain_usage_rules() -> list[str]:
         "When you call 'pexo' with a message, Pexo should gather local context first, keep the current session state, and only escalate to task execution when the request actually needs it.",
         "For exact note, token, key, or file lookups, prefer 'pexo_find_memory' or 'pexo_find_artifact' instead of broad bootstrap surfaces.",
         "For multiple exact note or key lookups in one turn, prefer 'pexo_find_memory_batch'.",
+        "When handing a task to another model or client, prefer 'pexo_get_handoff_packet' to summarize the active session.",
         "Reuse the returned 'session_id' to carry context, provide clarification, continue work, or submit agent results.",
         "Prefer 'user_message' for anything shown to the user. Keep internal routing or agent instructions hidden unless the user asks for them.",
         "Store stable decisions and accepted preferences in Pexo so future clients can continue without the user repeating context.",
@@ -435,6 +525,37 @@ def _rank_results(results: list[dict], *, query: str) -> list[dict]:
     )
 
 
+def _estimated_payload_bytes(payload: Any) -> int:
+    return len(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+
+
+def _build_retrieval_metrics(
+    query: str,
+    results: list[dict],
+    *,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> dict:
+    scoped_task_context = task_context if task_context and task_context != "general" else None
+    duplicate_count = sum(int(item.get("duplicate_count", 0)) for item in results)
+    exact_hit_count = sum(1 for item in results if _score_result_against_query(item, query) >= 50)
+    scoped_hit_count = sum(
+        1
+        for item in results
+        if (not session_id or item.get("session_id") == session_id)
+        and (not scoped_task_context or item.get("task_context") == scoped_task_context)
+    )
+    return {
+        "query_probe_count": len(_extract_lookup_probes(query)),
+        "result_count": len(results),
+        "duplicate_count": duplicate_count,
+        "exact_hit_count": exact_hit_count,
+        "scoped_hit_count": scoped_hit_count,
+        "used_scope": bool(session_id or scoped_task_context),
+        "estimated_payload_bytes": _estimated_payload_bytes(results),
+    }
+
+
 def _compact_memory_lookup_results(
     payload: dict,
     *,
@@ -524,6 +645,8 @@ def _build_compact_lookup_payload(
             MemorySearchRequest(
                 query=query,
                 n_results=max(1, min(memory_results, 10)),
+                session_id=session_id,
+                task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
             db,
@@ -531,6 +654,15 @@ def _build_compact_lookup_payload(
         if include_memory
         else {"results": []}
     )
+    if include_memory and not memory_payload.get("results") and (session_id or (task_context and task_context != "general")):
+        memory_payload = search_memory(
+            MemorySearchRequest(
+                query=query,
+                n_results=max(1, min(memory_results, 10)),
+                auto_promote_vector=auto_promote_vector,
+            ),
+            db,
+        )
     artifact_payload = {"artifacts": []}
     if include_artifacts:
         scoped_task_context = task_context if task_context and task_context != "general" else None
@@ -549,21 +681,35 @@ def _build_compact_lookup_payload(
                 task_context=None,
                 db=db,
             )
+    memory_results_payload = _compact_memory_lookup_results(
+        memory_payload,
+        query=query,
+        session_id=session_id,
+        task_context=task_context,
+    )
+    artifact_results_payload = _compact_artifact_lookup_results(
+        artifact_payload,
+        query=query,
+        session_id=session_id,
+        task_context=task_context,
+    )
     return {
         "memory": {
             "query": query,
-            "results": _compact_memory_lookup_results(
-                memory_payload,
-                query=query,
+            "results": memory_results_payload,
+            "metrics": _build_retrieval_metrics(
+                query,
+                memory_results_payload,
                 session_id=session_id,
                 task_context=task_context,
             ),
         },
         "artifacts": {
             "query": query,
-            "results": _compact_artifact_lookup_results(
-                artifact_payload,
-                query=query,
+            "results": artifact_results_payload,
+            "metrics": _build_retrieval_metrics(
+                query,
+                artifact_results_payload,
                 session_id=session_id,
                 task_context=task_context,
             ),
@@ -1024,7 +1170,8 @@ def pexo_brain_guide_resource() -> str:
         "4. Use `user_message` for user-facing replies.\n"
         "5. Keep `agent_instruction` internal unless the user explicitly asks for orchestration details.\n"
         "6. Use `pexo_recall_context` before asking the user to repeat context when you need broader local recall.\n"
-        "7. Persist useful notes with `pexo_remember_context` and files with `pexo_attach_context`, or fold them into `pexo`.\n\n"
+        "7. Use `pexo_get_handoff_packet` when another client needs to continue a live session.\n"
+        "8. Persist useful notes with `pexo_remember_context` and files with `pexo_attach_context`, or fold them into `pexo`.\n\n"
         "## Rules\n\n"
         f"{rules}\n"
     )
@@ -1478,6 +1625,8 @@ def pexo_find_memory(
             MemorySearchRequest(
                 query=query,
                 n_results=max(1, min(limit, 10)),
+                session_id=session_id,
+                task_context=task_context,
                 auto_promote_vector=auto_promote_vector,
             ),
             db,
@@ -1485,15 +1634,31 @@ def pexo_find_memory(
         results = _compact_memory_lookup_results(
             payload,
             query=query,
-            session_id=session_id,
-            task_context=task_context,
-        )
+                session_id=session_id,
+                task_context=task_context,
+            )
+        if not results and (session_id or (task_context and task_context != "general")):
+            payload = search_memory(
+                MemorySearchRequest(
+                    query=query,
+                    n_results=max(1, min(limit, 10)),
+                    auto_promote_vector=auto_promote_vector,
+                ),
+                db,
+            )
+            results = _compact_memory_lookup_results(payload, query=query)
         return {
             "status": "success",
             "user_message": f"Pexo searched memory for '{query}'.",
             "query": query,
             "results": results,
             "best_match": results[0] if results else None,
+            "metrics": _build_retrieval_metrics(
+                query,
+                results,
+                session_id=session_id,
+                task_context=task_context,
+            ),
         }
 
     return _with_db(operation)
@@ -1519,6 +1684,8 @@ def pexo_find_memory_batch(
                 MemorySearchRequest(
                     query=query,
                     n_results=max(1, min(limit_per_query, 10)),
+                    session_id=session_id,
+                    task_context=task_context,
                     auto_promote_vector=auto_promote_vector,
                 ),
                 db,
@@ -1529,11 +1696,27 @@ def pexo_find_memory_batch(
                 session_id=session_id,
                 task_context=task_context,
             )
+            if not results and (session_id or (task_context and task_context != "general")):
+                payload = search_memory(
+                    MemorySearchRequest(
+                        query=query,
+                        n_results=max(1, min(limit_per_query, 10)),
+                        auto_promote_vector=auto_promote_vector,
+                    ),
+                    db,
+                )
+                results = _compact_memory_lookup_results(payload, query=query)
             items.append(
                 {
                     "query": query,
                     "results": results,
                     "best_match": results[0] if results else None,
+                    "metrics": _build_retrieval_metrics(
+                        query,
+                        results,
+                        session_id=session_id,
+                        task_context=task_context,
+                    ),
                 }
             )
         return {
@@ -1721,6 +1904,25 @@ def pexo_get_session_activity(session_id: str, limit: int = 50) -> list[dict]:
 
 
 @mcp.tool()
+def pexo_get_handoff_packet(
+    session_id: str,
+    task_context: str | None = None,
+    memory_limit: int = 5,
+    artifact_limit: int = 5,
+) -> dict:
+    """Builds a compact packet for handing an active session to another model or client."""
+    return _with_db(
+        lambda db: _build_handoff_packet(
+            db,
+            session_id=session_id,
+            task_context=task_context,
+            memory_limit=memory_limit,
+            artifact_limit=artifact_limit,
+        )
+    )
+
+
+@mcp.tool()
 def pexo_intake_prompt(prompt: str, user_id: str = "default_user", session_id: str | None = None) -> dict:
     """Starts the one-ask orchestration loop and returns the clarification question."""
     return _with_db(lambda db: intake_prompt(PromptRequest(user_id=user_id, prompt=prompt, session_id=session_id), db).model_dump())
@@ -1870,6 +2072,75 @@ def pexo_find_artifact(
             "query": query,
             "results": results,
             "best_match": results[0] if results else None,
+            "metrics": _build_retrieval_metrics(
+                query,
+                results,
+                session_id=session_id,
+                task_context=task_context,
+            ),
+        }
+
+    return _with_db(operation)
+
+
+@mcp.tool()
+def pexo_find_artifact_batch(
+    queries: list[str],
+    limit_per_query: int = 1,
+    session_id: str | None = None,
+    task_context: str | None = None,
+) -> dict:
+    """Batch exact artifact lookup surface. Use this when the user wants multiple exact files or paths in one turn."""
+
+    def operation(db):
+        request_queries = [query.strip() for query in queries if (query or "").strip()]
+        if not request_queries:
+            raise ValueError("Provide at least one non-empty query.")
+
+        items = []
+        for query in request_queries[:20]:
+            scoped_task_context = task_context if task_context and task_context != "general" else None
+            payload = list_artifacts(
+                limit=max(1, min(limit_per_query, 20)),
+                query=query,
+                session_id=session_id,
+                task_context=scoped_task_context,
+                db=db,
+            )
+            results = _compact_artifact_lookup_results(
+                payload,
+                query=query,
+                session_id=session_id,
+                task_context=task_context,
+            )
+            if not results and (session_id or scoped_task_context):
+                payload = list_artifacts(
+                    limit=max(1, min(limit_per_query, 20)),
+                    query=query,
+                    session_id=None,
+                    task_context=None,
+                    db=db,
+                )
+                results = _compact_artifact_lookup_results(payload, query=query)
+            items.append(
+                {
+                    "query": query,
+                    "results": results,
+                    "best_match": results[0] if results else None,
+                    "metrics": _build_retrieval_metrics(
+                        query,
+                        results,
+                        session_id=session_id,
+                        task_context=task_context,
+                    ),
+                }
+            )
+
+        return {
+            "status": "success",
+            "user_message": f"Pexo searched artifacts for {len(items)} exact lookup request(s).",
+            "queries": request_queries[:20],
+            "items": items,
         }
 
     return _with_db(operation)

@@ -59,6 +59,10 @@ MEMORY_TABLE_MIGRATIONS = {
     "is_archived": "ALTER TABLE memories ADD COLUMN is_archived BOOLEAN DEFAULT 0",
     "compacted_into_id": "ALTER TABLE memories ADD COLUMN compacted_into_id INTEGER",
     "updated_at": "ALTER TABLE memories ADD COLUMN updated_at DATETIME",
+    "memory_fields": "ALTER TABLE memories ADD COLUMN memory_fields JSON",
+    "lookup_key": "ALTER TABLE memories ADD COLUMN lookup_key VARCHAR",
+    "lookup_value": "ALTER TABLE memories ADD COLUMN lookup_value VARCHAR",
+    "artifact_token": "ALTER TABLE memories ADD COLUMN artifact_token VARCHAR",
 }
 
 ARTIFACT_TABLE_MIGRATIONS = {
